@@ -8,7 +8,7 @@ import path from 'path';
 const DEFAULT_OPENCLAW_VERSION = '2026.2.23';
 const DEFAULT_GATEWAY_PORT = 18789;
 const GATEWAY_PORT_SCAN_LIMIT = 80;
-const GATEWAY_BOOT_TIMEOUT_MS = 30 * 1000;
+const GATEWAY_BOOT_TIMEOUT_MS = 120 * 1000;
 const GATEWAY_RESTART_DELAY_MS = 3000;
 
 export type OpenClawEnginePhase =
@@ -344,10 +344,11 @@ export class OpenClawEngineManager extends EventEmitter {
       OPENCLAW_ENGINE_VERSION: runtime.version || DEFAULT_OPENCLAW_VERSION,
     };
 
-    console.log(`[OpenClaw] forking gateway: entry=${openclawEntry}, cwd=${runtime.root}, port=${port}`);
+    const forkArgs = ['gateway', '--bind', 'loopback', '--port', String(port), '--token', token];
+    console.log(`[OpenClaw] forking gateway: entry=${openclawEntry}, cwd=${runtime.root}, port=${port}, args=${JSON.stringify(forkArgs)}`);
     const child = utilityProcess.fork(
       openclawEntry,
-      ['gateway', '--bind', 'loopback', '--port', String(port), '--token', token],
+      forkArgs,
       {
         cwd: runtime.root,
         env,
@@ -356,10 +357,14 @@ export class OpenClawEngineManager extends EventEmitter {
       },
     );
 
-    console.log(`[OpenClaw] fork returned, pid=${child.pid}`);
     this.gatewayProcess = child;
     this.attachGatewayProcessLogs(child);
     this.attachGatewayExitHandlers(child);
+
+    // Wait for the spawn event to confirm the process started (pid becomes available).
+    child.once('spawn', () => {
+      console.log(`[OpenClaw] gateway process spawned, pid=${child.pid}`);
+    });
 
     const ready = await this.waitForGatewayReady(port, GATEWAY_BOOT_TIMEOUT_MS);
     if (!ready) {
@@ -534,12 +539,54 @@ export class OpenClawEngineManager extends EventEmitter {
       `const { pathToFileURL } = require('node:url');\n` +
       `const path = require('node:path');\n` +
       `const esmEntry = path.join(__dirname, '${esmBasename}');\n` +
-      `// Patch argv[1] so openclaw's isMainModule() recognizes this as the main entry.\n` +
-      `process.argv[1] = esmEntry;\n` +
-      `import(pathToFileURL(esmEntry).href).catch(err => {\n` +
-      `  process.stderr.write('[openclaw-launcher] ' + (err.stack || err) + '\\n');\n` +
-      `  process.exit(1);\n` +
-      `});\n`;
+      `// Patch argv so openclaw's isMainModule() recognizes this as the main entry.\n` +
+      `// In standard Node.js: process.argv = [execPath, scriptPath, ...args]\n` +
+      `// In Electron utilityProcess: process.argv = [execPath, ...args] (no scriptPath)\n` +
+      `// We must detect which layout we have to avoid overwriting the 'gateway' command arg.\n` +
+      `const _launcherInArgv = process.argv[1] &&\n` +
+      `  path.resolve(process.argv[1]).toLowerCase() === path.resolve(__filename).toLowerCase();\n` +
+      `if (_launcherInArgv) {\n` +
+      `  process.argv[1] = esmEntry;\n` +
+      `} else {\n` +
+      `  process.argv.splice(1, 0, esmEntry);\n` +
+      `}\n` +
+      `process.stderr.write('[openclaw-launcher] argv=' + JSON.stringify(process.argv) + '\\n');\n` +
+      `process.stderr.write('[openclaw-launcher] node=' + process.versions.node + '\\n');\n` +
+      `// Keep the event loop alive while openclaw's fire-and-forget import chain\n` +
+      `// loads its full module graph and starts the gateway server. Without this,\n` +
+      `// Electron's utilityProcess exits before the async work completes.\n` +
+      `const _keepAlive = setInterval(() => {}, 30000);\n` +
+      `const t0 = Date.now();\n` +
+      `// Strategy: Use synchronous require(esm) (Node.js 22.12+) for much faster loading.\n` +
+      `// Dynamic import() in Electron's utilityProcess is extremely slow (~78s for 855 files).\n` +
+      `// Synchronous require() avoids the async ESM resolver overhead.\n` +
+      `let loaded = false;\n` +
+      `try {\n` +
+      `  try {\n` +
+      `    const wf = require('./dist/warning-filter.js');\n` +
+      `    if (typeof wf.installProcessWarningFilter === 'function') {\n` +
+      `      wf.installProcessWarningFilter();\n` +
+      `    }\n` +
+      `  } catch (_) {}\n` +
+      `  require('./dist/entry.js');\n` +
+      `  loaded = true;\n` +
+      `  process.stderr.write('[openclaw-launcher] require(entry.js) ok (' + (Date.now() - t0) + 'ms)\\n');\n` +
+      `} catch (err) {\n` +
+      `  process.stderr.write('[openclaw-launcher] require(entry.js) failed (' + (Date.now() - t0) + 'ms): ' + err.message + '\\n');\n` +
+      `}\n` +
+      `if (!loaded) {\n` +
+      `  (async () => {\n` +
+      `    try {\n` +
+      `      const importUrl = pathToFileURL(esmEntry).href;\n` +
+      `      process.stderr.write('[openclaw-launcher] falling back to import(): ' + importUrl + '\\n');\n` +
+      `      await import(importUrl);\n` +
+      `      process.stderr.write('[openclaw-launcher] import() ok (' + (Date.now() - t0) + 'ms)\\n');\n` +
+      `    } catch (err) {\n` +
+      `      process.stderr.write('[openclaw-launcher] ERROR (' + (Date.now() - t0) + 'ms): ' + (err.stack || err) + '\\n');\n` +
+      `      process.exit(1);\n` +
+      `    }\n` +
+      `  })();\n` +
+      `}\n`;
 
     try {
       const existing = fs.existsSync(launcherPath) ? fs.readFileSync(launcherPath, 'utf8') : '';
@@ -710,22 +757,26 @@ export class OpenClawEngineManager extends EventEmitter {
     return new Promise((resolve) => {
       const tick = async () => {
         if (this.shutdownRequested) {
+          console.log('[OpenClaw] waitForGatewayReady: shutdown requested, giving up');
           resolve(false);
           return;
         }
 
         if (!this.gatewayProcess) {
+          console.log('[OpenClaw] waitForGatewayReady: gateway process is gone (exited early), giving up');
           resolve(false);
           return;
         }
 
         const healthy = await this.isGatewayHealthy(port);
         if (healthy) {
+          console.log(`[OpenClaw] waitForGatewayReady: gateway healthy after ${Date.now() - startedAt}ms`);
           resolve(true);
           return;
         }
 
         if (Date.now() - startedAt >= timeoutMs) {
+          console.log(`[OpenClaw] waitForGatewayReady: timed out after ${timeoutMs}ms`);
           resolve(false);
           return;
         }
