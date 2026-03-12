@@ -14,16 +14,16 @@ import { i18nService } from '../../services/i18n';
 import type { IMPlatform, IMConnectivityCheck, IMConnectivityTestResult, IMGatewayConfig, TelegramOpenClawConfig, DiscordOpenClawConfig, FeishuOpenClawConfig, DingTalkOpenClawConfig, QQOpenClawConfig, WecomOpenClawConfig } from '../../types/im';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 
-// Platform metadata
-const platformMeta: Record<IMPlatform, { label: string; logo: string }> = {
-  dingtalk: { label: '钉钉', logo: 'dingding.png' },
-  feishu: { label: '飞书', logo: 'feishu.png' },
-  qq: { label: 'QQ', logo: 'qq_bot.jpeg' },
-  telegram: { label: 'Telegram', logo: 'telegram.svg' },
-  discord: { label: 'Discord', logo: 'discord.svg' },
-  nim: { label: '云信', logo: 'nim.png' },
-  xiaomifeng: { label: '小蜜蜂', logo: 'xiaomifeng.png' },
-  wecom: { label: '企业微信', logo: 'wecom.png' },
+// Platform metadata - logos only, labels use i18n
+const platformLogos: Record<IMPlatform, string> = {
+  dingtalk: 'dingding.png',
+  feishu: 'feishu.png',
+  qq: 'qq_bot.jpeg',
+  telegram: 'telegram.svg',
+  discord: 'discord.svg',
+  nim: 'nim.png',
+  xiaomifeng: 'xiaomifeng.png',
+  wecom: 'wecom.png',
 };
 
 const verdictColorClass: Record<IMConnectivityTestResult['verdict'], string> = {
@@ -143,9 +143,9 @@ const IMSettings: React.FC = () => {
     setPairingStatus((prev) => ({ ...prev, [platform]: null }));
     const result = await imService.approvePairingCode(platform, code);
     if (result.success) {
-      setPairingStatus((prev) => ({ ...prev, [platform]: { type: 'success', message: `配对码 ${code} 已批准` } }));
+      setPairingStatus((prev) => ({ ...prev, [platform]: { type: 'success', message: i18nService.t('imPairingCodeApproved').replace('{code}', code) } }));
     } else {
-      setPairingStatus((prev) => ({ ...prev, [platform]: { type: 'error', message: result.error || '配对码无效或已过期' } }));
+      setPairingStatus((prev) => ({ ...prev, [platform]: { type: 'error', message: result.error || i18nService.t('imPairingCodeInvalid') } }));
     }
   };
   // Handle Telegram OpenClaw config change
@@ -654,7 +654,7 @@ const IMSettings: React.FC = () => {
   const renderPairingSection = (platform: string) => (
     <div className="space-y-2">
       <label className="block text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary">
-        配对码审批
+        {i18nService.t('imPairingApproval')}
       </label>
       <div className="flex gap-2">
         <input
@@ -676,7 +676,7 @@ const IMSettings: React.FC = () => {
             }
           }}
           className="block flex-1 rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm font-mono uppercase tracking-widest transition-colors"
-          placeholder="输入配对码"
+          placeholder={i18nService.t('imPairingCodePlaceholder')}
           maxLength={8}
         />
         <button
@@ -691,7 +691,7 @@ const IMSettings: React.FC = () => {
           }}
           className="px-3 py-2 rounded-lg text-xs font-medium bg-green-500/15 text-green-600 dark:text-green-400 hover:bg-green-500/25 transition-colors"
         >
-          批准
+          {i18nService.t('imPairingApprove')}
         </button>
       </div>
       {pairingStatus[platform] && (
@@ -707,7 +707,7 @@ const IMSettings: React.FC = () => {
       {/* Platform List - Left Side */}
       <div className="w-48 flex-shrink-0 border-r dark:border-claude-darkBorder border-claude-border pr-3 space-y-2 overflow-y-auto">
         {platforms.map((platform) => {
-          const meta = platformMeta[platform];
+          const logo = platformLogos[platform];
           const isEnabled = isPlatformEnabled(platform);
           const isConnected = getPlatformConnected(platform) || getPlatformStarting(platform);
           const canToggle = isEnabled || canStart(platform);
@@ -724,8 +724,8 @@ const IMSettings: React.FC = () => {
               <div className="flex flex-1 items-center">
                 <div className="mr-2 flex h-7 w-7 items-center justify-center">
                   <img
-                    src={meta.logo}
-                    alt={meta.label}
+                    src={logo}
+                    alt={i18nService.t(platform)}
                     className="w-6 h-6 object-contain rounded-md"
                   />
                 </div>
@@ -768,8 +768,8 @@ const IMSettings: React.FC = () => {
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white dark:bg-claude-darkBorder/30 p-1">
               <img
-                src={platformMeta[activePlatform].logo}
-                alt={platformMeta[activePlatform].label}
+                src={platformLogos[activePlatform]}
+                alt={i18nService.t(activePlatform)}
                 className="w-4 h-4 object-contain rounded"
               />
             </div>
@@ -862,7 +862,7 @@ const IMSettings: React.FC = () => {
             {/* Advanced Settings (collapsible) */}
             <details className="group">
               <summary className="cursor-pointer text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary hover:text-claude-accent transition-colors">
-                高级设置
+                {i18nService.t('imAdvancedSettings')}
               </summary>
               <div className="mt-2 space-y-3 pl-2 border-l-2 border-claude-border/30 dark:border-claude-darkBorder/30">
                 {/* DM Policy */}
@@ -879,9 +879,9 @@ const IMSettings: React.FC = () => {
                     }}
                     className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
                   >
-                    <option value="open">Open（开放）</option>
-                    <option value="pairing">Pairing（配对码验证）</option>
-                    <option value="allowlist">Allowlist（白名单）</option>
+                    <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
+                    <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
+                    <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
                   </select>
                 </div>
 
@@ -911,7 +911,7 @@ const IMSettings: React.FC = () => {
                         }
                       }}
                       className="block flex-1 rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
-                      placeholder="输入钉钉 User ID"
+                      placeholder={i18nService.t('imDingtalkUserIdPlaceholder')}
                     />
                     <button
                       type="button"
@@ -968,15 +968,15 @@ const IMSettings: React.FC = () => {
                     }}
                     className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
                   >
-                    <option value="open">Open（开放）</option>
-                    <option value="allowlist">Allowlist（白名单）</option>
+                    <option value="open">{i18nService.t('imGroupPolicyOpen')}</option>
+                    <option value="allowlist">{i18nService.t('imGroupPolicyAllowlist')}</option>
                   </select>
                 </div>
 
                 {/* Session Timeout */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary">
-                    会话超时（分钟）
+                    {i18nService.t('imSessionTimeout')}
                   </label>
                   <input
                     type="number"
@@ -1006,7 +1006,7 @@ const IMSettings: React.FC = () => {
                     }}
                     className="rounded border-gray-300 dark:border-gray-600"
                   />
-                  Debug 模式
+                  {i18nService.t('imDebugMode')}
                 </label>
               </div>
             </details>
@@ -1107,15 +1107,15 @@ const IMSettings: React.FC = () => {
                 }}
                 className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
               >
-                <option value="feishu">飞书 (feishu.cn)</option>
-                <option value="lark">Lark (larksuite.com)</option>
+                <option value="feishu">{i18nService.t('imFeishuDomainFeishu')}</option>
+                <option value="lark">{i18nService.t('imFeishuDomainLark')}</option>
               </select>
             </div>
 
             {/* Advanced Settings (collapsible) */}
             <details className="group">
               <summary className="cursor-pointer text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary hover:text-claude-accent transition-colors">
-                高级设置
+                {i18nService.t('imAdvancedSettings')}
               </summary>
               <div className="mt-2 space-y-3 pl-2 border-l-2 border-claude-border/30 dark:border-claude-darkBorder/30">
                 {/* DM Policy */}
@@ -1132,10 +1132,10 @@ const IMSettings: React.FC = () => {
                     }}
                     className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
                   >
-                    <option value="pairing">Pairing（配对码验证）</option>
-                    <option value="allowlist">Allowlist（白名单）</option>
-                    <option value="open">Open（开放）</option>
-                    <option value="disabled">Disabled（禁用 DM）</option>
+                    <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
+                    <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
+                    <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
+                    <option value="disabled">{i18nService.t('imDmPolicyDisabled')}</option>
                   </select>
                 </div>
 
@@ -1165,7 +1165,7 @@ const IMSettings: React.FC = () => {
                         }
                       }}
                       className="block flex-1 rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
-                      placeholder="输入飞书 User ID"
+                      placeholder={i18nService.t('imFeishuUserIdPlaceholder')}
                     />
                     <button
                       type="button"
@@ -1251,7 +1251,7 @@ const IMSettings: React.FC = () => {
                         }
                       }}
                       className="block flex-1 rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
-                      placeholder="输入飞书群 Chat ID"
+                      placeholder={i18nService.t('imFeishuChatIdPlaceholder')}
                     />
                     <button
                       type="button"
@@ -1308,9 +1308,9 @@ const IMSettings: React.FC = () => {
                     }}
                     className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
                   >
-                    <option value="auto">Auto（自动选择）</option>
-                    <option value="static">Static（静态回复）</option>
-                    <option value="streaming">Streaming（流式回复）</option>
+                    <option value="auto">{i18nService.t('imReplyModeAuto')}</option>
+                    <option value="static">{i18nService.t('imReplyModeStatic')}</option>
+                    <option value="streaming">{i18nService.t('imReplyModeStreaming')}</option>
                   </select>
                 </div>
 
@@ -1429,14 +1429,14 @@ const IMSettings: React.FC = () => {
                 </div>
               </div>
               <p className="text-xs text-claude-textSecondary dark:text-claude-darkTextSecondary">
-                从 QQ 开放平台获取 AppID 和 AppSecret
+                {i18nService.t('imQQCredentialHint')}
               </p>
             </div>
 
             {/* Advanced Settings (collapsible) */}
             <details className="group">
               <summary className="cursor-pointer text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary hover:text-claude-accent transition-colors">
-                高级设置
+                {i18nService.t('imAdvancedSettings')}
               </summary>
               <div className="mt-2 space-y-3 pl-2 border-l-2 border-claude-border/30 dark:border-claude-darkBorder/30">
                 {/* DM Policy */}
@@ -1453,9 +1453,9 @@ const IMSettings: React.FC = () => {
                     }}
                     className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
                   >
-                    <option value="open">Open（开放）</option>
-                    <option value="pairing">Pairing（配对码验证）</option>
-                    <option value="allowlist">Allowlist（白名单）</option>
+                    <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
+                    <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
+                    <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
                   </select>
                 </div>
 
@@ -1485,7 +1485,7 @@ const IMSettings: React.FC = () => {
                         }
                       }}
                       className="block flex-1 rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
-                      placeholder="输入 QQ OpenID"
+                      placeholder={i18nService.t('imQQUserIdPlaceholder')}
                     />
                     <button
                       type="button"
@@ -1600,7 +1600,7 @@ const IMSettings: React.FC = () => {
                     placeholder="http://your-ip:18765"
                   />
                   <p className="text-xs text-claude-textSecondary dark:text-claude-darkTextSecondary">
-                    图床服务器公网地址，用于发送图片
+                    {i18nService.t('imQQImageServerHint')}
                   </p>
                 </div>
               </div>
@@ -1666,14 +1666,14 @@ const IMSettings: React.FC = () => {
                 </div>
               </div>
               <p className="text-xs text-claude-textSecondary dark:text-claude-darkTextSecondary">
-                {i18nService.t('telegramTokenHint') || '从 @BotFather 获取 Bot Token'}
+                {i18nService.t('imTelegramTokenHint')}
               </p>
             </div>
 
             {/* Advanced Settings (collapsible) */}
             <details className="group">
               <summary className="cursor-pointer text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary hover:text-claude-accent transition-colors">
-                高级设置
+                {i18nService.t('imAdvancedSettings')}
               </summary>
               <div className="mt-2 space-y-3 pl-2 border-l-2 border-claude-border/30 dark:border-claude-darkBorder/30">
                 {/* DM Policy */}
@@ -1690,10 +1690,10 @@ const IMSettings: React.FC = () => {
                     }}
                     className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
                   >
-                    <option value="pairing">Pairing（配对码验证）</option>
-                    <option value="allowlist">Allowlist（白名单）</option>
-                    <option value="open">Open（开放）</option>
-                    <option value="disabled">Disabled（禁用 DM）</option>
+                    <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
+                    <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
+                    <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
+                    <option value="disabled">{i18nService.t('imDmPolicyDisabled')}</option>
                   </select>
                 </div>
 
@@ -1723,7 +1723,7 @@ const IMSettings: React.FC = () => {
                         }
                       }}
                       className="block flex-1 rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
-                      placeholder="输入 Telegram User ID（如 tg:123456789）"
+                      placeholder={i18nService.t('imTelegramUserIdPlaceholder')}
                     />
                     <button
                       type="button"
@@ -1975,14 +1975,14 @@ const IMSettings: React.FC = () => {
                 </div>
               </div>
               <p className="text-xs text-claude-textSecondary dark:text-claude-darkTextSecondary">
-                从 Discord Developer Portal 获取 Bot Token
+                {i18nService.t('imDiscordTokenHint')}
               </p>
             </div>
 
             {/* Advanced Settings (collapsible) */}
             <details className="group">
               <summary className="cursor-pointer text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary hover:text-claude-accent transition-colors">
-                高级设置
+                {i18nService.t('imAdvancedSettings')}
               </summary>
               <div className="mt-2 space-y-3 pl-2 border-l-2 border-claude-border/30 dark:border-claude-darkBorder/30">
                 {/* DM Policy */}
@@ -1999,10 +1999,10 @@ const IMSettings: React.FC = () => {
                     }}
                     className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
                   >
-                    <option value="pairing">Pairing（配对码验证）</option>
-                    <option value="allowlist">Allowlist（白名单）</option>
-                    <option value="open">Open（开放）</option>
-                    <option value="disabled">Disabled（禁用 DM）</option>
+                    <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
+                    <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
+                    <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
+                    <option value="disabled">{i18nService.t('imDmPolicyDisabled')}</option>
                   </select>
                 </div>
 
@@ -2032,7 +2032,7 @@ const IMSettings: React.FC = () => {
                         }
                       }}
                       className="block flex-1 rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
-                      placeholder="输入 Discord User ID"
+                      placeholder={i18nService.t('imDiscordUserIdPlaceholder')}
                     />
                     <button
                       type="button"
@@ -2125,9 +2125,9 @@ const IMSettings: React.FC = () => {
                     }}
                     className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
                   >
-                    <option value="allowlist">Allowlist（白名单）</option>
-                    <option value="open">Open（开放）</option>
-                    <option value="disabled">Disabled（禁用群聊）</option>
+                    <option value="allowlist">{i18nService.t('imGroupPolicyAllowlist')}</option>
+                    <option value="open">{i18nService.t('imGroupPolicyOpen')}</option>
+                    <option value="disabled">{i18nService.t('imGroupPolicyDisabled')}</option>
                   </select>
                 </div>
 
@@ -2154,7 +2154,7 @@ const IMSettings: React.FC = () => {
                         }
                       }}
                       className="block flex-1 rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
-                      placeholder="输入 Discord Server ID"
+                      placeholder={i18nService.t('imDiscordServerIdPlaceholder')}
                     />
                     <button
                       type="button"
@@ -2624,7 +2624,7 @@ const IMSettings: React.FC = () => {
                   onChange={(e) => handleWecomOpenClawChange({ botId: e.target.value })}
                   onBlur={() => handleSaveWecomOpenClawConfig()}
                   className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 pr-8 text-sm transition-colors"
-                  placeholder={i18nService.t('wecomBotIdPlaceholder') || '您的 Bot ID'}
+                  placeholder={i18nService.t('imWecomBotIdPlaceholder')}
                 />
                 {wecomOpenClawConfig.botId && (
                   <div className="absolute right-2 inset-y-0 flex items-center">
@@ -2677,14 +2677,14 @@ const IMSettings: React.FC = () => {
                 </div>
               </div>
               <p className="text-xs text-claude-textSecondary dark:text-claude-darkTextSecondary">
-                从企业微信管理后台获取 Bot ID 和 Secret
+                {i18nService.t('imWecomCredentialHint')}
               </p>
             </div>
 
             {/* Advanced Settings (collapsible) */}
             <details className="group">
               <summary className="cursor-pointer text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary hover:text-claude-accent transition-colors">
-                高级设置
+                {i18nService.t('imAdvancedSettings')}
               </summary>
               <div className="mt-2 space-y-3 pl-2 border-l-2 border-claude-border/30 dark:border-claude-darkBorder/30">
                 {/* DM Policy */}
@@ -2701,10 +2701,10 @@ const IMSettings: React.FC = () => {
                     }}
                     className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
                   >
-                    <option value="open">Open（开放）</option>
-                    <option value="pairing">Pairing（配对码验证）</option>
-                    <option value="allowlist">Allowlist（白名单）</option>
-                    <option value="disabled">Disabled（禁用）</option>
+                    <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
+                    <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
+                    <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
+                    <option value="disabled">{i18nService.t('imDmPolicyDisabled')}</option>
                   </select>
                 </div>
 
@@ -2734,7 +2734,7 @@ const IMSettings: React.FC = () => {
                         }
                       }}
                       className="block flex-1 rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 text-sm transition-colors"
-                      placeholder="输入企业微信 User ID"
+                      placeholder={i18nService.t('imWecomUserIdPlaceholder')}
                     />
                     <button
                       type="button"
@@ -2800,7 +2800,7 @@ const IMSettings: React.FC = () => {
                 {/* Send Thinking Message */}
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium dark:text-claude-darkTextSecondary text-claude-textSecondary">
-                    发送"思考中"消息
+                    {i18nService.t('imSendThinkingMessage')}
                   </label>
                   <button
                     type="button"

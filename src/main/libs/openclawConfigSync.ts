@@ -195,7 +195,7 @@ export class OpenClawConfigSync {
       const telegramChannel: Record<string, unknown> = {
         enabled: true,
         botToken: tgConfig.botToken,
-        dmPolicy: tgConfig.dmPolicy || 'pairing',
+        dmPolicy: tgConfig.dmPolicy || 'open',
         allowFrom: (() => {
           const ids = tgConfig.allowFrom?.length ? [...tgConfig.allowFrom] : [];
           if (tgConfig.dmPolicy === 'open' && !ids.includes('*')) ids.push('*');
@@ -237,7 +237,7 @@ export class OpenClawConfigSync {
         enabled: true,
         token: dcConfig.botToken,
         dm: {
-          policy: dcConfig.dmPolicy || 'pairing',
+          policy: dcConfig.dmPolicy || 'open',
           allowFrom: (() => {
             const ids = dcConfig.allowFrom?.length ? [...dcConfig.allowFrom] : [];
             if (dcConfig.dmPolicy === 'open' && !ids.includes('*')) ids.push('*');
@@ -286,7 +286,7 @@ export class OpenClawConfigSync {
         appId: feishuConfig.appId,
         appSecret: feishuConfig.appSecret,
         domain: feishuConfig.domain || 'feishu',
-        dmPolicy: feishuConfig.dmPolicy || 'pairing',
+        dmPolicy: feishuConfig.dmPolicy || 'open',
         allowFrom: (() => {
           const ids = feishuConfig.allowFrom?.length ? [...feishuConfig.allowFrom] : [];
           if (feishuConfig.dmPolicy === 'open' && !ids.includes('*')) ids.push('*');

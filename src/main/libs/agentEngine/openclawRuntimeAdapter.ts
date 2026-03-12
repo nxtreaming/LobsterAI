@@ -475,6 +475,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private channelSessionSync: OpenClawChannelSessionSync | null = null;
   private readonly knownChannelSessionIds = new Set<string>();
   private readonly fullySyncedSessions = new Set<string>();
+  /** Per-session cursor: number of gateway history entries (user+assistant) already synced locally. */
+  private readonly channelSyncCursor = new Map<string, number>();
   /** Sessions re-created after user deletion — use latestOnly sync to avoid replaying old history. */
   private readonly reCreatedChannelSessionIds = new Set<string>();
   /** Channel sessionKeys explicitly deleted by the user. Polling will not re-create these. */
@@ -2109,18 +2111,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     console.log('[Debug:syncChannelUserMessages] sessionId:', sessionId, 'historyMessages:', historyMessages.length, 'latestOnly:', latestOnly);
     const session = this.store.getSession(sessionId);
 
-    // Build ordered list of existing local messages (role + text)
-    type MsgEntry = { role: 'user' | 'assistant'; text: string };
-    const localEntries: MsgEntry[] = [];
-    if (session) {
-      for (const msg of session.messages) {
-        if (msg.type === 'user' || msg.type === 'assistant') {
-          localEntries.push({ role: msg.type, text: msg.content.trim() });
-        }
-      }
-    }
-
     // Collect user + assistant messages from history in chronological order
+    type MsgEntry = { role: 'user' | 'assistant'; text: string };
     const historyEntries: MsgEntry[] = [];
     for (const message of historyMessages) {
       if (!isRecord(message)) continue;
@@ -2132,30 +2124,56 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         historyEntries.push({ role: role as 'user' | 'assistant', text });
       }
     }
-    console.log('[Debug:syncChannelUserMessages] local entries:', localEntries.length, 'history entries:', historyEntries.length);
+
+    const cursor = this.channelSyncCursor.get(sessionId) ?? 0;
+    console.log('[Debug:syncChannelUserMessages] cursor:', cursor, 'history entries:', historyEntries.length);
 
     // When latestOnly is true (e.g. session re-created after deletion),
     // only sync the last user message — the one that triggered this turn.
-    if (latestOnly && historyEntries.length > 1) {
-      const lastUser = [...historyEntries].reverse().find(e => e.role === 'user');
-      historyEntries.length = 0;
-      if (lastUser) historyEntries.push(lastUser);
-      console.log('[Debug:syncChannelUserMessages] latestOnly: trimmed to last user message');
+    // Advance cursor to end so subsequent syncs don't replay old history.
+    if (latestOnly) {
+      if (historyEntries.length > 0) {
+        const lastUser = [...historyEntries].reverse().find(e => e.role === 'user');
+        if (lastUser) {
+          const userMessage = this.store.addMessage(sessionId, {
+            type: 'user',
+            content: lastUser.text,
+            metadata: {},
+          });
+          this.emit('message', sessionId, userMessage);
+          console.log('[Debug:syncChannelUserMessages] latestOnly: synced last user message');
+        }
+      }
+      this.channelSyncCursor.set(sessionId, historyEntries.length);
+      return;
     }
 
-    // Position-based matching: find the longest prefix of historyEntries that matches localEntries.
-    // Scan historyEntries from the start and consume matching localEntries in order.
-    // Once all local entries are consumed or a mismatch is found at the boundary,
-    // the remaining history entries are considered new and should be appended.
-    let localIdx = 0;
-    let firstNewIdx = 0;
-    for (let i = 0; i < historyEntries.length; i++) {
-      if (localIdx < localEntries.length
-        && historyEntries[i].role === localEntries[localIdx].role
-        && historyEntries[i].text === localEntries[localIdx].text) {
-        localIdx++;
-        firstNewIdx = i + 1;
+    // Safety: if gateway returns fewer entries than cursor (session truncated/rebuilt),
+    // fall back to text-based position matching as one-time recovery.
+    let firstNewIdx: number;
+    if (historyEntries.length < cursor) {
+      console.warn('[Debug:syncChannelUserMessages] history shrank (cursor:', cursor, 'entries:', historyEntries.length, '), falling back to text matching');
+      // Build ordered list of existing local messages for fallback matching
+      const localEntries: MsgEntry[] = [];
+      if (session) {
+        for (const msg of session.messages) {
+          if (msg.type === 'user' || msg.type === 'assistant') {
+            localEntries.push({ role: msg.type, text: msg.content.trim() });
+          }
+        }
       }
+      let localIdx = 0;
+      firstNewIdx = 0;
+      for (let i = 0; i < historyEntries.length; i++) {
+        if (localIdx < localEntries.length
+          && historyEntries[i].role === localEntries[localIdx].role
+          && historyEntries[i].text === localEntries[localIdx].text) {
+          localIdx++;
+          firstNewIdx = i + 1;
+        }
+      }
+    } else {
+      firstNewIdx = cursor;
     }
 
     // Append messages from firstNewIdx onwards
@@ -2179,7 +2197,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
       syncedCount++;
     }
-    console.log('[Debug:syncChannelUserMessages] synced', syncedCount, 'new messages (firstNewIdx:', firstNewIdx, ')');
+    this.channelSyncCursor.set(sessionId, historyEntries.length);
+    console.log('[Debug:syncChannelUserMessages] synced', syncedCount, 'new messages (firstNewIdx:', firstNewIdx, ', newCursor:', historyEntries.length, ')');
   }
 
   private getUserMessageCount(sessionId: string): number {
@@ -2274,6 +2293,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
       console.log('[ChannelSync] syncFullChannelHistory: synced', syncedCount, 'messages for sessionId:', sessionId);
 
+      // Initialize the sync cursor so incremental syncs know where to start
+      this.channelSyncCursor.set(sessionId, historyEntries.length);
+
       // Notify renderer to refresh
       if (syncedCount > 0) {
         for (const win of BrowserWindow.getAllWindows()) {
@@ -2367,6 +2389,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     // Allow full history re-sync when session is re-created
     this.fullySyncedSessions.delete(sessionId);
+    this.channelSyncCursor.delete(sessionId);
     this.reCreatedChannelSessionIds.delete(sessionId);
 
     // Clean up active turn and related run-id mappings

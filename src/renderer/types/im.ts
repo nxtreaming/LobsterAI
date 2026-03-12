@@ -383,7 +383,7 @@ export const DEFAULT_FEISHU_OPENCLAW_CONFIG: FeishuOpenClawConfig = {
   appId: '',
   appSecret: '',
   domain: 'feishu',
-  dmPolicy: 'pairing',
+  dmPolicy: 'open',
   allowFrom: [],
   groupPolicy: 'allowlist',
   groupAllowFrom: [],
@@ -397,7 +397,7 @@ export const DEFAULT_FEISHU_OPENCLAW_CONFIG: FeishuOpenClawConfig = {
 export const DEFAULT_DISCORD_OPENCLAW_CONFIG: DiscordOpenClawConfig = {
   enabled: false,
   botToken: '',
-  dmPolicy: 'pairing',
+  dmPolicy: 'open',
   allowFrom: [],
   groupPolicy: 'allowlist',
   groupAllowFrom: [],
@@ -428,7 +428,7 @@ export const DEFAULT_XIAOMIFENG_CONFIG: XiaomifengConfig = {
 export const DEFAULT_TELEGRAM_OPENCLAW_CONFIG: TelegramOpenClawConfig = {
   enabled: false,
   botToken: '',
-  dmPolicy: 'pairing',
+  dmPolicy: 'open',
   allowFrom: [],
   groupPolicy: 'allowlist',
   groupAllowFrom: [],
