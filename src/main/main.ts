@@ -1735,6 +1735,17 @@ if (!gotTheLock) {
     return getSkillManager().downloadSkill(source);
   });
 
+  ipcMain.handle('skills:confirmInstall', async (_event, pendingId: string, action: string) => {
+    const validActions = ['install', 'installDisabled', 'cancel'];
+    if (!validActions.includes(action)) {
+      return { success: false, error: 'Invalid action' };
+    }
+    return getSkillManager().confirmPendingInstall(
+      pendingId,
+      action as 'install' | 'installDisabled' | 'cancel'
+    );
+  });
+
   ipcMain.handle('skills:getRoot', () => {
     try {
       const root = getSkillManager().getSkillsRoot();

@@ -30,6 +30,9 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Feishu bot install
     feishuVerifyCredentialsFailed: '凭证验证失败，请检查 App ID 和 App Secret 是否正确',
     feishuVerifyFailed: '验证失败',
+
+    // Skill manager errors
+    skillErrNoSkillMd: '来源中未找到 SKILL.md',
   },
   en: {
     // Tray menu
@@ -47,6 +50,9 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Feishu bot install
     feishuVerifyCredentialsFailed: 'Credential validation failed. Please check your App ID and App Secret.',
     feishuVerifyFailed: 'Verification failed',
+
+    // Skill manager errors
+    skillErrNoSkillMd: 'No SKILL.md found in source',
   },
 };
 
