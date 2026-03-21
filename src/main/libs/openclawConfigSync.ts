@@ -10,6 +10,7 @@ import { parseChannelSessionKey } from './openclawChannelSessionSync';
 import type { McpToolManifestEntry } from './mcpServerManager';
 import { hasBundledOpenClawExtension } from './openclawLocalExtensions';
 import { buildScheduledTaskEnginePrompt } from './scheduledTaskEnginePrompt';
+import { getBundledPythonRoot, getUserPythonRoot } from './pythonRuntime';
 
 export type McpBridgeConfig = {
   callbackUrl: string;
@@ -564,6 +565,20 @@ export class OpenClawConfigSync {
       },
       tools: {
         deny: [...MANAGED_TOOL_DENY],
+        exec: {
+          host: 'gateway',
+          ...(process.platform === 'win32' ? (() => {
+            const userRoot = getUserPythonRoot();
+            const bundledRoot = getBundledPythonRoot();
+            const entries: string[] = [];
+            for (const root of [userRoot, bundledRoot]) {
+              if (root && fs.existsSync(root)) {
+                entries.push(root, path.join(root, 'Scripts'));
+              }
+            }
+            return entries.length > 0 ? { pathPrepend: entries } : {};
+          })() : {}),
+        },
         web: {
           search: {
             enabled: false,
