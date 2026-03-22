@@ -407,6 +407,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, onUpda
   // Qwen OAuth state
   const [qwenOAuthProgress, setQwenOAuthProgress] = useState<string | null>(null);
   const [qwenOAuthLoading, setQwenOAuthLoading] = useState(false);
+  const [qwenAuthTab, setQwenAuthTab] = useState<'apikey' | 'oauth'>('apikey');
   
   // 创建引用来确保内容区域的滚动
   const contentRef = useRef<HTMLDivElement>(null);
@@ -2452,108 +2453,141 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, onUpda
                   {/* Special Qwen section with both API Key and OAuth support */}
                   {activeProvider === 'qwen' && (
                     <div className="space-y-4">
-                      {/* API Key Section */}
-                      <div>
-                        <label htmlFor="qwen-apiKey" className="block text-xs font-medium dark:text-claude-darkText text-claude-text mb-1">
+                      {/* Tab switching for authentication methods */}
+                      <div className="flex space-x-1 bg-claude-surface/50 dark:bg-claude-darkSurface/50 rounded-lg p-1">
+                        <button
+                          type="button"
+                          onClick={() => setQwenAuthTab('apikey')}
+                          className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md relative ${
+                            qwenAuthTab === 'apikey'
+                              ? 'bg-white dark:bg-claude-darkSurface text-claude-text dark:text-claude-darkText'
+                              : 'text-claude-textSecondary dark:text-claude-darkTextSecondary hover:text-claude-text dark:hover:text-claude-darkText'
+                          }`}
+                        >
                           API Key
-                        </label>
-                        <div className="relative">
-                          <input
-                            type={showApiKey ? 'text' : 'password'}
-                            id="qwen-apiKey"
-                            value={providers.qwen.apiKey}
-                            onChange={(e) => handleProviderConfigChange('qwen', 'apiKey', e.target.value)}
-                            className="block w-full rounded-xl bg-claude-surfaceInset dark:bg-claude-darkSurfaceInset dark:border-claude-darkBorder border-claude-border border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 pr-16 text-xs"
-                            placeholder={i18nService.t('qwenApiKeyPriority')}
-                          />
-                          <div className="absolute right-2 inset-y-0 flex items-center gap-1">
-                            {providers.qwen.apiKey && (
-                              <button
-                                type="button"
-                                onClick={() => handleProviderConfigChange('qwen', 'apiKey', '')}
-                                className="p-0.5 rounded text-claude-textSecondary dark:text-claude-darkTextSecondary hover:text-claude-accent transition-colors"
-                                title={i18nService.t('clear') || 'Clear'}
-                              >
-                                <XCircleIconSolid className="h-4 w-4" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setShowApiKey(!showApiKey)}
-                              className="p-0.5 rounded text-claude-textSecondary dark:text-claude-darkTextSecondary hover:text-claude-accent transition-colors"
-                              title={showApiKey ? (i18nService.t('hide') || 'Hide') : (i18nService.t('show') || 'Show')}
-                            >
-                              {showApiKey ? <EyeIcon className="h-4 w-4" /> : <EyeSlashIcon className="h-4 w-4" />}
-                            </button>
-                          </div>
-                        </div>
+                          {qwenAuthTab === 'apikey' && (
+                            <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-6 h-0.5 bg-claude-accent rounded-full"></div>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQwenAuthTab('oauth')}
+                          className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md relative ${
+                            qwenAuthTab === 'oauth'
+                              ? 'bg-white dark:bg-claude-darkSurface text-claude-text dark:text-claude-darkText'
+                              : 'text-claude-textSecondary dark:text-claude-darkTextSecondary hover:text-claude-text dark:hover:text-claude-darkText'
+                          }`}
+                        >
+                          {i18nService.t('qwenOAuthTab') || 'OAuth 登录'}
+                          {providers.qwen.oauthCredentials && (
+                            <span className="ml-1 inline-block w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                          )}
+                          {qwenAuthTab === 'oauth' && (
+                            <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-6 h-0.5 bg-claude-accent rounded-full"></div>
+                          )}
+                        </button>
                       </div>
 
-                      {/* OAuth Section */}
-                      <div>
-                        <label className="block text-xs font-medium dark:text-claude-darkText text-claude-text mb-2">
-                          {i18nService.t('qwenOAuthLoginFree')}
-                        </label>
-                        
-                        {providers.qwen.oauthCredentials ? (
-                          <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/30">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-2">
-                                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                <span className="text-xs text-green-600 dark:text-green-400 font-medium">
-                                  {i18nService.t('qwenOAuthLoggedIn')}
-                                </span>
-                              </div>
+                      {/* API Key Tab */}
+                      {qwenAuthTab === 'apikey' && (
+                        <div>
+                          <label htmlFor="qwen-apiKey" className="block text-xs font-medium dark:text-claude-darkText text-claude-text mb-1">
+                            API Key
+                          </label>
+                          <div className="relative">
+                            <input
+                              type={showApiKey ? 'text' : 'password'}
+                              id="qwen-apiKey"
+                              value={providers.qwen.apiKey}
+                              onChange={(e) => handleProviderConfigChange('qwen', 'apiKey', e.target.value)}
+                              className="block w-full rounded-xl bg-claude-surfaceInset dark:bg-claude-darkSurfaceInset dark:border-claude-darkBorder border-claude-border border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 pr-16 text-xs"
+                              placeholder={i18nService.t('apiKeyPlaceholder')}
+                            />
+                            <div className="absolute right-2 inset-y-0 flex items-center gap-1">
+                              {providers.qwen.apiKey && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleProviderConfigChange('qwen', 'apiKey', '')}
+                                  className="p-0.5 rounded text-claude-textSecondary dark:text-claude-darkTextSecondary hover:text-claude-accent transition-colors"
+                                  title={i18nService.t('clear') || 'Clear'}
+                                >
+                                  <XCircleIconSolid className="h-4 w-4" />
+                                </button>
+                              )}
                               <button
                                 type="button"
-                                onClick={handleQwenOAuthLogout}
-                                className="text-xs text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 underline transition-colors"
+                                onClick={() => setShowApiKey(!showApiKey)}
+                                className="p-0.5 rounded text-claude-textSecondary dark:text-claude-darkTextSecondary hover:text-claude-accent transition-colors"
+                                title={showApiKey ? (i18nService.t('hide') || 'Hide') : (i18nService.t('show') || 'Show')}
                               >
-                                {i18nService.t('qwenOAuthLogout')}
+                                {showApiKey ? <EyeIcon className="h-4 w-4" /> : <EyeSlashIcon className="h-4 w-4" />}
                               </button>
                             </div>
-                            <p className="mt-1 text-xs text-green-600/80 dark:text-green-400/80">
-                              {i18nService.t('qwenOAuthTokenExpires').replace('{date}', new Date(providers.qwen.oauthCredentials.expires).toLocaleString())}
-                            </p>
                           </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <button
-                              type="button"
-                              onClick={handleQwenOAuthLogin}
-                              disabled={qwenOAuthLoading}
-                              className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl bg-claude-accent hover:bg-claude-accent/80 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm transition-colors"
-                            >
-                              {qwenOAuthLoading ? (
-                                <>
-                                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                  <span>{i18nService.t('qwenOAuthLoggingIn')}</span>
-                                </>
-                              ) : (
-                                <>
-                                  <UserCircleIcon className="w-4 h-4" />
-                                  <span>{i18nService.t('qwenOAuthLogin')}</span>
-                                </>
-                              )}
-                            </button>
-                            
-                            {qwenOAuthProgress && (
-                              <div className="p-2 rounded-lg bg-claude-accent/10 border border-claude-accent/20">
-                                <p className="text-xs text-claude-accent dark:text-claude-accent">
-                                  {qwenOAuthProgress}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Priority explanation */}
-                        <div className="mt-2 p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                          <p className="text-xs text-blue-600 dark:text-blue-400">
-                            {i18nService.t('qwenAuthPriorityHint')}
-                          </p>
                         </div>
-                      </div>
+                      )}
+
+                      {/* OAuth Tab */}
+                      {qwenAuthTab === 'oauth' && (
+                        <div>
+                          <label className="block text-xs font-medium dark:text-claude-darkText text-claude-text mb-2">
+                            {i18nService.t('qwenOAuthLoginFree')}
+                          </label>
+                          
+                          {providers.qwen.oauthCredentials ? (
+                            <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/30">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-2">
+                                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                                    {i18nService.t('qwenOAuthLoggedIn')}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={handleQwenOAuthLogout}
+                                  className="px-2 py-1 text-xs text-green-600 dark:text-green-400 hover:text-white hover:bg-green-600 dark:hover:bg-green-500 rounded-md border border-green-500/30 hover:border-green-600 dark:hover:border-green-500 transition-all duration-200 shadow-sm hover:shadow-md"
+                                >
+                                  {i18nService.t('qwenOAuthLogout')}
+                                </button>
+                              </div>
+                              <p className="mt-1 text-xs text-green-600/80 dark:text-green-400/80">
+                                {i18nService.t('qwenOAuthTokenExpires').replace('{date}', new Date(providers.qwen.oauthCredentials.expires).toLocaleString())}
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <button
+                                type="button"
+                                onClick={handleQwenOAuthLogin}
+                                disabled={qwenOAuthLoading}
+                                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl bg-claude-accent hover:bg-claude-accent/80 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm transition-colors"
+                              >
+                                {qwenOAuthLoading ? (
+                                  <>
+                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                    <span>{i18nService.t('qwenOAuthLoggingIn')}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <UserCircleIcon className="w-4 h-4" />
+                                    <span>{i18nService.t('qwenOAuthLogin')}</span>
+                                  </>
+                                )}
+                              </button>
+                              
+                              {qwenOAuthProgress && (
+                                <div className="p-2 rounded-lg bg-claude-accent/10 border border-claude-accent/20">
+                                  <p className="text-xs text-claude-accent dark:text-claude-accent">
+                                    {qwenOAuthProgress}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                     </div>
                   )}
                 </div>

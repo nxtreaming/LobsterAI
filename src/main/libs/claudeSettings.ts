@@ -384,6 +384,9 @@ export function resolveRawApiConfig(): ApiConfigResolution {
       if (oauthCreds.resourceUrl) {
         effectiveBaseURL = normalizeQwenBaseUrl(oauthCreds.resourceUrl);
         effectiveApiFormat = 'openai'; // OAuth endpoints use OpenAI format
+        
+        // Map specific model IDs to OAuth endpoint model names
+        matched.modelId = mapQwenModelToOAuthModel(matched.modelId, matched.supportsImage);
       }
     } else {
       // Token expired, should refresh in background
@@ -393,6 +396,9 @@ export function resolveRawApiConfig(): ApiConfigResolution {
       if (oauthCreds.resourceUrl) {
         effectiveBaseURL = normalizeQwenBaseUrl(oauthCreds.resourceUrl);
         effectiveApiFormat = 'openai';
+        
+        // Map specific model IDs to OAuth endpoint model names
+        matched.modelId = mapQwenModelToOAuthModel(matched.modelId, matched.supportsImage);
       }
     }
   }
@@ -423,6 +429,20 @@ function normalizeQwenBaseUrl(value: string | undefined): string {
   const raw = value?.trim() || DEFAULT_BASE_URL;
   const withProtocol = raw.startsWith("http") ? raw : `https://${raw}`;
   return withProtocol.endsWith("/v1") ? withProtocol : `${withProtocol.replace(/\/+$/, "")}/v1`;
+}
+
+/**
+ * Map LobsterAI model IDs to OAuth endpoint model names
+ * OAuth endpoint only supports 'coder-model' and 'vision-model'
+ */
+function mapQwenModelToOAuthModel(modelId: string, supportsImage?: boolean): string {
+  // If the model supports image input, use vision-model
+  if (supportsImage) {
+    return 'vision-model';
+  }
+  
+  // For all other models (including qwen3.5-plus, qwen3-coder-plus), use coder-model
+  return 'coder-model';
 }
 
 export function buildEnvForConfig(config: CoworkApiConfig): Record<string, string> {
