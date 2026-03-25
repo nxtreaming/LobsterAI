@@ -1,6 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSelector } from 'react-redux';
-import { RootState } from '../store';
+import {
+  selectCoworkSessions,
+  selectCurrentSessionId,
+} from '../store/selectors/coworkSelectors';
 import { coworkService } from '../services/cowork';
 import { i18nService } from '../services/i18n';
 import CoworkSessionList from './cowork/CoworkSessionList';
@@ -41,8 +44,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
   updateBadge,
 }) => {
-  const sessions = useSelector((state: RootState) => state.cowork.sessions);
-  const currentSessionId = useSelector((state: RootState) => state.cowork.currentSessionId);
+  const sessions = useSelector(selectCoworkSessions);
+  const currentSessionId = useSelector(selectCurrentSessionId);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());

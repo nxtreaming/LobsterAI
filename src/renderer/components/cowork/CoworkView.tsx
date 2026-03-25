@@ -1,6 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../store';
+import {
+  selectCurrentSession,
+  selectIsStreaming,
+  selectCoworkConfig,
+  selectIsOpenClawEngine,
+} from '../../store/selectors/coworkSelectors';
 import { addMessage, clearCurrentSession, setCurrentSession, setStreaming, updateSessionStatus } from '../../store/slices/coworkSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../../store/slices/skillSlice';
 import { setActions, selectAction, clearSelection } from '../../store/slices/quickActionSlice';
@@ -42,12 +48,10 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
   // Ref for CoworkPromptInput
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
 
-  const {
-    currentSession,
-    isStreaming,
-    config,
-  } = useSelector((state: RootState) => state.cowork);
-  const isOpenClawEngine = config.agentEngine !== 'yd_cowork';
+  const currentSession = useSelector(selectCurrentSession);
+  const isStreaming = useSelector(selectIsStreaming);
+  const config = useSelector(selectCoworkConfig);
+  const isOpenClawEngine = useSelector(selectIsOpenClawEngine);
 
   const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const skills = useSelector((state: RootState) => state.skill.skills);

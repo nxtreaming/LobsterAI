@@ -17,7 +17,7 @@ import PencilIcon from './icons/PencilIcon';
 import BrainIcon from './icons/BrainIcon';
 import { useDispatch, useSelector } from 'react-redux';
 import { setAvailableModels } from '../store/slices/modelSlice';
-import { RootState } from '../store';
+import { selectCoworkConfig } from '../store/selectors/coworkSelectors';
 import ThemedSelect from './ui/ThemedSelect';
 import type {
   CoworkAgentEngine,
@@ -572,7 +572,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, onUpda
     }
   }, [isExportingLogs]);
 
-  const coworkConfig = useSelector((state: RootState) => state.cowork.config);
+  const coworkConfig = useSelector(selectCoworkConfig);
 
   const [coworkAgentEngine, setCoworkAgentEngine] = useState<CoworkAgentEngine>(coworkConfig.agentEngine || 'openclaw');
   const [coworkMemoryEnabled, setCoworkMemoryEnabled] = useState<boolean>(coworkConfig.memoryEnabled ?? true);

@@ -10,6 +10,7 @@ import { SkillsButton, ActiveSkillBadge } from '../skills';
 import { i18nService } from '../../services/i18n';
 import { skillService } from '../../services/skill';
 import { RootState } from '../../store';
+import { selectDraftPrompts } from '../../store/selectors/coworkSelectors';
 import { setDraftPrompt } from '../../store/slices/coworkSlice';
 import { setSkills, toggleActiveSkill } from '../../store/slices/skillSlice';
 import { Skill } from '../../types/skill';
@@ -114,7 +115,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     } = props;
     const dispatch = useDispatch();
     const draftKey = sessionId || '__home__';
-    const draftPrompt = useSelector((state: RootState) => state.cowork.draftPrompts[draftKey] || '');
+    const draftPrompt = useSelector((state: RootState) => selectDraftPrompts(state)[draftKey] || '');
     const [value, setValue] = useState(draftPrompt);
     const [attachments, setAttachments] = useState<CoworkAttachment[]>([]);
     const [showFolderMenu, setShowFolderMenu] = useState(false);
