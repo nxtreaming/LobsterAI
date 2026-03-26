@@ -419,6 +419,40 @@ export function resolveRawApiConfig(): ApiConfigResolution {
   };
 }
 
+/**
+ * Collect apiKeys for ALL configured providers (not just the currently selected one).
+ * Used by OpenClaw config sync to pre-register all apiKeys as env vars at gateway
+ * startup, so switching between providers doesn't require a process restart.
+ *
+ * Returns a map of env-var-safe provider name → apiKey.
+ */
+export function resolveAllProviderApiKeys(): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  // lobsterai-server: uses auth accessToken
+  const tokens = authTokensGetter?.();
+  const serverBaseUrl = serverBaseUrlGetter?.();
+  if (tokens?.accessToken && serverBaseUrl) {
+    result.SERVER = tokens.accessToken;
+  }
+
+  // All configured custom providers
+  const sqliteStore = getStore();
+  if (!sqliteStore) return result;
+  const appConfig = sqliteStore.get<AppConfig>('app_config');
+  if (!appConfig?.providers) return result;
+
+  for (const [providerName, providerConfig] of Object.entries(appConfig.providers)) {
+    if (!providerConfig?.enabled) continue;
+    const apiKey = providerConfig.apiKey?.trim();
+    if (!apiKey && providerRequiresApiKey(providerName)) continue;
+    const envName = providerName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    result[envName] = apiKey || 'sk-lobsterai-local';
+  }
+
+  return result;
+}
+
 export function buildEnvForConfig(config: CoworkApiConfig): Record<string, string> {
   const baseEnv = { ...process.env } as Record<string, string>;
 

@@ -4,7 +4,7 @@ import path from 'path';
 import type { CoworkConfig, CoworkExecutionMode, Agent } from '../coworkStore';
 import type { TelegramOpenClawConfig, DiscordOpenClawConfig, IMSettings } from '../im/types';
 import type { DingTalkOpenClawConfig, FeishuOpenClawConfig, QQOpenClawConfig, WecomOpenClawConfig, PopoOpenClawConfig, NimConfig, WeixinOpenClawConfig } from '../im/types';
-import { resolveRawApiConfig } from './claudeSettings';
+import { resolveRawApiConfig, resolveAllProviderApiKeys } from './claudeSettings';
 import type { OpenClawEngineManager } from './openclawEngineManager';
 import { parseChannelSessionKey } from './openclawChannelSessionSync';
 import type { McpToolManifestEntry } from './mcpServerManager';
@@ -77,6 +77,15 @@ const MANAGED_SKILL_ENTRY_OVERRIDES: Record<string, { enabled: boolean }> = {
 const DISABLED_MANAGED_SKILL_NAMES = Object.entries(MANAGED_SKILL_ENTRY_OVERRIDES)
   .filter(([, value]) => value.enabled === false)
   .map(([name]) => name);
+
+/**
+ * Build the env var name for a provider's apiKey.
+ * Must match the key format produced by resolveAllProviderApiKeys() in claudeSettings.ts.
+ */
+const providerApiKeyEnvVar = (providerName: string): string => {
+  const envName = providerName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  return `LOBSTER_APIKEY_${envName}`;
+};
 
 const MANAGED_WEB_SEARCH_POLICY_PROMPT = [
   '## Web Search',
@@ -325,7 +334,7 @@ const buildProviderSelection = (options: {
       providerConfig: {
         baseUrl: strippedBaseUrl,
         api: 'openai-completions',
-        apiKey: options.apiKey,
+        apiKey: `\${${providerApiKeyEnvVar('server')}}`,
         auth: 'api-key',
         models: [{
           id: options.modelId,
@@ -346,7 +355,7 @@ const buildProviderSelection = (options: {
       providerConfig: {
         baseUrl: normalizeKimiCodingBaseUrl(options.baseURL),
         api: 'anthropic-messages',
-        apiKey: '${LOBSTER_PROVIDER_API_KEY}',
+        apiKey: `\${${providerApiKeyEnvVar(providerName)}}`,
         auth: 'api-key',
         models: [
           {
@@ -379,7 +388,7 @@ const buildProviderSelection = (options: {
       providerConfig: {
         baseUrl: normalizeMoonshotBaseUrl(options.baseURL),
         api: 'openai-completions',
-        apiKey: '${LOBSTER_PROVIDER_API_KEY}',
+        apiKey: `\${${providerApiKeyEnvVar(providerName)}}`,
         auth: 'api-key',
         models: [
           {
@@ -410,7 +419,7 @@ const buildProviderSelection = (options: {
     providerConfig: {
       baseUrl: stripChatCompletionsSuffix(options.baseURL),
       api: providerApi,
-      apiKey: '${LOBSTER_PROVIDER_API_KEY}',
+      apiKey: `\${${providerApiKeyEnvVar(providerName)}}`,
       auth: 'api-key',
       models: [
         {
@@ -1039,12 +1048,18 @@ export class OpenClawConfigSync {
   collectSecretEnvVars(): Record<string, string> {
     const env: Record<string, string> = {};
 
-    // Provider API Key
-    const apiResolution = resolveRawApiConfig();
-    // Provider API Key — always set so stale openclaw.json with
-    // ${LOBSTER_PROVIDER_API_KEY} placeholder doesn't crash the gateway.
-    // OpenClaw treats empty string as "missing", so use a non-empty placeholder.
-    env.LOBSTER_PROVIDER_API_KEY = apiResolution.config?.apiKey || 'unconfigured';
+    // Provider API Keys — one per configured provider so switching models
+    // never changes env vars and avoids gateway process restarts.
+    const allApiKeys = resolveAllProviderApiKeys();
+    for (const [envSuffix, apiKey] of Object.entries(allApiKeys)) {
+      env[`LOBSTER_APIKEY_${envSuffix}`] = apiKey;
+    }
+    // Legacy fallback: keep LOBSTER_PROVIDER_API_KEY set to a stable value so stale
+    // openclaw.json files with the old placeholder don't crash the gateway.
+    // Use the active provider's key if available, but ONLY for the first sync —
+    // after that, openclaw.json uses provider-specific placeholders and this var
+    // is never resolved. Use a fixed value to avoid secretEnvVarsChanged on switch.
+    env.LOBSTER_PROVIDER_API_KEY = 'legacy-unused';
 
     // MCP Bridge Secret — always set so stale openclaw.json with
     // ${LOBSTER_MCP_BRIDGE_SECRET} placeholder doesn't crash the gateway.
