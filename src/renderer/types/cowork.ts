@@ -50,6 +50,7 @@ export interface CoworkSession {
   systemPrompt: string;
   executionMode: CoworkExecutionMode;
   activeSkillIds: string[];
+  agentId: string;
   messages: CoworkMessage[];
   /** Offset of the first loaded message in the full message history. 0 means loaded from the beginning. */
   messagesOffset: number;
@@ -156,6 +157,7 @@ export interface CoworkSessionSummary {
   title: string;
   status: CoworkSessionStatus;
   pinned: boolean;
+  agentId?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -167,6 +169,7 @@ export interface CoworkStartOptions {
   systemPrompt?: string;
   title?: string;
   activeSkillIds?: string[];
+  agentId?: string;
   imageAttachments?: CoworkImageAttachment[];
 }
 
