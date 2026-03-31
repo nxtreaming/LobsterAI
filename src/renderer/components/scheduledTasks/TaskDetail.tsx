@@ -5,7 +5,7 @@ import { RootState } from '../../store';
 import { setViewMode } from '../../store/slices/scheduledTaskSlice';
 import { scheduledTaskService } from '../../services/scheduledTask';
 import { i18nService } from '../../services/i18n';
-import type { ScheduledTask } from '../../../scheduled-task/types';
+import type { ScheduledTask } from '../../../scheduledTask/types';
 import TaskRunHistory from './TaskRunHistory';
 import {
   formatDateTime,

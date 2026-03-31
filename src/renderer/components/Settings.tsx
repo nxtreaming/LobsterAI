@@ -91,7 +91,7 @@ interface ProviderExportEntry {
   enabled: boolean;
   apiKey: PasswordEncryptedPayload;
   baseUrl: string;
-  apiFormat?: 'anthropic' | 'openai';
+  apiFormat?: 'anthropic' | 'openai' | 'gemini';
   codingPlanEnabled?: boolean;
   models?: Model[];
 }
@@ -269,8 +269,8 @@ const copyTextToClipboard = async (text: string): Promise<boolean> => {
   }
 };
 
-const getFixedApiFormatForProvider = (provider: string): 'anthropic' | 'openai' | null => {
-  if (provider === 'openai' || provider === 'gemini' || provider === 'stepfun') {
+const getFixedApiFormatForProvider = (provider: string): 'anthropic' | 'openai' | 'gemini' | null => {
+  if (provider === 'openai' || provider === 'stepfun') {
     return 'openai';
   }
   if (provider === 'youdaozhiyun') {
@@ -279,9 +279,12 @@ const getFixedApiFormatForProvider = (provider: string): 'anthropic' | 'openai' 
   if (provider === 'anthropic') {
     return 'anthropic';
   }
+  if (provider === 'gemini') {
+    return 'gemini';
+  }
   return null;
 };
-const getEffectiveApiFormat = (provider: string, value: unknown): 'anthropic' | 'openai' => (
+const getEffectiveApiFormat = (provider: string, value: unknown): 'anthropic' | 'openai' | 'gemini' => (
   getFixedApiFormatForProvider(provider) ?? normalizeApiFormat(value)
 );
 const shouldShowApiFormatSelector = (provider: string): boolean => (
@@ -289,15 +292,15 @@ const shouldShowApiFormatSelector = (provider: string): boolean => (
 );
 const getProviderDefaultBaseUrl = (
   provider: ProviderType,
-  apiFormat: 'anthropic' | 'openai'
+  apiFormat: 'anthropic' | 'openai' | 'gemini'
 ): string | null => {
   const defaults = providerSwitchableDefaultBaseUrls[provider];
-  return defaults ? defaults[apiFormat] : null;
+  return defaults ? defaults[apiFormat as 'anthropic' | 'openai'] : null;
 };
 const resolveBaseUrl = (
   provider: ProviderType,
   baseUrl: string,
-  apiFormat: 'anthropic' | 'openai'
+  apiFormat: 'anthropic' | 'openai' | 'gemini'
 ): string => {
   if (baseUrl.trim()) return baseUrl;
   return getProviderDefaultBaseUrl(provider, apiFormat)

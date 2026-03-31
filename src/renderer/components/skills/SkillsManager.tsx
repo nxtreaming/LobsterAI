@@ -6,6 +6,7 @@ import {
   CheckCircleIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
+import { ArrowPathIcon } from '@heroicons/react/20/solid';
 import SearchIcon from '../icons/SearchIcon';
 import PlusCircleIcon from '../icons/PlusCircleIcon';
 import UploadIcon from '../icons/UploadIcon';
@@ -14,7 +15,7 @@ import LinkIcon from '../icons/LinkIcon';
 import PuzzleIcon from '../icons/PuzzleIcon';
 import TrashIcon from '../icons/TrashIcon';
 import { i18nService } from '../../services/i18n';
-import { skillService, resolveLocalizedText } from '../../services/skill';
+import { skillService, resolveLocalizedText, compareVersions } from '../../services/skill';
 import { setSkills } from '../../store/slices/skillSlice';
 import { RootState } from '../../store';
 import { Skill, MarketplaceSkill, MarketTag } from '../../types/skill';
@@ -46,6 +47,14 @@ const SkillsManager: React.FC = () => {
   const [securityReport, setSecurityReport] = useState<any>(null);
   const [pendingInstallId, setPendingInstallId] = useState<string | null>(null);
   const [isConfirmingInstall, setIsConfirmingInstall] = useState(false);
+  const [upgradeState, setUpgradeState] = useState<{
+    isActive: boolean;
+    total: number;
+    current: number;
+    currentSkillName: string;
+    currentSkillVersion: string;
+  } | null>(null);
+  const upgradeCancelledRef = useRef(false);
 
   const addSkillMenuRef = useRef<HTMLDivElement>(null);
   const addSkillButtonRef = useRef<HTMLButtonElement>(null);
@@ -280,8 +289,106 @@ const SkillsManager: React.FC = () => {
     await handleAddSkillFromSource(skillDownloadSource);
   };
 
-  const isSkillInstalled = (skillId: string) => {
-    return skills.some(s => s.id === skillId);
+  const getSkillInstallStatus = (marketplaceSkill: MarketplaceSkill): 'not_installed' | 'installed' | 'update_available' => {
+    const installed = skills.find(s => s.id === marketplaceSkill.id);
+    if (!installed) return 'not_installed';
+    if (installed.isBuiltIn) return 'installed';
+    if (!installed.version || !marketplaceSkill.version) return 'installed';
+    if (compareVersions(marketplaceSkill.version, installed.version) > 0) return 'update_available';
+    return 'installed';
+  };
+
+  const updatableSkills = useMemo(() => {
+    return marketplaceSkills.filter(ms => {
+      const installed = skills.find(s => s.id === ms.id);
+      if (!installed || installed.isBuiltIn || !installed.version || !ms.version) return false;
+      return compareVersions(ms.version, installed.version) > 0;
+    });
+  }, [skills, marketplaceSkills]);
+
+  const getInstalledVersion = (skillId: string): string | undefined => {
+    return skills.find(s => s.id === skillId)?.version;
+  };
+
+  const handleUpgradeSkill = async (skill: MarketplaceSkill) => {
+    if (upgradeState?.isActive || !skill.url) return;
+    setSkillActionError('');
+    setUpgradeState({
+      isActive: true,
+      total: 1,
+      current: 1,
+      currentSkillName: skill.name,
+      currentSkillVersion: skill.version,
+    });
+    try {
+      const result = await skillService.upgradeSkill(skill.id, skill.url);
+      if (!result.success) {
+        setSkillActionError(result.error || i18nService.t('skillUpgradeFailed'));
+        setUpgradeState(null);
+        return;
+      }
+      if (result.auditReport && result.pendingInstallId) {
+        setUpgradeState(null);
+        setSecurityReport(result.auditReport);
+        setPendingInstallId(result.pendingInstallId);
+        return;
+      }
+      if (result.skills) {
+        dispatch(setSkills(result.skills));
+      }
+    } catch {
+      setSkillActionError(i18nService.t('skillUpgradeFailed'));
+    } finally {
+      setUpgradeState(null);
+    }
+  };
+
+  const handleUpgradeAll = async () => {
+    if (upgradeState?.isActive || updatableSkills.length === 0) return;
+    setSkillActionError('');
+    upgradeCancelledRef.current = false;
+
+    const toUpdate = [...updatableSkills];
+    setUpgradeState({
+      isActive: true,
+      total: toUpdate.length,
+      current: 0,
+      currentSkillName: '',
+      currentSkillVersion: '',
+    });
+
+    for (let i = 0; i < toUpdate.length; i++) {
+      if (upgradeCancelledRef.current) break;
+      const skill = toUpdate[i];
+      setUpgradeState({
+        isActive: true,
+        total: toUpdate.length,
+        current: i + 1,
+        currentSkillName: skill.name,
+        currentSkillVersion: skill.version,
+      });
+
+      try {
+        const result = await skillService.upgradeSkill(skill.id, skill.url);
+        if (!result.success) {
+          console.warn('[SkillsManager] upgrade failed for', skill.id, result.error);
+          continue;
+        }
+        if (result.auditReport && result.pendingInstallId) {
+          setUpgradeState(null);
+          setSecurityReport(result.auditReport);
+          setPendingInstallId(result.pendingInstallId);
+          return;
+        }
+        if (result.skills) {
+          dispatch(setSkills(result.skills));
+        }
+      } catch (error) {
+        console.warn('[SkillsManager] upgrade threw for', skill.id, error);
+      }
+    }
+
+    setUpgradeState(null);
   };
 
   const handleInstallMarketplaceSkill = async (skill: MarketplaceSkill) => {
@@ -444,9 +551,23 @@ const SkillsManager: React.FC = () => {
             activeTab === 'marketplace' ? 'bg-claude-accent' : 'bg-transparent'
           }`} />
         </button>
+        {updatableSkills.length > 0 && (
+          <div className="ml-auto pr-1 pb-1">
+            <button
+              type="button"
+              onClick={handleUpgradeAll}
+              disabled={upgradeState?.isActive === true}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ArrowPathIcon className="h-3 w-3" />
+              {i18nService.t('skillUpgradeAll').replace('{count}', String(updatableSkills.length))}
+            </button>
+          </div>
+        )}
       </div>
 
       {activeTab === 'installed' && (
+      <>
       <div className="grid grid-cols-2 gap-3">
         {filteredSkills.length === 0 ? (
           <div className="col-span-2 text-center py-8 text-sm dark:text-claude-darkTextSecondary text-claude-textSecondary">
@@ -498,7 +619,8 @@ const SkillsManager: React.FC = () => {
                 {skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description)}
               </p>
 
-              <div className="flex items-center gap-2 text-[10px] dark:text-claude-darkTextSecondary text-claude-textSecondary">
+              <div className="flex items-center justify-between text-[10px] dark:text-claude-darkTextSecondary text-claude-textSecondary">
+                <div className="flex items-center gap-2">
                 {skill.isOfficial && (
                   <>
                     <span className="px-1.5 py-0.5 rounded bg-claude-accent/10 text-claude-accent font-medium">
@@ -516,11 +638,30 @@ const SkillsManager: React.FC = () => {
                   </>
                 )}
                 <span>{formatSkillDate(skill.updatedAt)}</span>
+                </div>
+                {(() => {
+                  const mp = marketplaceSkills.find(m => m.id === skill.id);
+                  if (mp && !skill.isBuiltIn && skill.version && mp.version && compareVersions(mp.version, skill.version) > 0) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleUpgradeSkill(mp); }}
+                        disabled={upgradeState?.isActive === true}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ArrowPathIcon className="h-3.5 w-3.5" />
+                        {i18nService.t('skillUpgrade')}
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </div>
           ))
         )}
       </div>
+      </>
       )}
 
       {activeTab === 'marketplace' && (
@@ -581,22 +722,41 @@ const SkillsManager: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex-shrink-0">
-                    {isSkillInstalled(skill.id) ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg text-green-600 dark:text-green-400 bg-green-500/10">
-                        <CheckCircleIcon className="h-3.5 w-3.5" />
-                        {i18nService.t('skillAlreadyInstalled')}
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); handleInstallMarketplaceSkill(skill); }}
-                        disabled={installingSkillId !== null}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg bg-claude-accent text-white hover:bg-claude-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ArrowDownTrayIcon className="h-3.5 w-3.5" />
-                        {installingSkillId === skill.id ? i18nService.t('skillInstalling') : i18nService.t('skillInstall')}
-                      </button>
-                    )}
+                    {(() => {
+                      const status = getSkillInstallStatus(skill);
+                      if (status === 'update_available') {
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleUpgradeSkill(skill); }}
+                            disabled={upgradeState?.isActive === true}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <ArrowPathIcon className="h-3.5 w-3.5" />
+                            {i18nService.t('skillUpgrade')}
+                          </button>
+                        );
+                      }
+                      if (status === 'installed') {
+                        return (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg text-green-600 dark:text-green-400 bg-green-500/10">
+                            <CheckCircleIcon className="h-3.5 w-3.5" />
+                            {i18nService.t('skillAlreadyInstalled')}
+                          </span>
+                        );
+                      }
+                      return (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleInstallMarketplaceSkill(skill); }}
+                          disabled={installingSkillId !== null}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg bg-claude-accent text-white hover:bg-claude-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ArrowDownTrayIcon className="h-3.5 w-3.5" />
+                          {installingSkillId === skill.id ? i18nService.t('skillInstalling') : i18nService.t('skillInstall')}
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -615,9 +775,21 @@ const SkillsManager: React.FC = () => {
                   )}
                   {skill.version && (
                     <>
-                      <span className="px-1.5 py-0.5 rounded dark:bg-claude-darkSurfaceHover bg-claude-surfaceHover font-medium">
-                        v{skill.version}
-                      </span>
+                      {(() => {
+                        const installedVer = getInstalledVersion(skill.id);
+                        if (installedVer && compareVersions(skill.version, installedVer) > 0) {
+                          return (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
+                              v{installedVer} → v{skill.version}
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className="px-1.5 py-0.5 rounded dark:bg-claude-darkSurfaceHover bg-claude-surfaceHover font-medium">
+                            v{skill.version}
+                          </span>
+                        );
+                      })()}
                     </>
                   )}
                 </div>
@@ -698,22 +870,42 @@ const SkillsManager: React.FC = () => {
               )}
             </div>
 
-            {isSkillInstalled(selectedMarketplaceSkill.id) ? (
-              <div className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-green-500/10 text-green-600 dark:text-green-400 text-sm font-medium">
-                <CheckCircleIcon className="h-4 w-4" />
-                {i18nService.t('skillAlreadyInstalled')}
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => handleInstallMarketplaceSkill(selectedMarketplaceSkill)}
-                disabled={installingSkillId !== null}
-                className="w-full py-2.5 rounded-xl bg-claude-accent text-white text-sm font-medium hover:bg-claude-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
-              >
-                <ArrowDownTrayIcon className="h-4 w-4" />
-                {installingSkillId === selectedMarketplaceSkill.id ? i18nService.t('skillInstalling') : i18nService.t('skillInstall')}
-              </button>
-            )}
+            {(() => {
+              const status = getSkillInstallStatus(selectedMarketplaceSkill);
+              if (status === 'update_available') {
+                const installedVer = getInstalledVersion(selectedMarketplaceSkill.id);
+                return (
+                  <button
+                    type="button"
+                    onClick={() => handleUpgradeSkill(selectedMarketplaceSkill)}
+                    disabled={upgradeState?.isActive === true}
+                    className="w-full py-2.5 rounded-xl bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                  >
+                    <ArrowPathIcon className="h-4 w-4" />
+                    {i18nService.t('skillUpgrade')} v{installedVer} → v{selectedMarketplaceSkill.version}
+                  </button>
+                );
+              }
+              if (status === 'installed') {
+                return (
+                  <div className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-green-500/10 text-green-600 dark:text-green-400 text-sm font-medium">
+                    <CheckCircleIcon className="h-4 w-4" />
+                    {i18nService.t('skillAlreadyInstalled')}
+                  </div>
+                );
+              }
+              return (
+                <button
+                  type="button"
+                  onClick={() => handleInstallMarketplaceSkill(selectedMarketplaceSkill)}
+                  disabled={installingSkillId !== null}
+                  className="w-full py-2.5 rounded-xl bg-claude-accent text-white text-sm font-medium hover:bg-claude-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  {installingSkillId === selectedMarketplaceSkill.id ? i18nService.t('skillInstalling') : i18nService.t('skillInstall')}
+                </button>
+              );
+            })()}
           </div>
         </div>
       , document.body)}
@@ -940,6 +1132,43 @@ const SkillsManager: React.FC = () => {
           onAction={handleSecurityReportAction}
           isLoading={isConfirmingInstall}
         />
+      )}
+
+      {upgradeState?.isActive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-sm mx-4 rounded-2xl dark:bg-claude-darkSurface bg-claude-surface border dark:border-claude-darkBorder border-claude-border shadow-2xl p-6">
+            <div className="text-center">
+              <div className="text-sm font-medium dark:text-claude-darkText text-claude-text mb-4">
+                {i18nService.t('skillUpgrading')
+                  .replace('{current}', String(upgradeState.current))
+                  .replace('{total}', String(upgradeState.total))}
+              </div>
+
+              <div className="w-full h-2 rounded-full dark:bg-claude-darkBorder bg-claude-border mb-3">
+                <div
+                  className="h-full rounded-full bg-amber-500 transition-all duration-300"
+                  style={{ width: `${(upgradeState.current / upgradeState.total) * 100}%` }}
+                />
+              </div>
+
+              <div className="text-xs dark:text-claude-darkTextSecondary text-claude-textSecondary mb-4">
+                {i18nService.t('skillUpgradingCurrent')
+                  .replace('{name}', upgradeState.currentSkillName)
+                  .replace('{version}', upgradeState.currentSkillVersion)}
+              </div>
+
+              {upgradeState.total > 1 && (
+                <button
+                  type="button"
+                  onClick={() => { upgradeCancelledRef.current = true; }}
+                  className="px-4 py-1.5 text-xs rounded-lg border dark:border-claude-darkBorder border-claude-border dark:text-claude-darkTextSecondary text-claude-textSecondary dark:hover:bg-claude-darkSurfaceHover hover:bg-claude-surfaceHover transition-colors"
+                >
+                  {i18nService.t('skillUpgradeCancel')}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -143,6 +143,7 @@ const EmailSkillConfig: React.FC<EmailSkillConfigProps> = ({ onClose }) => {
   const [smtpPort, setSmtpPort] = useState('587');
   const [smtpSecure, setSmtpSecure] = useState('false');
   const [imapTls, setImapTls] = useState('true');
+  const [rejectUnauthorized, setRejectUnauthorized] = useState('true');
   const [mailbox, setMailbox] = useState('INBOX');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -171,6 +172,7 @@ const EmailSkillConfig: React.FC<EmailSkillConfigProps> = ({ onClose }) => {
       if (config.SMTP_PORT) setSmtpPort(config.SMTP_PORT);
       if (config.SMTP_SECURE) setSmtpSecure(config.SMTP_SECURE);
       if (config.IMAP_TLS) setImapTls(config.IMAP_TLS);
+      if (config.IMAP_REJECT_UNAUTHORIZED) setRejectUnauthorized(config.IMAP_REJECT_UNAUTHORIZED);
       if (config.IMAP_MAILBOX) setMailbox(config.IMAP_MAILBOX);
 
       const detected = detectProvider(config);
@@ -200,7 +202,7 @@ const EmailSkillConfig: React.FC<EmailSkillConfigProps> = ({ onClose }) => {
     IMAP_USER: email,
     IMAP_PASS: password,
     IMAP_TLS: imapTls,
-    IMAP_REJECT_UNAUTHORIZED: 'true',
+    IMAP_REJECT_UNAUTHORIZED: rejectUnauthorized,
     IMAP_MAILBOX: mailbox,
     SMTP_HOST: smtpHost,
     SMTP_PORT: smtpPort,
@@ -208,12 +210,13 @@ const EmailSkillConfig: React.FC<EmailSkillConfigProps> = ({ onClose }) => {
     SMTP_USER: email,
     SMTP_PASS: password,
     SMTP_FROM: email,
-    SMTP_REJECT_UNAUTHORIZED: 'true',
+    SMTP_REJECT_UNAUTHORIZED: rejectUnauthorized,
   }), [
     email,
     imapHost,
     imapPort,
     imapTls,
+    rejectUnauthorized,
     mailbox,
     password,
     smtpHost,
@@ -588,6 +591,21 @@ const EmailSkillConfig: React.FC<EmailSkillConfigProps> = ({ onClose }) => {
               />
               SMTP SSL
             </label>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2 text-xs dark:text-claude-darkText text-claude-text">
+              <input
+                type="checkbox"
+                checked={rejectUnauthorized === 'false'}
+                onChange={(e) => { setRejectUnauthorized(e.target.checked ? 'false' : 'true'); setTimeout(queuePersist, 0); }}
+                className="h-3.5 w-3.5 text-claude-accent focus:ring-claude-accent rounded"
+              />
+              {i18nService.t('emailAllowInsecureCert')}
+            </label>
+            <p className="text-[11px] text-claude-textSecondary dark:text-claude-darkTextSecondary mt-1 ml-6">
+              {i18nService.t('emailAllowInsecureCertHint')}
+            </p>
           </div>
 
           <div>

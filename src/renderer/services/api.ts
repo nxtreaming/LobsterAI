@@ -18,7 +18,7 @@ export interface ApiConfig {
   apiKey: string;
   baseUrl: string;
   provider?: string;
-  apiFormat?: 'anthropic' | 'openai';
+  apiFormat?: 'anthropic' | 'openai' | 'gemini';
 }
 
 export class ApiError extends Error {
@@ -58,34 +58,23 @@ class ApiService {
     this.currentRequestId = null;
   }
 
-  private normalizeApiFormat(apiFormat: unknown): 'anthropic' | 'openai' {
+  private normalizeApiFormat(apiFormat: unknown): 'anthropic' | 'openai' | 'gemini' {
     if (apiFormat === 'openai') {
       return 'openai';
+    }
+    if (apiFormat === 'gemini') {
+      return 'gemini';
     }
     return 'anthropic';
   }
 
-  private buildOpenAICompatibleChatCompletionsUrl(baseUrl: string, provider: string): string {
+  private buildOpenAICompatibleChatCompletionsUrl(baseUrl: string): string {
     const normalized = baseUrl.trim().replace(/\/+$/, '');
     if (!normalized) {
       return '/v1/chat/completions';
     }
     if (normalized.endsWith('/chat/completions')) {
       return normalized;
-    }
-
-    const isGeminiLike = provider === 'gemini' || normalized.includes('generativelanguage.googleapis.com');
-    if (isGeminiLike) {
-      if (normalized.endsWith('/v1beta/openai') || normalized.endsWith('/v1/openai')) {
-        return `${normalized}/chat/completions`;
-      }
-      if (normalized.endsWith('/v1beta') || normalized.endsWith('/v1')) {
-        const betaBase = normalized.endsWith('/v1')
-          ? `${normalized.slice(0, -3)}v1beta`
-          : normalized;
-        return `${betaBase}/openai/chat/completions`;
-      }
-      return `${normalized}/v1beta/openai/chat/completions`;
     }
 
     // Handle /v1, /v4 etc. versioned paths
@@ -278,7 +267,7 @@ class ApiService {
     const normalizedModelId = modelId.toLowerCase();
     if (normalizedModelId.startsWith('claude')) {
       return 'anthropic';
-    } else if (normalizedModelId.startsWith('gpt') || normalizedModelId.startsWith('o1') || normalizedModelId.startsWith('o3')) {
+    } else if (normalizedModelId.startsWith('gpt') || normalizedModelId.startsWith('o1') || normalizedModelId.startsWith('o3') || normalizedModelId.startsWith('o4')) {
       return 'openai';
     } else if (normalizedModelId.startsWith('gemini')) {
       return 'gemini';
@@ -401,11 +390,15 @@ class ApiService {
     // 根据 API 协议格式决定调用方式：
     // - anthropic: Anthropic 兼容协议 (/v1/messages)
     // - openai: OpenAI 兼容协议 (OpenAI provider uses /v1/responses)
+    // - gemini: Google Gemini 原生协议 (streamGenerateContent)
     const normalizedApiFormat = this.normalizeApiFormat(effectiveConfig.apiFormat);
-    const useOpenAIFormat = normalizedApiFormat === 'openai';
-    console.log(`[api-chat] provider=${provider}, model=${selectedModel.id}, apiFormat=${normalizedApiFormat}, useOpenAI=${useOpenAIFormat}, baseUrl=${effectiveConfig.baseUrl}`);
+    console.log(`[api-chat] provider=${provider}, model=${selectedModel.id}, apiFormat=${normalizedApiFormat}, baseUrl=${effectiveConfig.baseUrl}`);
 
-    if (!useOpenAIFormat) {
+    if (normalizedApiFormat === 'gemini') {
+      return this.chatWithGemini(userMessage, onProgress, history, selectedModel.id, effectiveConfig, supportsImages);
+    }
+
+    if (normalizedApiFormat === 'anthropic') {
       return this.chatWithAnthropic(userMessage, onProgress, history, selectedModel.id, effectiveConfig, supportsImages);
     }
 
@@ -542,6 +535,170 @@ class ApiService {
             'Content-Type': 'application/json',
             'x-api-key': config.apiKey,
             'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify(requestBody),
+          requestId,
+        }).then((response) => {
+          if (!response.ok && !aborted) {
+            this.cleanup();
+            let errorMessage = 'API request failed';
+            if (response.error) {
+              try {
+                const errorData = JSON.parse(response.error);
+                if (errorData.error?.message) {
+                  errorMessage = errorData.error.message;
+                }
+              } catch {
+                errorMessage = response.error;
+              }
+            }
+            reject(new ApiError(errorMessage, response.status));
+          }
+        }).catch((error) => {
+          if (!aborted) {
+            this.cleanup();
+            reject(new ApiError(error.message || 'Network error'));
+          }
+        });
+      });
+    } catch (error) {
+      this.cleanup();
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError('An unexpected error occurred while calling the API. Please try again.');
+    }
+  }
+
+  // Gemini native API 调用 (streamGenerateContent)
+  private async chatWithGemini(
+    message: ChatUserMessageInput,
+    onProgress?: (content: string, reasoning?: string) => void,
+    history: ChatMessagePayload[] = [],
+    modelId: string = 'gemini-3-pro-preview',
+    config: ApiConfig = this.config!,
+    supportsImages: boolean = false
+  ): Promise<{ content: string; reasoning?: string }> {
+    let fullContent = '';
+    let fullReasoning = '';
+
+    try {
+      this.cancelOngoingRequest();
+      const requestId = generateRequestId();
+      this.currentRequestId = requestId;
+
+      const systemMessages = history.filter(m => m.role === 'system');
+      const nonSystemMessages = history.filter(m => m.role !== 'system');
+
+      const formatGeminiParts = (msg: ChatMessagePayload): Array<Record<string, unknown>> => {
+        const parts: Array<Record<string, unknown>> = [];
+        if (msg.content?.trim()) {
+          parts.push({ text: msg.content });
+        }
+        if (supportsImages && msg.images?.length) {
+          msg.images.forEach(image => {
+            const payload = this.extractImageData(image);
+            if (payload) {
+              parts.push({ inline_data: { mime_type: payload.mimeType, data: payload.data } });
+            }
+          });
+        } else if (!supportsImages && msg.images?.length) {
+          const hint = this.buildImageHint(msg.images);
+          if (hint && !msg.content?.trim()) {
+            parts.push({ text: hint });
+          }
+        }
+        return parts;
+      };
+
+      const contents = [
+        ...nonSystemMessages.map(msg => ({
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: formatGeminiParts(msg),
+        })),
+        {
+          role: 'user',
+          parts: formatGeminiParts({ role: 'user', content: message.content, images: message.images }),
+        },
+      ].filter(c => c.parts.length > 0);
+
+      const requestBody: Record<string, unknown> = { contents };
+
+      if (systemMessages.length > 0) {
+        const systemContent = systemMessages
+          .map(m => this.mergeContentWithImageHint(m.content, supportsImages ? undefined : m.images))
+          .filter(Boolean)
+          .join('\n');
+        if (systemContent) {
+          requestBody.systemInstruction = { parts: [{ text: systemContent }] };
+        }
+      }
+
+      requestBody.generationConfig = { maxOutputTokens: 8192 };
+
+      const baseUrl = config.baseUrl.trim().replace(/\/+$/, '') || 'https://generativelanguage.googleapis.com/v1beta';
+      const requestUrl = `${baseUrl}/models/${modelId}:streamGenerateContent?alt=sse`;
+
+      return new Promise((resolve, reject) => {
+        let aborted = false;
+
+        const removeDataListener = window.electron.api.onStreamData(requestId, (chunk) => {
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                const candidate = parsed.candidates?.[0];
+                if (!candidate?.content?.parts) continue;
+
+                for (const part of candidate.content.parts) {
+                  if (part.thought === true && typeof part.text === 'string') {
+                    fullReasoning += part.text;
+                  } else if (typeof part.text === 'string') {
+                    fullContent += part.text;
+                  }
+                }
+                onProgress?.(fullContent, fullReasoning || undefined);
+              } catch (e) {
+                console.warn('Failed to parse Gemini SSE message:', e);
+              }
+            }
+          }
+        });
+
+        const removeDoneListener = window.electron.api.onStreamDone(requestId, () => {
+          this.cleanup();
+          if (!fullContent) {
+            reject(new ApiError('No content received from the API. Please try again.'));
+          } else {
+            resolve({ content: fullContent, reasoning: fullReasoning || undefined });
+          }
+        });
+
+        const removeErrorListener = window.electron.api.onStreamError(requestId, (error) => {
+          this.cleanup();
+          reject(new ApiError(error));
+        });
+
+        const removeAbortListener = window.electron.api.onStreamAbort(requestId, () => {
+          aborted = true;
+          this.cleanup();
+          resolve({ content: fullContent || 'Response was stopped.', reasoning: fullReasoning || undefined });
+        });
+
+        this.cleanupFunctions = [removeDataListener, removeDoneListener, removeErrorListener, removeAbortListener];
+
+        console.log(`[api-chat] Gemini request: baseUrl=${config.baseUrl}, finalUrl=${requestUrl}, model=${modelId}`);
+        window.electron.api.stream({
+          url: requestUrl,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': config.apiKey,
           },
           body: JSON.stringify(requestBody),
           requestId,
@@ -737,12 +894,16 @@ class ApiService {
           'Content-Type': 'application/json',
         };
         if (config.apiKey) {
-          headers.Authorization = `Bearer ${config.apiKey}`;
+          if (provider === 'gemini') {
+            headers['x-goog-api-key'] = config.apiKey;
+          } else {
+            headers.Authorization = `Bearer ${config.apiKey}`;
+          }
         }
 
         const requestUrl = useResponsesApi
           ? this.buildOpenAIResponsesUrl(config.baseUrl)
-          : this.buildOpenAICompatibleChatCompletionsUrl(config.baseUrl, provider);
+          : this.buildOpenAICompatibleChatCompletionsUrl(config.baseUrl);
         console.log(`[api-chat] OpenAI-compat request: provider=${provider}, baseUrl=${config.baseUrl}, finalUrl=${requestUrl}, model=${modelId}, apiFormat=${config.apiFormat}`);
         const requestBody: Record<string, unknown> = useResponsesApi
           ? {

@@ -23,6 +23,7 @@ const MOONSHOT_CODING_PLAN_ANTHROPIC_BASE_URL = 'https://api.kimi.com/coding';
 
 type ProviderModel = {
   id: string;
+  name?: string;
   supportsImage?: boolean;
 };
 
@@ -50,6 +51,7 @@ export type ApiConfigResolution = {
     providerName: string;
     codingPlanEnabled: boolean;
     supportsImage?: boolean;
+    modelName?: string;
   };
 };
 
@@ -120,6 +122,7 @@ type MatchedProvider = {
   apiFormat: AnthropicApiFormat;
   baseURL: string;
   supportsImage?: boolean;
+  modelName?: string;
 };
 
 function getEffectiveProviderApiFormat(providerName: string, apiFormat: unknown): AnthropicApiFormat {
@@ -299,6 +302,7 @@ function resolveMatchedProvider(appConfig: AppConfig): { matched: MatchedProvide
       apiFormat,
       baseURL,
       supportsImage: matchedModel?.supportsImage,
+      modelName: matchedModel?.name,
     },
   };
 }
@@ -429,6 +433,7 @@ export function resolveRawApiConfig(): ApiConfigResolution {
       providerName: matched.providerName,
       codingPlanEnabled: !!matched.providerConfig.codingPlanEnabled,
       supportsImage: matched.supportsImage,
+      modelName: matched.modelName,
     },
   };
 }
@@ -443,12 +448,8 @@ export function resolveRawApiConfig(): ApiConfigResolution {
 export function resolveAllProviderApiKeys(): Record<string, string> {
   const result: Record<string, string> = {};
 
-  // lobsterai-server: uses auth accessToken
-  const tokens = authTokensGetter?.();
-  const serverBaseUrl = serverBaseUrlGetter?.();
-  if (tokens?.accessToken && serverBaseUrl) {
-    result.SERVER = tokens.accessToken;
-  }
+  // lobsterai-server token is now managed by the token proxy
+  // (openclawTokenProxy.ts) — no longer injected as an env var.
 
   // All configured custom providers
   const sqliteStore = getStore();

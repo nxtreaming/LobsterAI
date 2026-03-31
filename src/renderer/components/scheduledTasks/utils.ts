@@ -7,7 +7,7 @@ import type {
   Schedule,
   ScheduleCron,
   TaskLastStatus,
-} from '../../../scheduled-task/types';
+} from '../../../scheduledTask/types';
 
 const WEEKDAY_KEYS = [
   'scheduledTasksFormWeekSun',

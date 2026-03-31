@@ -1,12 +1,15 @@
 import { AppConfig, CONFIG_KEYS, defaultConfig } from '../config';
 import { localStore } from './store';
 
-const getFixedProviderApiFormat = (providerKey: string): 'anthropic' | 'openai' | null => {
-  if (providerKey === 'openai' || providerKey === 'gemini' || providerKey === 'stepfun' || providerKey === 'youdaozhiyun') {
+const getFixedProviderApiFormat = (providerKey: string): 'anthropic' | 'openai' | 'gemini' | null => {
+  if (providerKey === 'openai' || providerKey === 'stepfun' || providerKey === 'youdaozhiyun') {
     return 'openai';
   }
   if (providerKey === 'anthropic') {
     return 'anthropic';
+  }
+  if (providerKey === 'gemini') {
+    return 'gemini';
   }
   return null;
 };
@@ -25,20 +28,24 @@ const normalizeProviderBaseUrl = (providerKey: string, baseUrl: unknown): string
     return normalized;
   }
 
-  if (normalized.endsWith('/v1beta/openai') || normalized.endsWith('/v1/openai')) {
-    return normalized;
+  // Strip the /openai suffix for native Gemini API
+  if (normalized.endsWith('/v1beta/openai')) {
+    return normalized.slice(0, -'/openai'.length);
+  }
+  if (normalized.endsWith('/v1/openai')) {
+    return normalized.slice(0, -'/openai'.length);
   }
   if (normalized.endsWith('/v1beta')) {
-    return `${normalized}/openai`;
+    return normalized;
   }
   if (normalized.endsWith('/v1')) {
-    return `${normalized.slice(0, -3)}v1beta/openai`;
+    return `${normalized.slice(0, -3)}v1beta`;
   }
 
-  return 'https://generativelanguage.googleapis.com/v1beta/openai';
+  return 'https://generativelanguage.googleapis.com/v1beta';
 };
 
-const normalizeProviderApiFormat = (providerKey: string, apiFormat: unknown): 'anthropic' | 'openai' => {
+const normalizeProviderApiFormat = (providerKey: string, apiFormat: unknown): 'anthropic' | 'openai' | 'gemini' => {
   const fixed = getFixedProviderApiFormat(providerKey);
   if (fixed) {
     return fixed;
@@ -70,6 +77,7 @@ const normalizeProvidersConfig = (providers: AppConfig['providers']): AppConfig[
 // These will be filtered out from saved configs during migration.
 const REMOVED_PROVIDER_MODELS: Record<string, string[]> = {
   deepseek: ['deepseek-chat'],
+  openai: ['gpt-5.2-2025-12-11'],
 };
 
 // Models to inject into existing saved configs (for existing users).
@@ -82,6 +90,14 @@ const ADDED_PROVIDER_MODELS: Record<string, { models: Array<{ id: string; name: 
   minimax: {
     models: [
       { id: 'MiniMax-M2.7', name: 'MiniMax M2.7', supportsImage: false },
+    ],
+    position: 'start',
+  },
+  openai: {
+    models: [
+      { id: 'gpt-5.4', name: 'GPT-5.4', supportsImage: true },
+      { id: 'gpt-5.2', name: 'GPT-5.2', supportsImage: true },
+      { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', supportsImage: true },
     ],
     position: 'start',
   },

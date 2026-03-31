@@ -9,9 +9,11 @@ import { SignalIcon, XMarkIcon, CheckCircleIcon, XCircleIcon, ExclamationTriangl
 import { EyeIcon, EyeSlashIcon, XCircleIcon as XCircleIconSolid } from '@heroicons/react/20/solid';
 import { RootState } from '../../store';
 import { imService } from '../../services/im';
-import { setDingTalkConfig, setFeishuConfig, setTelegramOpenClawConfig, setQQConfig, setDiscordConfig, setNimConfig, setXiaomifengConfig, setWecomConfig, setWeixinConfig, setPopoConfig, clearError } from '../../store/slices/imSlice';
+import { setDingTalkConfig, setFeishuConfig, setTelegramOpenClawConfig, setQQConfig, setDiscordConfig, setNimConfig, setNeteaseBeeChanConfig, setWecomConfig, setWeixinConfig, setPopoConfig, clearError } from '../../store/slices/imSlice';
 import { i18nService } from '../../services/i18n';
-import type { IMPlatform, IMConnectivityCheck, IMConnectivityTestResult, IMGatewayConfig, TelegramOpenClawConfig, DiscordOpenClawConfig, FeishuOpenClawConfig, DingTalkOpenClawConfig, QQOpenClawConfig, WecomOpenClawConfig, PopoOpenClawConfig } from '../../types/im';
+import type { IMConnectivityCheck, IMConnectivityTestResult, IMGatewayConfig, TelegramOpenClawConfig, DiscordOpenClawConfig, FeishuOpenClawConfig, DingTalkOpenClawConfig, QQOpenClawConfig, WecomOpenClawConfig, PopoOpenClawConfig } from '../../types/im';
+import { PlatformRegistry } from '@shared/platform';
+import type { Platform } from '@shared/platform';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 import WecomAIBotSDK from '@wecom/wecom-aibot-sdk';
 import { QRCodeSVG } from 'qrcode.react';
@@ -19,31 +21,7 @@ import { ArrowPathIcon } from '@heroicons/react/24/outline';
 import { SchemaForm } from './SchemaForm';
 import type { UiHint } from './SchemaForm';
 
-// Platform metadata - logos only, labels use i18n
-const platformLogos: Record<IMPlatform, string> = {
-  dingtalk: 'dingding.png',
-  feishu: 'feishu.png',
-  qq: 'qq_bot.jpeg',
-  telegram: 'telegram.svg',
-  discord: 'discord.svg',
-  nim: 'nim.png',
-  xiaomifeng: 'xiaomifeng.png',
-  weixin: 'weixin.png',
-  wecom: 'wecom.png',
-  popo: 'popo.png',
-};
 
-// IM platform setup guide URLs
-const IM_GUIDE_URLS: Partial<Record<IMPlatform, string>> = {
-  dingtalk: 'https://lobsterai.youdao.com/#/docs/lobsterai_im_bot_config_guide/%E9%92%89%E9%92%89-im-%E6%9C%BA%E5%99%A8%E4%BA%BA%E9%85%8D%E7%BD%AE',
-  feishu: 'https://lobsterai.youdao.com/#/docs/lobsterai_im_bot_config_guide/%E9%A3%9E%E4%B9%A6-im-%E6%9C%BA%E5%99%A8%E4%BA%BA%E9%85%8D%E7%BD%AE',
-  wecom: 'https://lobsterai.youdao.com/#/docs/lobsterai_im_bot_config_guide/%E4%BC%81%E4%B8%9A%E5%BE%AE%E4%BF%A1%E6%9C%BA%E5%99%A8%E4%BA%BA%E9%85%8D%E7%BD%AE',
-  qq: 'https://lobsterai.youdao.com/#/docs/lobsterai_im_bot_config_guide/qqqq-bot',
-  telegram: 'https://lobsterai.youdao.com/#/en/docs/lobsterai_im_bot_config_guide/telegram-bot-configuration',
-  discord: 'https://lobsterai.youdao.com/#/en/docs/lobsterai_im_bot_config_guide/discord-bot-configuration',
-  weixin: 'https://lobsterai.youdao.com/#/docs/lobsterai_im_bot_config_guide/%E5%BE%AE%E4%BF%A1-im-%E6%9C%BA%E5%99%A8%E4%BA%BA%E9%85%8D%E7%BD%AE',
-  popo: '',
-};
 
 // Reusable guide card component for platform setup instructions
 const PlatformGuide: React.FC<{
@@ -121,15 +99,15 @@ function deepSet(obj: Record<string, unknown>, path: string, value: unknown): Re
 const IMSettings: React.FC = () => {
   const dispatch = useDispatch();
   const { config, status, isLoading } = useSelector((state: RootState) => state.im);
-  const [activePlatform, setActivePlatform] = useState<IMPlatform>('weixin');
-  const [testingPlatform, setTestingPlatform] = useState<IMPlatform | null>(null);
-  const [connectivityResults, setConnectivityResults] = useState<Partial<Record<IMPlatform, IMConnectivityTestResult>>>({});
-  const [connectivityModalPlatform, setConnectivityModalPlatform] = useState<IMPlatform | null>(null);
+  const [activePlatform, setActivePlatform] = useState<Platform>('weixin');
+  const [testingPlatform, setTestingPlatform] = useState<Platform | null>(null);
+  const [connectivityResults, setConnectivityResults] = useState<Partial<Record<Platform, IMConnectivityTestResult>>>({});
+  const [connectivityModalPlatform, setConnectivityModalPlatform] = useState<Platform | null>(null);
   const [language, setLanguage] = useState<'zh' | 'en'>(i18nService.getLanguage());
   const [allowedUserIdInput, setAllowedUserIdInput] = useState('');
   const [configLoaded, setConfigLoaded] = useState(false);
   // Re-entrancy guard for gateway toggle to prevent rapid ON→OFF→ON
-  const [togglingPlatform, setTogglingPlatform] = useState<IMPlatform | null>(null);
+  const [togglingPlatform, setTogglingPlatform] = useState<Platform | null>(null);
   // Track visibility of password fields (eye toggle)
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   // WeCom quick setup state
@@ -411,9 +389,9 @@ const IMSettings: React.FC = () => {
   const [popoGroupAllowIdInput, setPopoGroupAllowIdInput] = useState('');
 
 
-  // Handle Xiaomifeng config change
-  const handleXiaomifengChange = (field: 'clientId' | 'secret', value: string) => {
-    dispatch(setXiaomifengConfig({ [field]: value }));
+  // Handle NetEase Bee config change
+  const handleNeteaseBeeChanChange = (field: 'clientId' | 'secret', value: string) => {
+    dispatch(setNeteaseBeeChanConfig({ [field]: value }));
   };
 
   // Handle WeCom OpenClaw config change
@@ -612,7 +590,7 @@ const IMSettings: React.FC = () => {
   };
 
   const runConnectivityTest = async (
-    platform: IMPlatform,
+    platform: Platform,
     configOverride?: Partial<IMGatewayConfig>
   ): Promise<IMConnectivityTestResult | null> => {
     setTestingPlatform(platform);
@@ -625,7 +603,7 @@ const IMSettings: React.FC = () => {
   };
 
   // Toggle gateway on/off and persist enabled state
-  const toggleGateway = async (platform: IMPlatform) => {
+  const toggleGateway = async (platform: Platform) => {
     // Re-entrancy guard: if a toggle is already in progress for this platform, bail out.
     // This prevents rapid ON→OFF→ON clicks from causing concurrent native SDK init/uninit.
     if (togglingPlatform === platform) return;
@@ -773,15 +751,15 @@ const IMSettings: React.FC = () => {
   const telegramConnected = status.telegram.connected;
   const discordConnected = status.discord.connected;
   const nimConnected = status.nim.connected;
-  const xiaomifengConnected = status.xiaomifeng?.connected ?? false;
+  const neteaseBeeChanConnected = status['netease-bee']?.connected ?? false;
   const qqConnected = status.qq?.connected ?? false;
   const wecomConnected = status.wecom?.connected ?? false;
   const weixinConnected = status.weixin?.connected ?? false;
   const popoConnected = status.popo?.connected ?? false;
 
   // Compute visible platforms based on language
-  const platforms = useMemo<IMPlatform[]>(() => {
-    return getVisibleIMPlatforms(language) as IMPlatform[];
+  const platforms = useMemo<Platform[]>(() => {
+    return getVisibleIMPlatforms(language) as Platform[];
   }, [language]);
 
   // Ensure activePlatform is always in visible platforms when language changes
@@ -793,7 +771,7 @@ const IMSettings: React.FC = () => {
   }, [platforms, activePlatform]);
 
   // Check if platform can be started
-  const canStart = (platform: IMPlatform): boolean => {
+  const canStart = (platform: Platform): boolean => {
     if (platform === 'dingtalk') {
       return !!(config.dingtalk.clientId && config.dingtalk.clientSecret);
     }
@@ -806,8 +784,8 @@ const IMSettings: React.FC = () => {
     if (platform === 'nim') {
       return !!(config.nim.appKey && config.nim.account && config.nim.token);
     }
-    if (platform === 'xiaomifeng') {
-      return !!(config.xiaomifeng.clientId && config.xiaomifeng.secret);
+    if (platform === 'netease-bee') {
+      return !!(config['netease-bee'].clientId && config['netease-bee'].secret);
     }
     if (platform === 'qq') {
       return !!(config.qq.appId && config.qq.appSecret);
@@ -829,17 +807,17 @@ const IMSettings: React.FC = () => {
   };
 
   // Get platform enabled state (persisted toggle state)
-  const isPlatformEnabled = (platform: IMPlatform): boolean => {
+  const isPlatformEnabled = (platform: Platform): boolean => {
     return config[platform].enabled;
   };
 
   // Get platform connection status (runtime state)
-  const getPlatformConnected = (platform: IMPlatform): boolean => {
+  const getPlatformConnected = (platform: Platform): boolean => {
     if (platform === 'dingtalk') return dingtalkConnected;
     if (platform === 'telegram') return telegramConnected;
     if (platform === 'discord') return discordConnected;
     if (platform === 'nim') return nimConnected;
-    if (platform === 'xiaomifeng') return xiaomifengConnected;
+    if (platform === 'netease-bee') return neteaseBeeChanConnected;
     if (platform === 'qq') return qqConnected;
     if (platform === 'wecom') return wecomConnected;
     if (platform === 'weixin') return weixinConnected;
@@ -848,16 +826,17 @@ const IMSettings: React.FC = () => {
   };
 
   // Get platform transient starting status
-  const getPlatformStarting = (platform: IMPlatform): boolean => {
+  const getPlatformStarting = (platform: Platform): boolean => {
     if (platform === 'discord') return status.discord.starting;
     return false;
   };
 
-  const handleConnectivityTest = async (platform: IMPlatform) => {
+  const handleConnectivityTest = async (platform: Platform) => {
     // Re-entrancy guard: if a test is already running, do nothing.
     if (testingPlatform) return;
 
     setConnectivityModalPlatform(platform);
+    setTestingPlatform(platform);
 
     // For Telegram, persist telegram config and test
     if (platform === 'telegram') {
@@ -946,10 +925,6 @@ const IMSettings: React.FC = () => {
     // The backend's testNimConnectivity already manages the SDK lifecycle
     // (stop main → probe with temp instance → restart main) under a mutex,
     // so doing stop/start here would cause a race condition and potential crash.
-    if (isEnabled && platform === 'xiaomifeng') {
-      await imService.stopGateway(platform);
-      await imService.startGateway(platform);
-    }
     // When the gateway is OFF we skip stop/start entirely.
     // The main process testGateway → runAuthProbe will spawn an isolated
     // temporary NimGateway (for NIM) or use stateless HTTP calls for other
@@ -972,7 +947,7 @@ const IMSettings: React.FC = () => {
   };
 
   // Handle platform toggle
-  const handlePlatformToggle = (platform: IMPlatform) => {
+  const handlePlatformToggle = (platform: Platform) => {
     // Block toggle if a toggle is already in progress for any platform
     if (togglingPlatform) return;
     const isEnabled = isPlatformEnabled(platform);
@@ -985,15 +960,15 @@ const IMSettings: React.FC = () => {
   };
 
   // Toggle gateway on/off - map platform to Redux action
-  const getSetConfigAction = (platform: IMPlatform) => {
-    const actionMap: Record<IMPlatform, any> = {
+  const getSetConfigAction = (platform: Platform) => {
+    const actionMap: Record<Platform, any> = {
       dingtalk: setDingTalkConfig,
       feishu: setFeishuConfig,
       telegram: setTelegramOpenClawConfig,
       qq: setQQConfig,
       discord: setDiscordConfig,
       nim: setNimConfig,
-      xiaomifeng: setXiaomifengConfig,
+      'netease-bee': setNeteaseBeeChanConfig,
       wecom: setWecomConfig,
       weixin: setWeixinConfig,
       popo: setPopoConfig,
@@ -1001,7 +976,7 @@ const IMSettings: React.FC = () => {
     return actionMap[platform];
   };
 
-  const renderConnectivityTestButton = (platform: IMPlatform) => (
+  const renderConnectivityTestButton = (platform: Platform) => (
     <button
       type="button"
       onClick={() => handleConnectivityTest(platform)}
@@ -1086,8 +1061,8 @@ const IMSettings: React.FC = () => {
       {/* Platform List - Left Side */}
       <div className="w-48 flex-shrink-0 border-r dark:border-claude-darkBorder border-claude-border pr-3 space-y-2 overflow-y-auto">
         {platforms.map((platform) => {
-          const logo = platformLogos[platform];
-          const isEnabled = isPlatformEnabled(platform);
+                const logo = PlatformRegistry.logo(platform);
+           const isEnabled = isPlatformEnabled(platform);
           const isConnected = getPlatformConnected(platform) || getPlatformStarting(platform);
           const canToggle = isEnabled || canStart(platform);
           return (
@@ -1145,12 +1120,12 @@ const IMSettings: React.FC = () => {
         {/* Header with status */}
         <div className="flex items-center gap-3 pb-3 border-b dark:border-claude-darkBorder/60 border-claude-border/60">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white dark:bg-claude-darkBorder/30 p-1">
-              <img
-                src={platformLogos[activePlatform]}
-                alt={i18nService.t(activePlatform)}
-                className="w-4 h-4 object-contain rounded"
-              />
+             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white dark:bg-claude-darkBorder/30 p-1">
+               <img
+                src={PlatformRegistry.logo(activePlatform)}
+                 alt={i18nService.t(activePlatform)}
+                 className="w-4 h-4 object-contain rounded"
+               />
             </div>
             <h3 className="text-sm font-medium dark:text-claude-darkText text-claude-text">
               {`${i18nService.t(activePlatform)}${i18nService.t('settings')}`}
@@ -1180,7 +1155,7 @@ const IMSettings: React.FC = () => {
                 i18nService.t('imDingtalkGuideStep3'),
                 i18nService.t('imDingtalkGuideStep4'),
               ]}
-              guideUrl={IM_GUIDE_URLS.dingtalk}
+                guideUrl={PlatformRegistry.guideUrl('dingtalk')}
             />
             {/* Client ID */}
             <div className="space-y-1.5">
@@ -1554,7 +1529,7 @@ const IMSettings: React.FC = () => {
                 i18nService.t('imFeishuGuideStep1'),
                 i18nService.t('imFeishuGuideStep2'),
               ]}
-              guideUrl={IM_GUIDE_URLS.feishu}
+                guideUrl={PlatformRegistry.guideUrl('feishu')}
             />
             {/* App ID */}
             <div className="space-y-1.5">
@@ -1901,7 +1876,7 @@ const IMSettings: React.FC = () => {
                 i18nService.t('imQQGuideStep3'),
                 i18nService.t('imQQGuideStep4'),
               ]}
-              guideUrl={IM_GUIDE_URLS.qq}
+                guideUrl={PlatformRegistry.guideUrl('qq')}
             />
             {/* AppID */}
             <div className="space-y-1.5">
@@ -2168,7 +2143,7 @@ const IMSettings: React.FC = () => {
                 i18nService.t('imTelegramGuideStep3'),
                 i18nService.t('imTelegramGuideStep4'),
               ]}
-              guideUrl={IM_GUIDE_URLS.telegram}
+                guideUrl={PlatformRegistry.guideUrl('telegram')}
             />
             {/* Bot Token */}
             <div className="space-y-1.5">
@@ -2488,7 +2463,7 @@ const IMSettings: React.FC = () => {
                 i18nService.t('imDiscordGuideStep5'),
                 i18nService.t('imDiscordGuideStep6'),
               ]}
-              guideUrl={IM_GUIDE_URLS.discord}
+                guideUrl={PlatformRegistry.guideUrl('discord')}
             />
             {/* Bot Token */}
             <div className="space-y-1.5">
@@ -2892,7 +2867,7 @@ const IMSettings: React.FC = () => {
         )}
 
         {/* 小蜜蜂设置*/}
-        {activePlatform === 'xiaomifeng' && (
+        {activePlatform === 'netease-bee' && (
           <div className="space-y-3">
             {/* Client ID */}
             <div className="space-y-1.5">
@@ -2902,17 +2877,17 @@ const IMSettings: React.FC = () => {
               <div className="relative">
                 <input
                   type="text"
-                  value={config.xiaomifeng.clientId}
-                  onChange={(e) => handleXiaomifengChange('clientId', e.target.value)}
+                  value={config['netease-bee'].clientId}
+                  onChange={(e) => handleNeteaseBeeChanChange('clientId', e.target.value)}
                   onBlur={handleSaveConfig}
                   className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 pr-8 text-sm transition-colors"
-                  placeholder={i18nService.t('xiaomifengClientIdPlaceholder') || '您的Client ID'}
+                  placeholder={i18nService.t('neteaseBeeChanClientIdPlaceholder') || '您的Client ID'}
                 />
-                {config.xiaomifeng.clientId && (
+                {config['netease-bee'].clientId && (
                   <div className="absolute right-2 inset-y-0 flex items-center">
                     <button
                       type="button"
-                      onClick={() => { handleXiaomifengChange('clientId', ''); void imService.persistConfig({ xiaomifeng: { ...config.xiaomifeng, clientId: '' } }); }}
+                      onClick={() => { handleNeteaseBeeChanChange('clientId', ''); void imService.persistConfig({ 'netease-bee': { ...config['netease-bee'], clientId: '' } }); }}
                       className="p-0.5 rounded text-claude-textSecondary dark:text-claude-darkTextSecondary hover:text-claude-accent transition-colors"
                       title={i18nService.t('clear') || 'Clear'}
                     >
@@ -2930,18 +2905,18 @@ const IMSettings: React.FC = () => {
               </label>
               <div className="relative">
                 <input
-                  type={showSecrets['xiaomifeng.secret'] ? 'text' : 'password'}
-                  value={config.xiaomifeng.secret}
-                  onChange={(e) => handleXiaomifengChange('secret', e.target.value)}
+                  type={showSecrets['netease-bee.secret'] ? 'text' : 'password'}
+                  value={config['netease-bee'].secret}
+                  onChange={(e) => handleNeteaseBeeChanChange('secret', e.target.value)}
                   onBlur={handleSaveConfig}
                   className="block w-full rounded-lg dark:bg-claude-darkSurface/80 bg-claude-surface/80 dark:border-claude-darkBorder/60 border-claude-border/60 border focus:border-claude-accent focus:ring-1 focus:ring-claude-accent/30 dark:text-claude-darkText text-claude-text px-3 py-2 pr-16 text-sm transition-colors"
                   placeholder="••••••••••••"
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
-                  {config.xiaomifeng.secret && (
+                  {config['netease-bee'].secret && (
                     <button
                       type="button"
-                      onClick={() => { handleXiaomifengChange('secret', ''); void imService.persistConfig({ xiaomifeng: { ...config.xiaomifeng, secret: '' } }); }}
+                      onClick={() => { handleNeteaseBeeChanChange('secret', ''); void imService.persistConfig({ 'netease-bee': { ...config['netease-bee'], secret: '' } }); }}
                       className="p-0.5 rounded text-claude-textSecondary dark:text-claude-darkTextSecondary hover:text-claude-accent transition-colors"
                       title={i18nService.t('clear') || 'Clear'}
                     >
@@ -2950,31 +2925,31 @@ const IMSettings: React.FC = () => {
                   )}
                   <button
                     type="button"
-                    onClick={() => setShowSecrets(prev => ({ ...prev, 'xiaomifeng.secret': !prev['xiaomifeng.secret'] }))}
+                    onClick={() => setShowSecrets(prev => ({ ...prev, 'netease-bee.secret': !prev['netease-bee.secret'] }))}
                     className="p-0.5 rounded text-claude-textSecondary dark:text-claude-darkTextSecondary hover:text-claude-accent transition-colors"
-                    title={showSecrets['xiaomifeng.secret'] ? (i18nService.t('hide') || 'Hide') : (i18nService.t('show') || 'Show')}
+                    title={showSecrets['netease-bee.secret'] ? (i18nService.t('hide') || 'Hide') : (i18nService.t('show') || 'Show')}
                   >
-                    {showSecrets['xiaomifeng.secret'] ? <EyeIcon className="h-4 w-4" /> : <EyeSlashIcon className="h-4 w-4" />}
+                    {showSecrets['netease-bee.secret'] ? <EyeIcon className="h-4 w-4" /> : <EyeSlashIcon className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
             </div>
 
             <div className="pt-1">
-              {renderConnectivityTestButton('xiaomifeng')}
+              {renderConnectivityTestButton('netease-bee')}
             </div>
 
             {/* Bot account display */}
-            {status.xiaomifeng?.botAccount && (
+            {status['netease-bee']?.botAccount && (
               <div className="text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-3 py-2 rounded-lg">
-                Account: {status.xiaomifeng.botAccount}
+                Account: {status['netease-bee'].botAccount}
               </div>
             )}
 
             {/* Error display */}
-            {status.xiaomifeng?.lastError && (
+            {status['netease-bee']?.lastError && (
               <div className="text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg">
-                {translateIMError(status.xiaomifeng.lastError)}
+                {translateIMError(status['netease-bee'].lastError)}
               </div>
             )}
           </div>
@@ -3040,7 +3015,7 @@ const IMSettings: React.FC = () => {
                 i18nService.t('imWeixinGuideStep2'),
                 i18nService.t('imWeixinGuideStep3'),
               ]}
-              guideUrl={IM_GUIDE_URLS.weixin}
+                guideUrl={PlatformRegistry.guideUrl('weixin')}
             />
 
             {/* Connectivity test */}
@@ -3112,7 +3087,7 @@ const IMSettings: React.FC = () => {
                 i18nService.t('imWecomGuideStep2'),
                 i18nService.t('imWecomGuideStep3'),
               ]}
-              guideUrl={IM_GUIDE_URLS.wecom}
+                guideUrl={PlatformRegistry.guideUrl('wecom')}
             />
             {/* Bot ID */}
             <div className="space-y-1.5">
@@ -3353,7 +3328,7 @@ const IMSettings: React.FC = () => {
                 i18nService.t('imPopoGuideStep2'),
                 i18nService.t('imPopoGuideStep3'),
               ]}
-              guideUrl={IM_GUIDE_URLS.popo}
+                guideUrl={PlatformRegistry.guideUrl('popo')}
             />
 
             {/* Connection Mode selector */}

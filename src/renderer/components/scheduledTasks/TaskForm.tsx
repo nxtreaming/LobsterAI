@@ -6,8 +6,9 @@ import type {
   ScheduledTaskChannelOption,
   ScheduledTaskConversationOption,
   ScheduledTaskInput,
-} from '../../../scheduled-task/types';
+} from '../../../scheduledTask/types';
 import { formatScheduleLabel, type PlanType, scheduleToPlanInfo } from './utils';
+import { PlatformRegistry } from '@shared/platform';
 
 interface TaskFormProps {
   mode: 'create' | 'edit';
@@ -57,21 +58,8 @@ const DEFAULT_FORM_STATE: FormState = {
   notifyTo: '',
 };
 
-const IM_CHANNEL_VALUES = new Set([
-  'dingtalk-connector',
-  'feishu',
-  'telegram',
-  'discord',
-  'qqbot',
-  'wecom',
-  'popo',
-  'nim',
-  'openclaw-weixin',
-  'xiaomifeng',
-]);
-
 function isIMChannel(channel: string): boolean {
-  return IM_CHANNEL_VALUES.has(channel);
+  return PlatformRegistry.isIMChannel(channel);
 }
 
 function createFormState(task?: ScheduledTask): FormState {
@@ -421,7 +409,7 @@ const TaskForm: React.FC<TaskFormProps> = ({ mode, task, onCancel, onSaved }) =>
           >
             <option value="none">{i18nService.t('scheduledTasksFormNotifyChannelNone')}</option>
             {channelOptions.map((channel) => {
-              const unsupported = channel.value === 'openclaw-weixin' || channel.value === 'qqbot';
+              const unsupported = channel.value === 'openclaw-weixin' || channel.value === 'qqbot' || channel.value === 'netease-bee';
               return (
                 <option key={channel.value} value={channel.value} disabled={unsupported}>
                   {unsupported
