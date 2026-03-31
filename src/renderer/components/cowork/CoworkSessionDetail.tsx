@@ -9,10 +9,10 @@ import CoworkPromptInput from './CoworkPromptInput';
 import MarkdownContent from '../MarkdownContent';
 import {
   CheckIcon,
-  ShareIcon,
   ChevronRightIcon,
   PhotoIcon,
 } from '@heroicons/react/24/outline';
+import { ShareIcon } from '@heroicons/react/20/solid';
 import InformationCircleIcon from '../icons/InformationCircleIcon';
 import ExclamationTriangleIcon from '../icons/ExclamationTriangleIcon';
 import { FolderIcon } from '@heroicons/react/24/solid';
@@ -2077,7 +2077,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             onClick={handleRenameClick}
             className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-surface-raised transition-colors"
           >
-            <PencilSquareIcon className="h-4 w-4" />
+            <PencilSquareIcon className="h-4 w-4 text-secondary" />
             {i18nService.t('renameConversation')}
           </button>
           <button
@@ -2087,7 +2087,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           >
             <PushPinIcon
               slashed={currentSession.pinned}
-              className={`h-4 w-4 ${currentSession.pinned ? 'opacity-60' : ''}`}
+              className={`h-[18px] w-[18px] text-secondary ${currentSession.pinned ? 'opacity-60' : ''}`}
             />
             {currentSession.pinned ? i18nService.t('coworkUnpinSession') : i18nService.t('coworkPinSession')}
           </button>
@@ -2097,7 +2097,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             disabled={isExportingImage}
             className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-surface-raised transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <ShareIcon className="h-4 w-4" />
+            <ShareIcon className="h-4 w-4 text-secondary" />
             {i18nService.t('coworkShareSession')}
           </button>
           <button
