@@ -30,7 +30,7 @@ const PlatformGuide: React.FC<{
   guideUrl?: string;
   guideLabel?: string;
 }> = ({ title, steps, guideUrl, guideLabel }) => (
-  <div className="mb-3 p-3 rounded-lg border border-dashed/60 border-border/60">
+  <div className="mb-3 p-3 rounded-lg border border-dashed border-border-subtle">
     {title && (
       <p className="text-xs text-foreground leading-relaxed mb-1.5 font-medium">{title}</p>
     )}
@@ -1029,7 +1029,7 @@ const IMSettings: React.FC = () => {
               }
             }
           }}
-          className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm font-mono uppercase tracking-widest transition-colors"
+          className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm font-mono uppercase tracking-widest transition-colors"
           placeholder={i18nService.t('imPairingCodePlaceholder')}
           maxLength={8}
         />
@@ -1071,8 +1071,8 @@ const IMSettings: React.FC = () => {
               onClick={() => setActivePlatform(platform)}
               className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
                 activePlatform === platform
-                  ? 'bg-primary/10 dark:bg-primary/20 border border-primary/30 shadow-subtle'
-                  : 'bg-surface/50 bg-surface hover:bg-surface-raised border border-transparent'
+                  ? 'bg-primary-muted border border-primary shadow-subtle'
+                  : 'bg-surface hover:bg-surface-raised border border-transparent'
               }`}
             >
               <div className="flex flex-1 items-center">
@@ -1096,7 +1096,7 @@ const IMSettings: React.FC = () => {
                   className={`w-7 h-4 rounded-full flex items-center transition-colors ${
                     isEnabled
                       ? (isConnected ? 'bg-green-500' : 'bg-yellow-500')
-                      : 'bg-border'
+                      : 'bg-gray-400 dark:bg-gray-600'
                   } ${(!canToggle || togglingPlatform === platform) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1118,9 +1118,9 @@ const IMSettings: React.FC = () => {
       {/* Platform Settings - Right Side */}
       <div className="flex-1 min-w-0 pl-4 pr-2 space-y-4 overflow-y-auto [scrollbar-gutter:stable]">
         {/* Header with status */}
-        <div className="flex items-center gap-3 pb-3 border-b border-border/60">
+        <div className="flex items-center gap-3 pb-3 border-b border-border-subtle">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-surface border border-border/30 p-1">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-surface border border-border-subtle p-1">
               <img
                 src={PlatformRegistry.logo(activePlatform)}
                 alt={i18nService.t(activePlatform)}
@@ -1168,7 +1168,7 @@ const IMSettings: React.FC = () => {
                   value={dtOpenClawConfig.clientId}
                   onChange={(e) => handleDingTalkOpenClawChange({ clientId: e.target.value })}
                   onBlur={() => handleSaveDingTalkOpenClawConfig()}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
                   placeholder="dingxxxxxx"
                 />
                 {dtOpenClawConfig.clientId && (
@@ -1197,7 +1197,7 @@ const IMSettings: React.FC = () => {
                   value={dtOpenClawConfig.clientSecret}
                   onChange={(e) => handleDingTalkOpenClawChange({ clientSecret: e.target.value })}
                   onBlur={() => handleSaveDingTalkOpenClawConfig()}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
                   placeholder="••••••••••••"
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
@@ -1228,7 +1228,7 @@ const IMSettings: React.FC = () => {
               <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
                 {i18nService.t('imAdvancedSettings')}
               </summary>
-              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border/30">
+              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
                 {/* DM Policy */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-secondary">
@@ -1241,7 +1241,7 @@ const IMSettings: React.FC = () => {
                       handleDingTalkOpenClawChange(update);
                       void handleSaveDingTalkOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
                     <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
@@ -1274,7 +1274,7 @@ const IMSettings: React.FC = () => {
                           }
                         }
                       }}
-                      className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder={i18nService.t('imDingtalkUserIdPlaceholder')}
                     />
                     <button
@@ -1288,7 +1288,7 @@ const IMSettings: React.FC = () => {
                           void imService.persistConfig({ dingtalk: { ...dtOpenClawConfig, allowFrom: newIds } });
                         }
                       }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary-muted text-primary hover:bg-primary-muted transition-colors"
                     >
                       {i18nService.t('add') || '添加'}
                     </button>
@@ -1298,7 +1298,7 @@ const IMSettings: React.FC = () => {
                       {dtOpenClawConfig.allowFrom.map((id) => (
                         <span
                           key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface/80 border-border/60 border text-foreground"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
                         >
                           {id}
                           <button
@@ -1330,7 +1330,7 @@ const IMSettings: React.FC = () => {
                       handleDingTalkOpenClawChange(update);
                       void handleSaveDingTalkOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="open">{i18nService.t('imGroupPolicyOpen')}</option>
                     <option value="allowlist">{i18nService.t('imGroupPolicyAllowlist')}</option>
@@ -1352,7 +1352,7 @@ const IMSettings: React.FC = () => {
                       }
                     }}
                     onBlur={() => handleSaveDingTalkOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors opacity-60"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors opacity-60"
                     min="1"
                     placeholder="30"
                   />
@@ -1389,7 +1389,7 @@ const IMSettings: React.FC = () => {
                         handleDingTalkOpenClawChange(update);
                         void handleSaveDingTalkOpenClawConfig(update);
                       }}
-                      className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     >
                       <option value="group">{i18nService.t('imGroupSessionScopeGroup')}</option>
                       <option value="group_sender">{i18nService.t('imGroupSessionScopeGroupSender')}</option>
@@ -1427,7 +1427,7 @@ const IMSettings: React.FC = () => {
                       handleDingTalkOpenClawChange({ gatewayBaseUrl: e.target.value });
                     }}
                     onBlur={() => handleSaveDingTalkOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     placeholder={i18nService.t('imGatewayBaseUrlPlaceholder')}
                   />
                 </div>
@@ -1466,13 +1466,13 @@ const IMSettings: React.FC = () => {
         {activePlatform === 'feishu' && (
           <div className="space-y-3">
             {/* Scan QR code section */}
-            <div className="rounded-lg border border-dashed/60 border-border/60 p-4 text-center space-y-3">
+            <div className="rounded-lg border border-dashed border-border-subtle p-4 text-center space-y-3">
               {(feishuQrStatus === 'idle' || feishuQrStatus === 'error') && (
                 <>
                   <button
                     type="button"
                     onClick={() => void handleFeishuStartQr()}
-                    className="px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {i18nService.t('feishuBotCreateWizardScanBtn')}
                   </button>
@@ -1516,11 +1516,11 @@ const IMSettings: React.FC = () => {
 
             {/* Divider */}
             <div className="relative flex items-center">
-              <div className="flex-1 border-t/40 border-border/40" />
+              <div className="flex-1 border-t border-border-subtle" />
               <span className="px-3 text-xs text-secondary whitespace-nowrap">
                 {i18nService.t('feishuBotCreateWizardOrManual')}
               </span>
-              <div className="flex-1 border-t/40 border-border/40" />
+              <div className="flex-1 border-t border-border-subtle" />
             </div>
 
             {/* Manual guide */}
@@ -1542,7 +1542,7 @@ const IMSettings: React.FC = () => {
                   value={fsOpenClawConfig.appId}
                   onChange={(e) => handleFeishuOpenClawChange({ appId: e.target.value })}
                   onBlur={() => handleSaveFeishuOpenClawConfig()}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
                   placeholder="cli_xxxxx"
                 />
                 {fsOpenClawConfig.appId && (
@@ -1571,7 +1571,7 @@ const IMSettings: React.FC = () => {
                   value={fsOpenClawConfig.appSecret}
                   onChange={(e) => handleFeishuOpenClawChange({ appSecret: e.target.value })}
                   onBlur={() => handleSaveFeishuOpenClawConfig()}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
                   placeholder="••••••••••••"
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
@@ -1609,7 +1609,7 @@ const IMSettings: React.FC = () => {
                   handleFeishuOpenClawChange(update);
                   void handleSaveFeishuOpenClawConfig(update);
                 }}
-                className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
               >
                 <option value="feishu">{i18nService.t('imFeishuDomainFeishu')}</option>
                 <option value="lark">{i18nService.t('imFeishuDomainLark')}</option>
@@ -1621,7 +1621,7 @@ const IMSettings: React.FC = () => {
               <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
                 {i18nService.t('imAdvancedSettings')}
               </summary>
-              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border/30">
+              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
                 {/* DM Policy */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-secondary">
@@ -1634,7 +1634,7 @@ const IMSettings: React.FC = () => {
                       handleFeishuOpenClawChange(update);
                       void handleSaveFeishuOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
                     <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
@@ -1668,7 +1668,7 @@ const IMSettings: React.FC = () => {
                           }
                         }
                       }}
-                      className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder={i18nService.t('imFeishuUserIdPlaceholder')}
                     />
                     <button
@@ -1682,7 +1682,7 @@ const IMSettings: React.FC = () => {
                           void imService.persistConfig({ feishu: { ...fsOpenClawConfig, allowFrom: newIds } });
                         }
                       }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary-muted text-primary hover:bg-primary-muted transition-colors"
                     >
                       {i18nService.t('add') || '添加'}
                     </button>
@@ -1692,7 +1692,7 @@ const IMSettings: React.FC = () => {
                       {fsOpenClawConfig.allowFrom.map((id) => (
                         <span
                           key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface/80 border-border/60 border text-foreground"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
                         >
                           {id}
                           <button
@@ -1724,7 +1724,7 @@ const IMSettings: React.FC = () => {
                       handleFeishuOpenClawChange(update);
                       void handleSaveFeishuOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="allowlist">Allowlist</option>
                     <option value="open">Open</option>
@@ -1754,7 +1754,7 @@ const IMSettings: React.FC = () => {
                           }
                         }
                       }}
-                      className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder={i18nService.t('imFeishuChatIdPlaceholder')}
                     />
                     <button
@@ -1768,7 +1768,7 @@ const IMSettings: React.FC = () => {
                           void imService.persistConfig({ feishu: { ...fsOpenClawConfig, groupAllowFrom: newIds } });
                         }
                       }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary-muted text-primary hover:bg-primary-muted transition-colors"
                     >
                       {i18nService.t('add') || '添加'}
                     </button>
@@ -1778,7 +1778,7 @@ const IMSettings: React.FC = () => {
                       {fsOpenClawConfig.groupAllowFrom.map((id) => (
                         <span
                           key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface/80 border-border/60 border text-foreground"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
                         >
                           {id}
                           <button
@@ -1810,7 +1810,7 @@ const IMSettings: React.FC = () => {
                       handleFeishuOpenClawChange(update);
                       void handleSaveFeishuOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="auto">{i18nService.t('imReplyModeAuto')}</option>
                     <option value="static">{i18nService.t('imReplyModeStatic')}</option>
@@ -1828,7 +1828,7 @@ const IMSettings: React.FC = () => {
                     value={fsOpenClawConfig.historyLimit}
                     onChange={(e) => handleFeishuOpenClawChange({ historyLimit: parseInt(e.target.value) || 50 })}
                     onBlur={() => handleSaveFeishuOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     min="1"
                     max="200"
                   />
@@ -1844,7 +1844,7 @@ const IMSettings: React.FC = () => {
                     value={fsOpenClawConfig.mediaMaxMb}
                     onChange={(e) => handleFeishuOpenClawChange({ mediaMaxMb: parseInt(e.target.value) || 30 })}
                     onBlur={() => handleSaveFeishuOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     min="1"
                     max="50"
                   />
@@ -1889,7 +1889,7 @@ const IMSettings: React.FC = () => {
                   value={qqOpenClawConfig.appId}
                   onChange={(e) => handleQQOpenClawChange({ appId: e.target.value })}
                   onBlur={() => handleSaveQQOpenClawConfig()}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
                   placeholder="102xxxxx"
                 />
                 {qqOpenClawConfig.appId && (
@@ -1918,7 +1918,7 @@ const IMSettings: React.FC = () => {
                   value={qqOpenClawConfig.appSecret}
                   onChange={(e) => handleQQOpenClawChange({ appSecret: e.target.value })}
                   onBlur={() => handleSaveQQOpenClawConfig()}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
                   placeholder="••••••••••••"
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
@@ -1952,7 +1952,7 @@ const IMSettings: React.FC = () => {
               <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
                 {i18nService.t('imAdvancedSettings')}
               </summary>
-              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border/30">
+              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
                 {/* DM Policy */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-secondary">
@@ -1965,7 +1965,7 @@ const IMSettings: React.FC = () => {
                       handleQQOpenClawChange(update);
                       void handleSaveQQOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
                     <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
@@ -1998,7 +1998,7 @@ const IMSettings: React.FC = () => {
                           }
                         }
                       }}
-                      className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder={i18nService.t('imQQUserIdPlaceholder')}
                     />
                     <button
@@ -2012,7 +2012,7 @@ const IMSettings: React.FC = () => {
                           void imService.persistConfig({ qq: { ...qqOpenClawConfig, allowFrom: newIds } });
                         }
                       }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary-muted text-primary hover:bg-primary-muted transition-colors"
                     >
                       {i18nService.t('add') || '添加'}
                     </button>
@@ -2022,7 +2022,7 @@ const IMSettings: React.FC = () => {
                       {qqOpenClawConfig.allowFrom.map((id) => (
                         <span
                           key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface/80 border-border/60 border text-foreground"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
                         >
                           {id}
                           <button
@@ -2054,7 +2054,7 @@ const IMSettings: React.FC = () => {
                       handleQQOpenClawChange(update);
                       void handleSaveQQOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="open">Open</option>
                     <option value="allowlist">Allowlist</option>
@@ -2072,7 +2072,7 @@ const IMSettings: React.FC = () => {
                     value={qqOpenClawConfig.historyLimit}
                     onChange={(e) => handleQQOpenClawChange({ historyLimit: parseInt(e.target.value) || 50 })}
                     onBlur={() => handleSaveQQOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     min="1"
                     max="200"
                   />
@@ -2110,7 +2110,7 @@ const IMSettings: React.FC = () => {
                     value={qqOpenClawConfig.imageServerBaseUrl}
                     onChange={(e) => handleQQOpenClawChange({ imageServerBaseUrl: e.target.value })}
                     onBlur={() => handleSaveQQOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     placeholder="http://your-ip:18765"
                   />
                   <p className="text-xs text-secondary">
@@ -2156,7 +2156,7 @@ const IMSettings: React.FC = () => {
                   value={tgOpenClawConfig.botToken}
                   onChange={(e) => handleTelegramOpenClawChange({ botToken: e.target.value })}
                   onBlur={() => handleSaveTelegramOpenClawConfig()}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
                   placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
@@ -2190,7 +2190,7 @@ const IMSettings: React.FC = () => {
               <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
                 {i18nService.t('imAdvancedSettings')}
               </summary>
-              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border/30">
+              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
                 {/* DM Policy */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-secondary">
@@ -2203,7 +2203,7 @@ const IMSettings: React.FC = () => {
                       handleTelegramOpenClawChange(update);
                       void handleSaveTelegramOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
                     <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
@@ -2237,7 +2237,7 @@ const IMSettings: React.FC = () => {
                           }
                         }
                       }}
-                      className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder={i18nService.t('imTelegramUserIdPlaceholder')}
                     />
                     <button
@@ -2251,7 +2251,7 @@ const IMSettings: React.FC = () => {
                           void imService.persistConfig({ telegram: { ...tgOpenClawConfig, allowFrom: newIds } });
                         }
                       }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary-muted text-primary hover:bg-primary-muted transition-colors"
                     >
                       {i18nService.t('add') || '添加'}
                     </button>
@@ -2261,7 +2261,7 @@ const IMSettings: React.FC = () => {
                       {tgOpenClawConfig.allowFrom.map((id) => (
                         <span
                           key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface/80 border-border/60 border text-foreground"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
                         >
                           {id}
                           <button
@@ -2293,7 +2293,7 @@ const IMSettings: React.FC = () => {
                       handleTelegramOpenClawChange(update);
                       void handleSaveTelegramOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="off">Off</option>
                     <option value="partial">Partial</option>
@@ -2312,7 +2312,7 @@ const IMSettings: React.FC = () => {
                     value={tgOpenClawConfig.proxy}
                     onChange={(e) => handleTelegramOpenClawChange({ proxy: e.target.value })}
                     onBlur={() => handleSaveTelegramOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     placeholder="socks5://localhost:9050"
                   />
                 </div>
@@ -2329,7 +2329,7 @@ const IMSettings: React.FC = () => {
                       handleTelegramOpenClawChange(update);
                       void handleSaveTelegramOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="allowlist">Allowlist</option>
                     <option value="open">Open</option>
@@ -2349,7 +2349,7 @@ const IMSettings: React.FC = () => {
                       handleTelegramOpenClawChange(update);
                       void handleSaveTelegramOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="off">Off</option>
                     <option value="first">First</option>
@@ -2367,7 +2367,7 @@ const IMSettings: React.FC = () => {
                     value={tgOpenClawConfig.historyLimit}
                     onChange={(e) => handleTelegramOpenClawChange({ historyLimit: parseInt(e.target.value) || 50 })}
                     onBlur={() => handleSaveTelegramOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     min="1"
                     max="200"
                   />
@@ -2383,7 +2383,7 @@ const IMSettings: React.FC = () => {
                     value={tgOpenClawConfig.mediaMaxMb}
                     onChange={(e) => handleTelegramOpenClawChange({ mediaMaxMb: parseInt(e.target.value) || 5 })}
                     onBlur={() => handleSaveTelegramOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     min="1"
                     max="50"
                   />
@@ -2421,7 +2421,7 @@ const IMSettings: React.FC = () => {
                     value={tgOpenClawConfig.webhookUrl}
                     onChange={(e) => handleTelegramOpenClawChange({ webhookUrl: e.target.value })}
                     onBlur={() => handleSaveTelegramOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     placeholder="https://example.com/telegram-webhook"
                   />
                 </div>
@@ -2437,7 +2437,7 @@ const IMSettings: React.FC = () => {
                       value={tgOpenClawConfig.webhookSecret}
                       onChange={(e) => handleTelegramOpenClawChange({ webhookSecret: e.target.value })}
                       onBlur={() => handleSaveTelegramOpenClawConfig()}
-                      className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder="webhook-secret"
                     />
                   </div>
@@ -2476,7 +2476,7 @@ const IMSettings: React.FC = () => {
                   value={dcOpenClawConfig.botToken}
                   onChange={(e) => handleDiscordOpenClawChange({ botToken: e.target.value })}
                   onBlur={() => handleSaveDiscordOpenClawConfig()}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
                   placeholder="MTIzNDU2Nzg5MDEyMzQ1Njc4OQ..."
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
@@ -2510,7 +2510,7 @@ const IMSettings: React.FC = () => {
               <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
                 {i18nService.t('imAdvancedSettings')}
               </summary>
-              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border/30">
+              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
                 {/* DM Policy */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-secondary">
@@ -2523,7 +2523,7 @@ const IMSettings: React.FC = () => {
                       handleDiscordOpenClawChange(update);
                       void handleSaveDiscordOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
                     <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
@@ -2557,7 +2557,7 @@ const IMSettings: React.FC = () => {
                           }
                         }
                       }}
-                      className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder={i18nService.t('imDiscordUserIdPlaceholder')}
                     />
                     <button
@@ -2571,7 +2571,7 @@ const IMSettings: React.FC = () => {
                           void imService.persistConfig({ discord: { ...dcOpenClawConfig, allowFrom: newIds } });
                         }
                       }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary-muted text-primary hover:bg-primary-muted transition-colors"
                     >
                       {i18nService.t('add') || '添加'}
                     </button>
@@ -2581,7 +2581,7 @@ const IMSettings: React.FC = () => {
                       {dcOpenClawConfig.allowFrom.map((id) => (
                         <span
                           key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface/80 border-border/60 border text-foreground"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
                         >
                           {id}
                           <button
@@ -2613,7 +2613,7 @@ const IMSettings: React.FC = () => {
                       handleDiscordOpenClawChange(update);
                       void handleSaveDiscordOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="off">Off</option>
                     <option value="partial">Partial</option>
@@ -2632,7 +2632,7 @@ const IMSettings: React.FC = () => {
                     value={dcOpenClawConfig.proxy}
                     onChange={(e) => handleDiscordOpenClawChange({ proxy: e.target.value })}
                     onBlur={() => handleSaveDiscordOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     placeholder="http://proxy:port"
                   />
                 </div>
@@ -2649,7 +2649,7 @@ const IMSettings: React.FC = () => {
                       handleDiscordOpenClawChange(update);
                       void handleSaveDiscordOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="allowlist">{i18nService.t('imGroupPolicyAllowlist')}</option>
                     <option value="open">{i18nService.t('imGroupPolicyOpen')}</option>
@@ -2679,7 +2679,7 @@ const IMSettings: React.FC = () => {
                           }
                         }
                       }}
-                      className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder={i18nService.t('imDiscordServerIdPlaceholder')}
                     />
                     <button
@@ -2693,7 +2693,7 @@ const IMSettings: React.FC = () => {
                           void imService.persistConfig({ discord: { ...dcOpenClawConfig, groupAllowFrom: newIds } });
                         }
                       }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary-muted text-primary hover:bg-primary-muted transition-colors"
                     >
                       {i18nService.t('add') || '添加'}
                     </button>
@@ -2703,7 +2703,7 @@ const IMSettings: React.FC = () => {
                       {dcOpenClawConfig.groupAllowFrom.map((id) => (
                         <span
                           key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface/80 border-border/60 border text-foreground"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
                         >
                           {id}
                           <button
@@ -2738,7 +2738,7 @@ const IMSettings: React.FC = () => {
                       handleDiscordOpenClawChange({ historyLimit: val });
                     }}
                     onBlur={() => handleSaveDiscordOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   />
                 </div>
 
@@ -2757,7 +2757,7 @@ const IMSettings: React.FC = () => {
                       handleDiscordOpenClawChange({ mediaMaxMb: val });
                     }}
                     onBlur={() => handleSaveDiscordOpenClawConfig()}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   />
                 </div>
               </div>
@@ -2819,7 +2819,7 @@ const IMSettings: React.FC = () => {
                     value={config.nim.appKey}
                     onChange={(e) => dispatch(setNimConfig({ appKey: e.target.value }))}
                     onBlur={handleSaveConfig}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     placeholder="your_app_key"
                   />
                 </div>
@@ -2830,7 +2830,7 @@ const IMSettings: React.FC = () => {
                     value={config.nim.account}
                     onChange={(e) => dispatch(setNimConfig({ account: e.target.value }))}
                     onBlur={handleSaveConfig}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     placeholder="bot_account_id"
                   />
                 </div>
@@ -2841,7 +2841,7 @@ const IMSettings: React.FC = () => {
                     value={config.nim.token}
                     onChange={(e) => dispatch(setNimConfig({ token: e.target.value }))}
                     onBlur={handleSaveConfig}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                     placeholder="••••••••••••"
                   />
                 </div>
@@ -2880,7 +2880,7 @@ const IMSettings: React.FC = () => {
                   value={config['netease-bee'].clientId}
                   onChange={(e) => handleNeteaseBeeChanChange('clientId', e.target.value)}
                   onBlur={handleSaveConfig}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
                   placeholder={i18nService.t('neteaseBeeChanClientIdPlaceholder') || '您的Client ID'}
                 />
                 {config['netease-bee'].clientId && (
@@ -2909,7 +2909,7 @@ const IMSettings: React.FC = () => {
                   value={config['netease-bee'].secret}
                   onChange={(e) => handleNeteaseBeeChanChange('secret', e.target.value)}
                   onBlur={handleSaveConfig}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
                   placeholder="••••••••••••"
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
@@ -2959,13 +2959,13 @@ const IMSettings: React.FC = () => {
         {activePlatform === 'weixin' && (
           <div className="space-y-3">
             {/* Scan QR code section */}
-            <div className="rounded-lg border border-dashed/60 border-border/60 p-4 text-center space-y-3">
+            <div className="rounded-lg border border-dashed border-border-subtle p-4 text-center space-y-3">
               {(weixinQrStatus === 'idle' || weixinQrStatus === 'error') && (
                 <>
                   <button
                     type="button"
                     onClick={() => void handleWeixinQrLogin()}
-                    className="px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {i18nService.t('imWeixinScanBtn')}
                   </button>
@@ -2994,7 +2994,7 @@ const IMSettings: React.FC = () => {
                     {i18nService.t('imWeixinQrScanPrompt')}
                   </p>
                   <div className="flex justify-center">
-                    <div className="p-3 bg-white rounded-lg border border-border/40">
+                    <div className="p-3 bg-white rounded-lg border border-border-subtle">
                       <QRCodeSVG value={weixinQrUrl} size={192} />
                     </div>
                   </div>
@@ -3043,12 +3043,12 @@ const IMSettings: React.FC = () => {
         {activePlatform === 'wecom' && (
           <div className="space-y-3">
             {/* Scan QR code section */}
-            <div className="rounded-lg border border-dashed/60 border-border/60 p-4 text-center space-y-2">
+            <div className="rounded-lg border border-dashed border-border-subtle p-4 text-center space-y-2">
               <button
                 type="button"
                 disabled={wecomQuickSetupStatus === 'pending'}
                 onClick={handleWecomQuickSetup}
-                className="px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {wecomQuickSetupStatus === 'pending'
                   ? i18nService.t('imWecomQuickSetupPending')
@@ -3073,11 +3073,11 @@ const IMSettings: React.FC = () => {
 
             {/* Divider with "or manually enter" */}
             <div className="relative flex items-center">
-              <div className="flex-1 border-t/40 border-border/40" />
+              <div className="flex-1 border-t border-border-subtle" />
               <span className="px-3 text-xs text-secondary whitespace-nowrap">
                 {i18nService.t('imWecomOrManual')}
               </span>
-              <div className="flex-1 border-t/40 border-border/40" />
+              <div className="flex-1 border-t border-border-subtle" />
             </div>
 
             {/* Manual input section */}
@@ -3100,7 +3100,7 @@ const IMSettings: React.FC = () => {
                   value={wecomOpenClawConfig.botId}
                   onChange={(e) => handleWecomOpenClawChange({ botId: e.target.value })}
                   onBlur={() => handleSaveWecomOpenClawConfig()}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
                   placeholder={i18nService.t('imWecomBotIdPlaceholder')}
                 />
                 {wecomOpenClawConfig.botId && (
@@ -3129,7 +3129,7 @@ const IMSettings: React.FC = () => {
                   value={wecomOpenClawConfig.secret}
                   onChange={(e) => handleWecomOpenClawChange({ secret: e.target.value })}
                   onBlur={() => handleSaveWecomOpenClawConfig()}
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
                   placeholder="••••••••••••"
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
@@ -3163,7 +3163,7 @@ const IMSettings: React.FC = () => {
               <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
                 {i18nService.t('imAdvancedSettings')}
               </summary>
-              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border/30">
+              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
                 {/* DM Policy */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-secondary">
@@ -3176,7 +3176,7 @@ const IMSettings: React.FC = () => {
                       handleWecomOpenClawChange(update);
                       void handleSaveWecomOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
                     <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
@@ -3210,7 +3210,7 @@ const IMSettings: React.FC = () => {
                           }
                         }
                       }}
-                      className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder={i18nService.t('imWecomUserIdPlaceholder')}
                     />
                     <button
@@ -3224,7 +3224,7 @@ const IMSettings: React.FC = () => {
                           void imService.persistConfig({ wecom: { ...wecomOpenClawConfig, allowFrom: newIds } });
                         }
                       }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary-muted text-primary hover:bg-primary-muted transition-colors"
                     >
                       {i18nService.t('add') || '添加'}
                     </button>
@@ -3234,7 +3234,7 @@ const IMSettings: React.FC = () => {
                       {wecomOpenClawConfig.allowFrom.map((id) => (
                         <span
                           key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface/80 border-border/60 border text-foreground"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
                         >
                           {id}
                           <button
@@ -3266,7 +3266,7 @@ const IMSettings: React.FC = () => {
                       handleWecomOpenClawChange(update);
                       void handleSaveWecomOpenClawConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="open">Open</option>
                     <option value="allowlist">Allowlist</option>
@@ -3343,7 +3343,7 @@ const IMSettings: React.FC = () => {
                   handlePopoChange(update);
                   void handleSavePopoConfig(update);
                 }}
-                className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
               >
                 <option value="websocket">{i18nService.t('imPopoConnectionModeWebsocket')}</option>
                 <option value="webhook">{i18nService.t('imPopoConnectionModeWebhook')}</option>
@@ -3365,7 +3365,7 @@ const IMSettings: React.FC = () => {
                   onChange={(e) => handlePopoChange({ appKey: e.target.value })}
                   onBlur={() => void handleSavePopoConfig()}
                   placeholder="AppKey"
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
                 />
                 {popoConfig.appKey && (
                   <div className="absolute right-2 inset-y-0 flex items-center">
@@ -3395,7 +3395,7 @@ const IMSettings: React.FC = () => {
                   onChange={(e) => handlePopoChange({ appSecret: e.target.value })}
                   onBlur={() => void handleSavePopoConfig()}
                   placeholder="••••••••••••"
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
                   {popoConfig.appSecret && (
@@ -3434,7 +3434,7 @@ const IMSettings: React.FC = () => {
                   onChange={(e) => handlePopoChange({ token: e.target.value })}
                   onBlur={() => void handleSavePopoConfig()}
                   placeholder="••••••••••••"
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
                   {popoConfig.token && (
@@ -3473,7 +3473,7 @@ const IMSettings: React.FC = () => {
                   onChange={(e) => handlePopoChange({ aesKey: e.target.value })}
                   onBlur={() => void handleSavePopoConfig()}
                   placeholder="••••••••••••"
-                  className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
+                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
                 />
                 <div className="absolute right-2 inset-y-0 flex items-center gap-1">
                   {popoConfig.aesKey && (
@@ -3509,7 +3509,7 @@ const IMSettings: React.FC = () => {
               <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
                 {i18nService.t('imAdvancedSettings')}
               </summary>
-              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border/30">
+              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
                 {/* Webhook fields (webhook mode only) */}
                 {(popoConfig.connectionMode || (popoConfig.token ? 'webhook' : 'websocket')) === 'webhook' && (
                 <>
@@ -3522,7 +3522,7 @@ const IMSettings: React.FC = () => {
                     onChange={(e) => handlePopoChange({ webhookBaseUrl: e.target.value })}
                     onBlur={() => void handleSavePopoConfig()}
                     placeholder={localIp ? `http://${localIp}` : (i18nService.t('lang') === 'zh' ? '外部域名（可选，不填则自动检测本机 IP）' : 'External domain (optional, auto-detects local IP)')}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   />
                 </div>
 
@@ -3535,7 +3535,7 @@ const IMSettings: React.FC = () => {
                     onChange={(e) => handlePopoChange({ webhookPath: e.target.value })}
                     onBlur={() => void handleSavePopoConfig()}
                     placeholder="/popo/callback"
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   />
                 </div>
 
@@ -3548,7 +3548,7 @@ const IMSettings: React.FC = () => {
                     onChange={(e) => handlePopoChange({ webhookPort: parseInt(e.target.value) || 3100 })}
                     onBlur={() => void handleSavePopoConfig()}
                     placeholder="3100"
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   />
                 </div>
                 </>
@@ -3566,7 +3566,7 @@ const IMSettings: React.FC = () => {
                       handlePopoChange(update);
                       void handleSavePopoConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
                     <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
@@ -3600,7 +3600,7 @@ const IMSettings: React.FC = () => {
                           }
                         }
                       }}
-                      className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder={i18nService.t('lang') === 'zh' ? '输入用户 ID 后回车添加' : 'Enter user ID and press Enter'}
                     />
                     <button
@@ -3614,7 +3614,7 @@ const IMSettings: React.FC = () => {
                           void imService.persistConfig({ popo: { ...popoConfig, allowFrom: newIds } });
                         }
                       }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary-muted text-primary hover:bg-primary-muted transition-colors"
                     >
                       {i18nService.t('add') || '添加'}
                     </button>
@@ -3624,7 +3624,7 @@ const IMSettings: React.FC = () => {
                       {popoConfig.allowFrom.map((id) => (
                         <span
                           key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface/80 border-border/60 border text-foreground"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
                         >
                           {id}
                           <button
@@ -3656,7 +3656,7 @@ const IMSettings: React.FC = () => {
                       handlePopoChange(update);
                       void handleSavePopoConfig(update);
                     }}
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   >
                     <option value="open">Open</option>
                     <option value="allowlist">Allowlist</option>
@@ -3686,7 +3686,7 @@ const IMSettings: React.FC = () => {
                           }
                         }
                       }}
-                      className="block flex-1 rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                       placeholder={i18nService.t('lang') === 'zh' ? '输入群组 ID 后回车添加' : 'Enter group ID and press Enter'}
                     />
                     <button
@@ -3700,7 +3700,7 @@ const IMSettings: React.FC = () => {
                           void imService.persistConfig({ popo: { ...popoConfig, groupAllowFrom: newIds } });
                         }
                       }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary-muted text-primary hover:bg-primary-muted transition-colors"
                     >
                       {i18nService.t('add') || '添加'}
                     </button>
@@ -3710,7 +3710,7 @@ const IMSettings: React.FC = () => {
                       {popoConfig.groupAllowFrom.map((id) => (
                         <span
                           key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface/80 border-border/60 border text-foreground"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
                         >
                           {id}
                           <button
@@ -3739,7 +3739,7 @@ const IMSettings: React.FC = () => {
                     onChange={(e) => handlePopoChange({ textChunkLimit: parseInt(e.target.value) || 3000 })}
                     onBlur={() => void handleSavePopoConfig()}
                     placeholder="3000"
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   />
                 </div>
 
@@ -3752,7 +3752,7 @@ const IMSettings: React.FC = () => {
                     onChange={(e) => handlePopoChange({ richTextChunkLimit: parseInt(e.target.value) || 5000 })}
                     onBlur={() => void handleSavePopoConfig()}
                     placeholder="5000"
-                    className="block w-full rounded-lg bg-surface/80 border-border/60 border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
                   />
                 </div>
 
@@ -3842,7 +3842,7 @@ const IMSettings: React.FC = () => {
                       {connectivityResults[connectivityModalPlatform]!.checks.map((check, index) => (
                         <div
                           key={`${check.code}-${index}`}
-                          className="rounded-lg border border-border/60 px-2.5 py-2 bg-surface/70"
+                          className="rounded-lg border border-border-subtle px-2.5 py-2 bg-surface"
                         >
                           <div className={`text-xs font-medium ${checkLevelColorClass[check.level]}`}>
                             {getCheckTitle(check.code)}
