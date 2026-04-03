@@ -14,6 +14,7 @@ import type { McpToolManifestEntry } from './mcpServerManager';
 import { hasBundledOpenClawExtension } from './openclawLocalExtensions';
 import { buildScheduledTaskEnginePrompt } from '../../scheduledTask/enginePrompt';
 import { getOpenClawTokenProxyPort } from './openclawTokenProxy';
+import { buildManagedAgentEntries } from './openclawAgentModels';
 
 export type McpBridgeConfig = {
   callbackUrl: string;
@@ -859,7 +860,7 @@ export class OpenClawConfigSync {
           },
           ...(workspaceDir ? { workspace: path.resolve(workspaceDir) } : {}),
         },
-        ...this.buildAgentsList(),
+        ...this.buildAgentsList(providerSelection.primaryModel),
       },
       ...this.buildBindings(),
       session: {
@@ -1737,7 +1738,7 @@ export class OpenClawConfigSync {
    * Per-agent `identity` (name, emoji) is set from the agent database so
    * OpenClaw picks it up natively.
    */
-  private buildAgentsList(): { list?: Array<Record<string, unknown>> } {
+  private buildAgentsList(defaultPrimaryModel: string): { list?: Array<Record<string, unknown>> } {
     const agents = this.getAgents?.() ?? [];
 
     const list: Array<Record<string, unknown>> = [
@@ -1745,26 +1746,11 @@ export class OpenClawConfigSync {
         id: 'main',
         default: true,
       },
+      ...buildManagedAgentEntries({
+        agents,
+        fallbackPrimaryModel: defaultPrimaryModel,
+      }),
     ];
-
-    for (const agent of agents) {
-      if (agent.id === 'main' || !agent.enabled) continue;
-
-      list.push({
-        id: agent.id,
-        // Omit `workspace` — OpenClaw defaults to {STATE_DIR}/workspace-{agentId}/
-        // which keeps agent workspaces decoupled from the user's working directory.
-        ...(agent.name || agent.icon ? {
-          identity: {
-            ...(agent.name ? { name: agent.name } : {}),
-            ...(agent.icon ? { emoji: agent.icon } : {}),
-          },
-        } : {}),
-        // Per-agent skill whitelist: only when skillIds is non-empty.
-        // OpenClaw's resolveAgentSkillsFilter() uses this to filter available skills.
-        ...(agent.skillIds && agent.skillIds.length > 0 ? { skills: agent.skillIds } : {}),
-      });
-    }
 
     return list.length > 0 ? { list } : {};
   }
