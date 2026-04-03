@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+
 import type { Model } from '../../store/slices/modelSlice';
 import { resolveAgentModelSelection } from './agentModelSelection';
 
@@ -18,6 +19,7 @@ describe('resolveAgentModelSelection', () => {
 
     expect(result.selectedModel?.id).toBe('claude-sonnet-4');
     expect(result.usesFallback).toBe(false);
+    expect(result.hasInvalidExplicitModel).toBe(false);
   });
 
   test('falls back to the global model in openclaw when agent model is empty', () => {
@@ -30,6 +32,7 @@ describe('resolveAgentModelSelection', () => {
 
     expect(result.selectedModel?.id).toBe('gpt-4o');
     expect(result.usesFallback).toBe(true);
+    expect(result.hasInvalidExplicitModel).toBe(false);
   });
 
   test('uses fallback model outside openclaw without marking fallback mode', () => {
@@ -42,6 +45,7 @@ describe('resolveAgentModelSelection', () => {
 
     expect(result.selectedModel?.id).toBe('gpt-4o');
     expect(result.usesFallback).toBe(false);
+    expect(result.hasInvalidExplicitModel).toBe(false);
   });
 
   test('marks invalid explicit model as fallback to global model', () => {
@@ -54,5 +58,6 @@ describe('resolveAgentModelSelection', () => {
 
     expect(result.selectedModel?.id).toBe('gpt-4o');
     expect(result.usesFallback).toBe(true);
+    expect(result.hasInvalidExplicitModel).toBe(true);
   });
 });

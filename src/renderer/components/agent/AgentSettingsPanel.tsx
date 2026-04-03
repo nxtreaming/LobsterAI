@@ -1,21 +1,22 @@
+import { XMarkIcon } from '@heroicons/react/24/outline';
+import type { Platform } from '@shared/platform';
+import { PlatformRegistry } from '@shared/platform';
 import React, { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { RootState } from '../../store';
+
 import { agentService } from '../../services/agent';
-import { imService } from '../../services/im';
 import { i18nService } from '../../services/i18n';
-import { XMarkIcon } from '@heroicons/react/24/outline';
-import TrashIcon from '../icons/TrashIcon';
-import type { Agent } from '../../types/agent';
+import { imService } from '../../services/im';
+import { RootState } from '../../store';
 import type { Model } from '../../store/slices/modelSlice';
-import type { Platform } from '@shared/platform';
+import type { Agent } from '../../types/agent';
 import type { IMGatewayConfig } from '../../types/im';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
-import { PlatformRegistry } from '@shared/platform';
+import Modal from '../common/Modal';
+import TrashIcon from '../icons/TrashIcon';
+import ModelSelector from '../ModelSelector';
 import AgentSkillSelector from './AgentSkillSelector';
 import EmojiPicker from './EmojiPicker';
-import ModelSelector from '../ModelSelector';
-import Modal from '../common/Modal';
 
 type SettingsTab = 'basic' | 'skills' | 'im';
 

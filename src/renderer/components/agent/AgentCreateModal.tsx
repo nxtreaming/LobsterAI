@@ -1,17 +1,18 @@
+import { XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
+
 import { agentService } from '../../services/agent';
-import { imService } from '../../services/im';
 import { i18nService } from '../../services/i18n';
-import { XMarkIcon } from '@heroicons/react/24/outline';
-import { getVisibleIMPlatforms } from '../../utils/regionFilter';
-import type { IMPlatform, IMGatewayConfig } from '../../types/im';
-import type { Model } from '../../store/slices/modelSlice';
+import { imService } from '../../services/im';
 import type { RootState } from '../../store';
+import type { Model } from '../../store/slices/modelSlice';
+import type { IMGatewayConfig,IMPlatform } from '../../types/im';
+import { getVisibleIMPlatforms } from '../../utils/regionFilter';
+import Modal from '../common/Modal';
+import ModelSelector from '../ModelSelector';
 import AgentSkillSelector from './AgentSkillSelector';
 import EmojiPicker from './EmojiPicker';
-import ModelSelector from '../ModelSelector';
-import Modal from '../common/Modal';
 
 type CreateTab = 'basic' | 'skills' | 'im';
 

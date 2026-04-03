@@ -1,5 +1,5 @@
-import type { CoworkAgentEngine } from '../../types/cowork';
 import type { Model } from '../../store/slices/modelSlice';
+import type { CoworkAgentEngine } from '../../types/cowork';
 
 type ResolveAgentModelSelectionInput = {
   agentModel: string;
@@ -11,6 +11,7 @@ type ResolveAgentModelSelectionInput = {
 type ResolveAgentModelSelectionResult = {
   selectedModel: Model | null;
   usesFallback: boolean;
+  hasInvalidExplicitModel: boolean;
 };
 
 export function resolveAgentModelSelection({
@@ -20,16 +21,18 @@ export function resolveAgentModelSelection({
   engine,
 }: ResolveAgentModelSelectionInput): ResolveAgentModelSelectionResult {
   if (engine !== 'openclaw') {
-    return { selectedModel: fallbackModel, usesFallback: false };
+    return { selectedModel: fallbackModel, usesFallback: false, hasInvalidExplicitModel: false };
   }
 
   const normalizedAgentModel = agentModel.trim();
   if (normalizedAgentModel) {
     const explicitModel = availableModels.find((model) => model.id === normalizedAgentModel) ?? null;
     if (explicitModel) {
-      return { selectedModel: explicitModel, usesFallback: false };
+      return { selectedModel: explicitModel, usesFallback: false, hasInvalidExplicitModel: false };
     }
+
+    return { selectedModel: fallbackModel, usesFallback: true, hasInvalidExplicitModel: true };
   }
 
-  return { selectedModel: fallbackModel, usesFallback: true };
+  return { selectedModel: fallbackModel, usesFallback: true, hasInvalidExplicitModel: false };
 }

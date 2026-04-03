@@ -1,23 +1,24 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { PaperAirplaneIcon, StopIcon, FolderIcon } from '@heroicons/react/24/solid';
-import { PhotoIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { ExclamationTriangleIcon,PhotoIcon } from '@heroicons/react/24/outline';
+import { FolderIcon,PaperAirplaneIcon, StopIcon } from '@heroicons/react/24/solid';
+import React, { useCallback,useEffect, useRef, useState } from 'react';
+import { useDispatch,useSelector } from 'react-redux';
+
+import { agentService } from '../../services/agent';
+import { i18nService } from '../../services/i18n';
+import { skillService } from '../../services/skill';
+import { RootState } from '../../store';
+import { clearDraftAttachments, type DraftAttachment,setDraftAttachments, setDraftPrompt } from '../../store/slices/coworkSlice';
+import { setSkills, toggleActiveSkill } from '../../store/slices/skillSlice';
+import { CoworkImageAttachment } from '../../types/cowork';
+import { Skill } from '../../types/skill';
+import { getCompactFolderName } from '../../utils/path';
 import PaperClipIcon from '../icons/PaperClipIcon';
 import XMarkIcon from '../icons/XMarkIcon';
 import ModelSelector from '../ModelSelector';
+import { ActiveSkillBadge,SkillsButton } from '../skills';
 import Tooltip from '../ui/Tooltip';
-import FolderSelectorPopover from './FolderSelectorPopover';
-import { SkillsButton, ActiveSkillBadge } from '../skills';
-import { i18nService } from '../../services/i18n';
-import { agentService } from '../../services/agent';
-import { skillService } from '../../services/skill';
-import { RootState } from '../../store';
-import { setDraftPrompt, setDraftAttachments, clearDraftAttachments, type DraftAttachment } from '../../store/slices/coworkSlice';
-import { setSkills, toggleActiveSkill } from '../../store/slices/skillSlice';
-import { Skill } from '../../types/skill';
-import { CoworkImageAttachment } from '../../types/cowork';
-import { getCompactFolderName } from '../../utils/path';
 import { resolveAgentModelSelection } from './agentModelSelection';
+import FolderSelectorPopover from './FolderSelectorPopover';
 
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
 // so that attachment state survives view switches (cowork ↔ skills, etc.)
@@ -163,7 +164,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const skills = useSelector((state: RootState) => state.skill.skills);
   const currentAgent = agents.find((agent) => agent.id === currentAgentId);
-  const { selectedModel: agentSelectedModel, usesFallback: agentModelUsesFallback } = resolveAgentModelSelection({
+  const {
+    selectedModel: agentSelectedModel,
+    usesFallback: agentModelUsesFallback,
+    hasInvalidExplicitModel: agentModelIsInvalid,
+  } = resolveAgentModelSelection({
     agentModel: currentAgent?.model ?? '',
     availableModels,
     fallbackModel: globalSelectedModel,
@@ -351,8 +356,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
   };
 
-  const selectedModel = useSelector((state: RootState) => state.model.selectedModel);
-  const modelSupportsImage = !!selectedModel?.supportsImage;
+  const effectiveSelectedModel = coworkAgentEngine === 'openclaw' ? agentSelectedModel : globalSelectedModel;
+  const modelSupportsImage = !!effectiveSelectedModel?.supportsImage;
 
   const addAttachment = useCallback((filePath: string, imageInfo?: { isImage: boolean; dataUrl?: string }) => {
     if (!filePath) return;
@@ -607,7 +612,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     void handleIncomingFiles(files);
   }, [disabled, handleIncomingFiles, isStreaming]);
 
-  const canSubmit = !disabled && (!!value.trim() || attachments.length > 0);
+  const canSubmit = !disabled && !agentModelIsInvalid && (!!value.trim() || attachments.length > 0);
   const enhancedContainerClass = isDraggingFiles
     ? `${containerClass} ring-2 ring-primary/50 border-primary/60`
     : containerClass;
@@ -741,7 +746,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                         : undefined}
                       defaultLabel={i18nService.t('agentModelUseGlobalDefault')}
                     />
-                    {coworkAgentEngine === 'openclaw' && agentModelUsesFallback && (
+                    {coworkAgentEngine === 'openclaw' && agentModelIsInvalid && (
+                      <span className="max-w-60 text-[11px] leading-4 text-red-500">
+                        {i18nService.t('agentModelInvalidHint')}
+                      </span>
+                    )}
+                    {coworkAgentEngine === 'openclaw' && !agentModelIsInvalid && agentModelUsesFallback && (
                       <span className="max-w-60 text-[11px] leading-4 text-secondary/70">
                         {i18nService.t('agentModelFallbackHint')}
                       </span>

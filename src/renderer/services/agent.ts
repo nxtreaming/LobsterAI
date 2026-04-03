@@ -1,14 +1,14 @@
 import { store } from '../store';
 import {
+  addAgent,
+  removeAgent,
   setAgents,
   setCurrentAgentId,
   setLoading,
-  addAgent,
   updateAgent as updateAgentAction,
-  removeAgent,
 } from '../store/slices/agentSlice';
-import { setActiveSkillIds, clearActiveSkills } from '../store/slices/skillSlice';
 import { clearCurrentSession } from '../store/slices/coworkSlice';
+import { clearActiveSkills,setActiveSkillIds } from '../store/slices/skillSlice';
 import type { Agent, PresetAgent } from '../types/agent';
 
 class AgentService {

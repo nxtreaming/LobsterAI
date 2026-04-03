@@ -1,20 +1,21 @@
 import { app } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import type { CoworkConfig, CoworkExecutionMode, Agent } from '../coworkStore';
-import type { TelegramOpenClawConfig, DiscordOpenClawConfig, IMSettings } from '../im/types';
-import type { DingTalkOpenClawConfig, DingTalkInstanceConfig, FeishuInstanceConfig, QQInstanceConfig, WecomOpenClawConfig, PopoOpenClawConfig, NimConfig, WeixinOpenClawConfig, NeteaseBeeChanConfig } from '../im/types';
-import { PlatformRegistry } from '../../shared/platform';
-import { ProviderName, OpenClawProviderId, OpenClawApi as OpenClawApiConst } from '../../shared/providers';
-import { resolveRawApiConfig, resolveAllProviderApiKeys, resolveAllEnabledProviderConfigs, getAllServerModelMetadata } from './claudeSettings';
-import { getCoworkOpenAICompatProxyBaseURL } from './coworkOpenAICompatProxy';
-import type { OpenClawEngineManager } from './openclawEngineManager';
-import { parseChannelSessionKey } from './openclawChannelSessionSync';
-import type { McpToolManifestEntry } from './mcpServerManager';
-import { hasBundledOpenClawExtension } from './openclawLocalExtensions';
+
 import { buildScheduledTaskEnginePrompt } from '../../scheduledTask/enginePrompt';
-import { getOpenClawTokenProxyPort } from './openclawTokenProxy';
+import { PlatformRegistry } from '../../shared/platform';
+import { OpenClawApi as OpenClawApiConst,OpenClawProviderId, ProviderName } from '../../shared/providers';
+import type { Agent,CoworkConfig, CoworkExecutionMode } from '../coworkStore';
+import type { DiscordOpenClawConfig, IMSettings,TelegramOpenClawConfig } from '../im/types';
+import type { DingTalkInstanceConfig, DingTalkOpenClawConfig, FeishuInstanceConfig, NeteaseBeeChanConfig,NimConfig, PopoOpenClawConfig, QQInstanceConfig, WecomOpenClawConfig, WeixinOpenClawConfig } from '../im/types';
+import { getAllServerModelMetadata,resolveAllEnabledProviderConfigs, resolveAllProviderApiKeys, resolveRawApiConfig } from './claudeSettings';
+import { getCoworkOpenAICompatProxyBaseURL } from './coworkOpenAICompatProxy';
+import type { McpToolManifestEntry } from './mcpServerManager';
 import { buildManagedAgentEntries } from './openclawAgentModels';
+import { parseChannelSessionKey } from './openclawChannelSessionSync';
+import type { OpenClawEngineManager } from './openclawEngineManager';
+import { hasBundledOpenClawExtension } from './openclawLocalExtensions';
+import { getOpenClawTokenProxyPort } from './openclawTokenProxy';
 
 export type McpBridgeConfig = {
   callbackUrl: string;
