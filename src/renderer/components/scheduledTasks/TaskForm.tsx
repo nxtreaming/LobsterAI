@@ -1,6 +1,5 @@
 import { PlatformRegistry } from '@shared/platform';
-import { OpenClawProviderId, ProviderRegistry } from '@shared/providers/constants';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
 import type {
@@ -13,24 +12,16 @@ import { i18nService } from '../../services/i18n';
 import { scheduledTaskService } from '../../services/scheduledTask';
 import { RootState } from '../../store';
 import type { Model } from '../../store/slices/modelSlice';
+import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import ModelSelector from '../ModelSelector';
 import { formatScheduleLabel, type PlanType, scheduleToPlanInfo } from './utils';
-
-function toOpenClawModelRef(model: {
-  id: string;
-  providerKey?: string;
-  isServerModel?: boolean;
-}): string {
-  if (model.isServerModel) return `${OpenClawProviderId.LobsteraiServer}/${model.id}`;
-  const openClawId = ProviderRegistry.getOpenClawProviderId(model.providerKey ?? '');
-  return `${openClawId}/${model.id}`;
-}
 
 interface TaskFormProps {
   mode: 'create' | 'edit';
   task?: ScheduledTask;
   onCancel: () => void;
   onSaved: (newTaskId?: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 interface CronBuilder {
@@ -240,8 +231,9 @@ function previewCron(expr: string): { ok: true; label: string } | { ok: false } 
   }
 }
 
-const TaskForm: React.FC<TaskFormProps> = ({ mode, task, onCancel, onSaved }) => {
+const TaskForm: React.FC<TaskFormProps> = ({ mode, task, onCancel, onSaved, onDirtyChange }) => {
   const [form, setForm] = useState<FormState>(() => createFormState(task));
+  const initialFormRef = useRef<string>(JSON.stringify(createFormState(task)));
   const availableModels = useSelector((state: RootState) => state.model.availableModels);
   const [channelOptions, setChannelOptions] = useState<ScheduledTaskChannelOption[]>(() => {
     const base: ScheduledTaskChannelOption[] = [];
@@ -261,6 +253,12 @@ const TaskForm: React.FC<TaskFormProps> = ({ mode, task, onCancel, onSaved }) =>
     { ok: true; label: string } | { ok: false } | null
   >(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const isDirty = JSON.stringify(form) !== initialFormRef.current;
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   const isAdvanced = form.planType === 'advanced';
   const isCron = form.planType === 'cron';
