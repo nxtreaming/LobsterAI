@@ -696,6 +696,7 @@ type OpenClawConfigSyncDeps = {
   getWeixinConfig: () => WeixinOpenClawConfig | null;
   getIMSettings?: () => IMSettings | null;
   getMcpBridgeConfig?: () => McpBridgeConfig | null;
+  getMcpBridgeSecret?: () => string;
   getSkillsList?: () => Array<{ id: string; enabled: boolean }>;
   getAgents?: () => Agent[];
 };
@@ -717,6 +718,7 @@ export class OpenClawConfigSync {
   private readonly getWeixinConfig: () => WeixinOpenClawConfig | null;
   private readonly getIMSettings?: () => IMSettings | null;
   private readonly getMcpBridgeConfig?: () => McpBridgeConfig | null;
+  private readonly getMcpBridgeSecret?: () => string;
   private readonly getSkillsList?: () => Array<{ id: string; enabled: boolean }>;
   private readonly getAgents?: () => Agent[];
   private previousBindingsJson?: string;
@@ -739,6 +741,7 @@ export class OpenClawConfigSync {
     this.getWeixinConfig = deps.getWeixinConfig;
     this.getIMSettings = deps.getIMSettings;
     this.getMcpBridgeConfig = deps.getMcpBridgeConfig;
+    this.getMcpBridgeSecret = deps.getMcpBridgeSecret;
     this.getSkillsList = deps.getSkillsList;
     this.getAgents = deps.getAgents;
   }
@@ -1483,8 +1486,11 @@ export class OpenClawConfigSync {
 
     // MCP Bridge Secret — always set so stale openclaw.json with
     // ${LOBSTER_MCP_BRIDGE_SECRET} placeholder doesn't crash the gateway.
+    // Prefer getMcpBridgeSecret() which is available immediately (eagerly
+    // generated at module load), over getMcpBridgeConfig() which requires
+    // the full McpBridgeServer to be started.
     const mcpBridgeCfg = this.getMcpBridgeConfig?.();
-    env.LOBSTER_MCP_BRIDGE_SECRET = mcpBridgeCfg?.secret || 'unconfigured';
+    env.LOBSTER_MCP_BRIDGE_SECRET = this.getMcpBridgeSecret?.() || mcpBridgeCfg?.secret || 'unconfigured';
 
     // Telegram
     const tgConfig = this.getTelegramOpenClawConfig?.();

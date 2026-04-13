@@ -651,7 +651,10 @@ let skillManager: SkillManager | null = null;
 let mcpStore: McpStore | null = null;
 let mcpServerManager: McpServerManager | null = null;
 let mcpBridgeServer: McpBridgeServer | null = null;
-let mcpBridgeSecret: string | null = null;
+// Generated eagerly so the secret is available before the first syncOpenClawConfig
+// call — the gateway process inherits it via LOBSTER_MCP_BRIDGE_SECRET env var at
+// spawn time, avoiding a restart just to pick up the correct secret.
+let mcpBridgeSecret: string = require('crypto').randomUUID();
 let mcpBridgeStartPromise: Promise<McpBridgeConfig | null> | null = null;
 let imGatewayManager: IMGatewayManager | null = null;
 let storeInitPromise: Promise<SqliteStore> | null = null;
@@ -955,6 +958,7 @@ const getOpenClawConfigSync = (): OpenClawConfigSync => {
           tools: mcpServerManager?.toolManifest ?? [],
         };
       },
+      getMcpBridgeSecret: () => mcpBridgeSecret,
       getAgents: () => getCoworkStore().listAgents(),
     });
   }
@@ -1255,12 +1259,6 @@ const startMcpBridge = (): Promise<McpBridgeConfig | null> => {
   mcpBridgeStartPromise = (async (): Promise<McpBridgeConfig | null> => {
   try {
     console.log('[McpBridge] startMcpBridge called');
-
-    // Generate a per-session secret for bridge auth
-    if (!mcpBridgeSecret) {
-      const crypto = await import('crypto');
-      mcpBridgeSecret = crypto.randomUUID();
-    }
 
     // Discover MCP tools (may be empty if no servers configured)
     const enabledServers = getMcpStore().getEnabledServers();
