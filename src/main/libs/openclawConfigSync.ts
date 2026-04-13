@@ -1000,11 +1000,19 @@ export class OpenClawConfigSync {
         sessionRetention: '7d',
       },
       ...((() => {
+        // Remove known-stale plugin entries that no longer ship with the
+        // runtime.  These ghost entries cause harmless but noisy "plugin
+        // not found" warnings on every gateway startup.
+        const knownStalePluginIds = ['openclaw-nim-channel', 'qwen-portal-auth'];
+        const cleanedExistingEntries = Object.fromEntries(
+          Object.entries(existingPluginEntries).filter(([id]) => !knownStalePluginIds.includes(id)),
+        );
+
         const pluginEntries: Record<string, unknown> = {
           // Preserve ALL existing plugin entries so runtime auto-injected
           // plugins (moonshot, minimax, volcengine, browser, etc.) survive
           // config rewrites.  Our managed entries below override stale values.
-          ...existingPluginEntries,
+          ...cleanedExistingEntries,
           ...Object.fromEntries(
             preinstalledPluginIds.map((id) => {
               // Sync plugin enabled state with the corresponding channel config.

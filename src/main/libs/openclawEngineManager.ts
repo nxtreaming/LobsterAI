@@ -157,6 +157,7 @@ export class OpenClawEngineManager extends EventEmitter {
   private gatewayPort: number | null = null;
   private startGatewayPromise: Promise<OpenClawEngineStatus> | null = null;
   private secretEnvVars: Record<string, string> = {};
+  private gatewaySpawnedAt: number | null = null;
 
   constructor() {
     super();
@@ -525,6 +526,7 @@ export class OpenClawEngineManager extends EventEmitter {
     console.log(`[OpenClaw] startGateway: gateway process created (${elapsed()}), platform=${process.platform}`);
 
     this.gatewayProcess = child;
+    this.gatewaySpawnedAt = Date.now();
     this.attachGatewayProcessLogs(child);
     this.attachGatewayExitHandlers(child);
 
@@ -962,6 +964,7 @@ export class OpenClawEngineManager extends EventEmitter {
       `}\n` +
       `const _keepAlive = setInterval(() => {}, 30000);\n` +
       `const bundleUrl = pathToFileURL(bundlePath).href;\n` +
+      `try { const _sz = fs.statSync(bundlePath).size; _log('bundle size=' + (_sz / 1024 / 1024).toFixed(1) + 'MB'); } catch (_) {}\n` +
       `_log('loading bundle (' + _elapsed() + ')');\n` +
       `import(bundleUrl).then(() => {\n` +
       `  _log('import ok (' + _elapsed() + ')');\n` +
@@ -1317,14 +1320,27 @@ export class OpenClawEngineManager extends EventEmitter {
       });
     };
 
+    // Log elapsed time when gateway emits key startup milestones.
+    // This fills the observability gap between "import ok" and "[gateway] ready".
+    const logStartupMilestone = (text: string) => {
+      if (!this.gatewaySpawnedAt) return;
+      if (/\[gateway\]/.test(text)) {
+        const elapsed = Date.now() - this.gatewaySpawnedAt;
+        const summary = text.replace(/\n+$/g, '').split('\n')[0].trim();
+        console.log(`[OpenClaw] startup milestone (${elapsed}ms since spawn): ${summary}`);
+      }
+    };
+
     child.stdout?.on('data', (chunk) => {
       appendLog(chunk, 'stdout');
       const text = typeof chunk === 'string' ? chunk : chunk.toString();
+      logStartupMilestone(text);
       console.log(`[OpenClaw stdout] ${OpenClawEngineManager.rewriteUtcTimestamps(text)}`);
     });
     child.stderr?.on('data', (chunk) => {
       appendLog(chunk, 'stderr');
       const text = typeof chunk === 'string' ? chunk : chunk.toString();
+      logStartupMilestone(text);
       console.error(`[OpenClaw stderr] ${OpenClawEngineManager.rewriteUtcTimestamps(text)}`);
     });
   }
