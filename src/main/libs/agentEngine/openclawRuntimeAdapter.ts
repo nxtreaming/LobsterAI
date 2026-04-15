@@ -205,6 +205,24 @@ const stripFeishuSystemHeader = (text: string): string => {
 };
 
 /**
+ * Strip the POPO plugin's system header line from user messages.
+ *
+ * The moltbot-popo plugin calls enqueueSystemEvent on every inbound message,
+ * prepending a one-line header before the user's actual text:
+ *   System: [2026-04-14 19:57:42 GMT+8] POPO DM received from user@corp.com
+ *   System: [2026-04-14 19:57:42 GMT+8] POPO message received in group <id>
+ *
+ * Strip it so only the real user text is stored and displayed locally.
+ */
+const stripPopoSystemHeader = (text: string): string => {
+  // Match: "System: [timestamp] POPO DM received from ..." or
+  //        "System: [timestamp] POPO message received in group ..."
+  const match = text.match(/^System:\s*\[.*?\]\s+POPO\b.*$/m);
+  if (!match) return text;
+  return text.slice(match.index! + match[0].length).replace(/^\n+/, '').trim();
+};
+
+/**
  * Strip the QQ Bot plugin's injected system prompt prefix from user messages.
  *
  * The QQ plugin prepends context info and capability instructions before the
@@ -3172,6 +3190,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         && this.channelSessionSync.isChannelSessionKey(sessionKey);
       const isDiscord = sessionKey.includes(':discord:');
       const isQQ = sessionKey.includes(':qqbot:');
+      const isPopo = sessionKey.includes(':moltbot-popo:');
       const isFeishu = sessionKey.includes(':feishu:');
 
       // Extract authoritative user/assistant entries from gateway history
@@ -3184,6 +3203,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         if (!text) continue;
         if (isDiscord) text = stripDiscordMentions(text);
         if (isQQ && role === 'user') text = stripQQBotSystemPrompt(text);
+        if (isPopo && role === 'user') text = stripPopoSystemHeader(text);
         if (isFeishu && role === 'user') text = stripFeishuSystemHeader(text);
         authoritativeEntries.push({ role: role as 'user' | 'assistant', text });
       }
@@ -3454,6 +3474,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       // POPO's moltbot-popo plugin converts newlines to HTML break tags (<br />),
       // causing raw <br /> to appear in the UI and AI conversation.
       if (isPopo) text = text.replace(/<br\s*\/?>/gi, '\n');
+      if (isPopo && role === 'user') text = stripPopoSystemHeader(text);
       if (isDiscord) text = stripDiscordMentions(text);
       if (isQQ && role === 'user') text = stripQQBotSystemPrompt(text);
       if (isFeishu && role === 'user') text = stripFeishuSystemHeader(text);
