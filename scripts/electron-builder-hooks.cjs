@@ -124,14 +124,61 @@ function verifyPreinstalledPlugins(runtimeRoot, buildHint) {
   console.log(`[electron-builder-hooks] Verified ${plugins.length} preinstalled OpenClaw plugin(s).`);
 }
 
+function hasCompiledLocalExtension(runtimeRoot, extensionId) {
+  const pluginDir = path.join(runtimeRoot, 'third-party-extensions', extensionId);
+  return existsSync(path.join(pluginDir, 'openclaw.plugin.json'))
+    && existsSync(path.join(pluginDir, 'index.js'));
+}
+
+function precompileLocalExtensions(runtimeRoot, buildHint) {
+  const scriptPath = path.join(__dirname, 'precompile-openclaw-extensions.cjs');
+  const result = spawnSync(process.execPath, [scriptPath, runtimeRoot], {
+    cwd: path.join(__dirname, '..'),
+    stdio: 'inherit',
+  });
+
+  if (result.status !== 0) {
+    throw new Error(
+      '[electron-builder-hooks] Failed to precompile local OpenClaw extensions. '
+      + `Run \`${buildHint}\` before packaging.`,
+    );
+  }
+}
+
+function ensureBundledLocalExtensions(runtimeRoot, buildHint) {
+  const requiredLocalExtensions = ['mcp-bridge', 'ask-user-question'];
+  const missingCompiledExtensions = requiredLocalExtensions.filter(
+    (extensionId) => !hasCompiledLocalExtension(runtimeRoot, extensionId),
+  );
+
+  if (missingCompiledExtensions.length === 0) {
+    return;
+  }
+
+  console.log(
+    '[electron-builder-hooks] Restoring local OpenClaw extensions before packaging: '
+    + missingCompiledExtensions.join(', '),
+  );
+  syncLocalOpenClawExtensions(runtimeRoot);
+  precompileLocalExtensions(runtimeRoot, buildHint);
+
+  const stillMissing = requiredLocalExtensions.filter(
+    (extensionId) => !hasCompiledLocalExtension(runtimeRoot, extensionId),
+  );
+  if (stillMissing.length > 0) {
+    throw new Error(
+      '[electron-builder-hooks] Bundled OpenClaw runtime is missing compiled local extensions: '
+      + stillMissing.join(', ')
+      + `. Run \`${buildHint}\` before packaging.`,
+    );
+  }
+}
+
 function ensureBundledOpenClawRuntime(context) {
   const { runtimeRoot, targetId } = syncCurrentOpenClawRuntimeForTarget(context);
   const buildHint = getOpenClawRuntimeBuildHint(targetId);
 
-  const localMcpBridgeDir = path.join(runtimeRoot, 'dist', 'extensions', 'mcp-bridge');
-  if (!existsSync(localMcpBridgeDir)) {
-    syncLocalOpenClawExtensions(runtimeRoot);
-  }
+  ensureBundledLocalExtensions(runtimeRoot, buildHint);
 
   const requiredExternalPaths = [
     path.join(runtimeRoot, 'node_modules'),

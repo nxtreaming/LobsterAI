@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import http from 'http';
 import net from 'net';
 
+import { getToolTextPreview, looksLikeTransportErrorText, serializeForLog, serializeToolContentForLog } from './mcpLog';
 import type { McpServerManager } from './mcpServerManager';
 
 const log = (level: string, msg: string) => {
@@ -246,7 +247,7 @@ export class McpBridgeServer {
         args: Record<string, unknown>;
       };
 
-      log('INFO', `Execute request: server="${server}" tool="${tool}"`);
+      log('INFO', `Execute request received for server="${server}" tool="${tool}" with arguments ${serializeForLog(args || {})}`);
 
       if (!server || !tool) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -256,7 +257,12 @@ export class McpBridgeServer {
 
       const t0 = Date.now();
       const result = await this.mcpManager.callTool(server, tool, args || {});
-      log('INFO', `Execute done: server="${server}" tool="${tool}" isError=${result.isError} elapsed=${Date.now() - t0}ms`);
+      const contentPreview = serializeToolContentForLog(result.content);
+      const textPreview = getToolTextPreview(result.content);
+      log('INFO', `Execute completed for server="${server}" tool="${tool}" in ${Date.now() - t0}ms with isError=${result.isError}. Result=${contentPreview}`);
+      if (!result.isError && looksLikeTransportErrorText(textPreview)) {
+        log('WARN', `Execute completed for server="${server}" tool="${tool}" with transport-style error text but isError=false. Result text="${textPreview}"`);
+      }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
