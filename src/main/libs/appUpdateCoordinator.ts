@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { app, BrowserWindow, session } from 'electron';
+import fs from 'fs';
 
 import {
   type AppUpdateCheckResult,
@@ -40,12 +41,20 @@ type UpdateApiResponse = {
 
 const INSTALLATION_UUID_KEY = 'installation_uuid';
 const APP_UPDATE_TEST_CURRENT_VERSION_ENV = 'LOBSTERAI_UPDATE_CURRENT_VERSION';
+const APP_UPDATE_READY_FILE_KEY = 'app_update_ready_file';
+
+type StoredReadyFile = {
+  version: string;
+  filePath: string;
+  fileHash: string;
+};
 
 const initialState = (): AppUpdateRuntimeState => ({
   status: AppUpdateStatus.Idle,
   info: null,
   progress: null,
   readyFilePath: null,
+  readyFileHash: null,
   errorMessage: null,
 });
 
@@ -100,20 +109,25 @@ export class AppUpdateCoordinator {
       }
 
       const updateFound = true;
+      const matchingReadyFile = await this.resolveMatchingReadyFile(
+        previousState,
+        info.latestVersion,
+      );
 
-      if (
-        this.state.status === AppUpdateStatus.Ready &&
-        this.state.info?.latestVersion === info.latestVersion &&
-        this.state.readyFilePath
-      ) {
+      if (matchingReadyFile) {
         const state = this.setState({
-          ...this.state,
+          ...previousState,
           info,
           status: AppUpdateStatus.Ready,
+          readyFilePath: matchingReadyFile.filePath,
+          readyFileHash: matchingReadyFile.fileHash,
           errorMessage: null,
         });
         return { success: true, state, updateFound };
       }
+
+      await this.cleanupReadyFile(previousState.readyFilePath);
+      this.clearStoredReadyFile();
 
       if (!this.canPredownload(info.url)) {
         const state = this.setState({
@@ -121,13 +135,10 @@ export class AppUpdateCoordinator {
           info,
           progress: null,
           readyFilePath: null,
+          readyFileHash: null,
           errorMessage: null,
         });
         return { success: true, state, updateFound };
-      }
-
-      if (previousState.readyFilePath && previousState.info?.latestVersion !== info.latestVersion) {
-        await this.cleanupReadyFile(previousState.readyFilePath);
       }
 
       const state = await this.startDownload(info);
@@ -163,11 +174,13 @@ export class AppUpdateCoordinator {
     if (!cancelled) {
       return this.getState();
     }
+    this.clearStoredReadyFile();
     return this.setState({
       status: AppUpdateStatus.Available,
       info: this.state.info,
       progress: null,
       readyFilePath: null,
+      readyFileHash: null,
       errorMessage: null,
     });
   }
@@ -216,6 +229,7 @@ export class AppUpdateCoordinator {
     if (previousReadyFilePath) {
       void this.cleanupReadyFile(previousReadyFilePath);
     }
+    this.clearStoredReadyFile();
     return state;
   }
 
@@ -225,6 +239,7 @@ export class AppUpdateCoordinator {
       info,
       progress: null,
       readyFilePath: null,
+      readyFileHash: null,
       errorMessage: null,
     });
 
@@ -239,32 +254,43 @@ export class AppUpdateCoordinator {
         });
       });
 
+      const fileHash = await this.computeFileHash(filePath);
+      this.setStoredReadyFile({
+        version: info.latestVersion,
+        filePath,
+        fileHash,
+      });
       this.autoOpenReadyModal = true;
       return this.setState({
         status: AppUpdateStatus.Ready,
         info,
         progress: null,
         readyFilePath: filePath,
+        readyFileHash: fileHash,
         errorMessage: null,
       });
     } catch (error) {
       const cancelled = error instanceof Error && error.message === 'Download cancelled';
       if (cancelled) {
+        this.clearStoredReadyFile();
         return this.setState({
           status: AppUpdateStatus.Available,
           info,
           progress: null,
           readyFilePath: null,
+          readyFileHash: null,
           errorMessage: null,
         });
       }
 
       console.error('[AppUpdate] background download failed:', error);
+      this.clearStoredReadyFile();
       return this.setState({
         status: AppUpdateStatus.Error,
         info,
         progress: null,
         readyFilePath: null,
+        readyFileHash: null,
         errorMessage: error instanceof Error ? error.message : 'Download failed',
       });
     }
@@ -439,11 +465,114 @@ export class AppUpdateCoordinator {
   }
 
   private async cleanupReadyFile(filePath: string): Promise<void> {
+    if (!filePath) {
+      return;
+    }
     try {
-      await app.whenReady();
-      await import('fs/promises').then(fsPromises => fsPromises.unlink(filePath));
+      await fs.promises.unlink(filePath);
     } catch {
       // Best effort cleanup only.
+    }
+  }
+
+  private async resolveMatchingReadyFile(
+    previousState: AppUpdateRuntimeState,
+    latestVersion: string,
+  ): Promise<StoredReadyFile | null> {
+    const inMemoryReadyFile =
+      previousState.status === AppUpdateStatus.Ready &&
+      previousState.info?.latestVersion === latestVersion &&
+      previousState.readyFilePath != null &&
+      previousState.readyFileHash != null
+        ? {
+            version: latestVersion,
+            filePath: previousState.readyFilePath,
+            fileHash: previousState.readyFileHash,
+          }
+        : null;
+
+    if (inMemoryReadyFile) {
+      const isValid = await this.isReadyFileValid(
+        inMemoryReadyFile.filePath,
+        inMemoryReadyFile.fileHash,
+      );
+      if (isValid) {
+        return inMemoryReadyFile;
+      }
+    }
+
+    const storedReadyFile = this.getStoredReadyFile();
+    if (!storedReadyFile || storedReadyFile.version !== latestVersion) {
+      return null;
+    }
+
+    const isValid = await this.isReadyFileValid(
+      storedReadyFile.filePath,
+      storedReadyFile.fileHash,
+    );
+    if (isValid) {
+      return storedReadyFile;
+    }
+
+    await this.cleanupReadyFile(storedReadyFile.filePath);
+    this.clearStoredReadyFile();
+    return null;
+  }
+
+  private async isReadyFileValid(filePath: string, expectedHash: string): Promise<boolean> {
+    try {
+      const stat = await fs.promises.stat(filePath);
+      if (!stat.isFile() || stat.size <= 0) {
+        return false;
+      }
+      const actualHash = await this.computeFileHash(filePath);
+      return actualHash === expectedHash;
+    } catch {
+      return false;
+    }
+  }
+
+  private async computeFileHash(filePath: string): Promise<string> {
+    return await new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = fs.createReadStream(filePath);
+
+      stream.on('error', reject);
+      stream.on('data', chunk => {
+        hash.update(chunk);
+      });
+      stream.on('end', () => {
+        resolve(hash.digest('hex'));
+      });
+    });
+  }
+
+  private getStoredReadyFile(): StoredReadyFile | null {
+    try {
+      const value = this.store.get<StoredReadyFile>(APP_UPDATE_READY_FILE_KEY);
+      if (!value?.version || !value.filePath || !value.fileHash) {
+        return null;
+      }
+      return value;
+    } catch (error) {
+      console.warn('[AppUpdate] failed to read stored ready file:', error);
+      return null;
+    }
+  }
+
+  private setStoredReadyFile(value: StoredReadyFile): void {
+    try {
+      this.store.set(APP_UPDATE_READY_FILE_KEY, value);
+    } catch (error) {
+      console.warn('[AppUpdate] failed to persist ready file:', error);
+    }
+  }
+
+  private clearStoredReadyFile(): void {
+    try {
+      this.store.delete(APP_UPDATE_READY_FILE_KEY);
+    } catch (error) {
+      console.warn('[AppUpdate] failed to clear stored ready file:', error);
     }
   }
 }

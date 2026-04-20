@@ -59,6 +59,7 @@ const App: React.FC = () => {
     info: null,
     progress: null,
     readyFilePath: null,
+    readyFileHash: null,
     errorMessage: null,
   });
   const [showUpdateModal, setShowUpdateModal] = useState(false);
