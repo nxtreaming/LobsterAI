@@ -43,6 +43,7 @@ export interface AppUpdateRuntimeState {
   info: AppUpdateInfo | null;
   progress: AppUpdateDownloadProgress | null;
   readyFilePath: string | null;
+  readyFileHash: string | null;
   errorMessage: string | null;
 }
 
