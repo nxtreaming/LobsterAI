@@ -335,8 +335,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     // Image attachments also need their file paths in the prompt so the model knows
     // where the original files are located (e.g., for skills like seedream that need --image <path>).
     // Note: inline/clipboard images have pseudo-paths starting with 'inline:' and are excluded.
+    // Note: image attachments that already carry base64 data are excluded — their content
+    // is delivered via the attachments parameter of chat.send. Including the file path
+    // would trigger OpenClaw's Native-image detection, which rejects paths outside allowed
+    // directories and can drop the base64 image during sanitization (macOS-only bug).
     const attachmentLines = attachments
-      .filter((a) => !a.path.startsWith('inline:'))
+      .filter((a) => !a.path.startsWith('inline:') && !(a.isImage && a.dataUrl))
       .map((attachment) => `${i18nService.t('inputFileLabel')}: ${attachment.path}`)
       .join('\n');
     const finalPrompt = trimmedValue

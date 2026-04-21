@@ -2748,6 +2748,14 @@ if (!gotTheLock) {
         messageMetadata.skillIds = options.activeSkillIds;
       }
       if (options.imageAttachments?.length) {
+        console.log('[Cowork:StartSession] imageAttachments received via IPC:', {
+          count: options.imageAttachments.length,
+          details: options.imageAttachments.map(img => ({
+            name: img.name,
+            mimeType: img.mimeType,
+            base64Length: img.base64Data?.length ?? 0,
+          })),
+        });
         messageMetadata.imageAttachments = options.imageAttachments;
       }
       coworkStoreInstance.addMessage(session.id, {
@@ -2820,6 +2828,17 @@ if (!gotTheLock) {
 
       const runtime = getCoworkEngineRouter();
       const existingSession = getCoworkStore().getSession(options.sessionId);
+      if (options.imageAttachments?.length) {
+        console.log('[Cowork:ContinueSession] imageAttachments received via IPC:', {
+          sessionId: options.sessionId,
+          count: options.imageAttachments.length,
+          details: options.imageAttachments.map(img => ({
+            name: img.name,
+            mimeType: img.mimeType,
+            base64Length: img.base64Data?.length ?? 0,
+          })),
+        });
+      }
       runtime.continueSession(options.sessionId, options.prompt, {
         systemPrompt: mergeCoworkSystemPrompt(
           activeEngine,
