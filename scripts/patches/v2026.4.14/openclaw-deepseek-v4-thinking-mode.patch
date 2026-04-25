@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..2e2c2f7a1b
 --- /dev/null
 +++ b/src/agents/pi-embedded-runner/deepseek-stream-wrappers.ts
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,74 @@
 +import type { StreamFn } from "@mariozechner/pi-agent-core";
 +import { streamSimple } from "@mariozechner/pi-ai";
 +import type { ThinkLevel } from "../../auto-reply/thinking.js";
@@ -25,13 +25,11 @@ index 0000000000..2e2c2f7a1b
 +  return thinkingLevel === "off" ? "disabled" : "enabled";
 +}
 +
-+function isDeepSeekOpenAICompletionsModel(model: {
-+  api?: unknown;
++function isDeepSeekV4Model(model: {
 +  provider?: unknown;
 +  id?: unknown;
 +}): boolean {
 +  return (
-+    model.api === "openai-completions" &&
 +    model.provider === "deepseek" &&
 +    isDeepSeekV4ModelId(model.id)
 +  );
@@ -52,7 +50,7 @@ index 0000000000..2e2c2f7a1b
 +  const thinkingType = resolveDeepSeekThinkingType(thinkingLevel);
 +
 +  return (model, context, options) => {
-+    if (!thinkingType || !isDeepSeekOpenAICompletionsModel(model)) {
++    if (!thinkingType || !isDeepSeekV4Model(model)) {
 +      return underlying(model, context, options);
 +    }
 +
