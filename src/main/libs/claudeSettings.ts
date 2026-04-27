@@ -12,6 +12,15 @@ import { readOpenAICodexAuthFile } from './openaiCodexAuth';
 
 type LocalProviderConfig = Omit<ProviderConfig, 'apiFormat'> & { apiFormat?: ApiFormat | 'native' };
 
+const gwDiagTs = (): string => {
+  const d = new Date();
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  const tz = d.getTimezoneOffset();
+  const sign = tz <= 0 ? '+' : '-';
+  const abs = Math.abs(tz);
+  return `[GW-RESTART-DIAG] ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`;
+};
+
 type AppConfig = {
   model?: {
     defaultModel?: string;
@@ -469,8 +478,8 @@ export function resolveAllProviderApiKeys(): Record<string, string> {
       result[envName] = apiKey || 'sk-lobsterai-local';
     }
 
-    const D = '[GW-RESTART-DIAG]';
-    console.log(`${D} resolveAllProviderApiKeys: hasServer=${!!result.SERVER} providers=[${Object.keys(result).filter(k => k !== 'SERVER').join(',')}]`);
+    const D = gwDiagTs;
+    console.log(`${D()} resolveAllProviderApiKeys: hasServer=${!!result.SERVER} providers=[${Object.keys(result).filter(k => k !== 'SERVER').join(',')}]`);
 
     return result;
   }
