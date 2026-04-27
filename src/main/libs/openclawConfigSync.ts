@@ -25,6 +25,7 @@ import {
   getCoworkOpenAICompatProxyToken,
 } from './coworkOpenAICompatProxy';
 import type { McpToolManifestEntry } from './mcpServerManager';
+import { readOpenAICodexAuthFile } from './openaiCodexAuth';
 import {
   buildAgentEntry,
   buildManagedAgentEntries,
@@ -36,7 +37,6 @@ import { parseChannelSessionKey } from './openclawChannelSessionSync';
 import type { OpenClawEngineManager } from './openclawEngineManager';
 import { findThirdPartyExtensionsDir, hasBundledOpenClawExtension } from './openclawLocalExtensions';
 import { getOpenClawTokenProxyPort } from './openclawTokenProxy';
-import { readOpenAICodexAuthFile } from './openaiCodexAuth';
 import { isSystemProxyEnabled } from './systemProxy';
 
 export type McpBridgeConfig = {
