@@ -34,6 +34,15 @@ import {
 } from './openclawAgentModels';
 import { parseChannelSessionKey } from './openclawChannelSessionSync';
 import type { OpenClawEngineManager } from './openclawEngineManager';
+
+const gwDiagTs = (): string => {
+  const d = new Date();
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  const tz = d.getTimezoneOffset();
+  const sign = tz <= 0 ? '+' : '-';
+  const abs = Math.abs(tz);
+  return `[GW-RESTART-DIAG] ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`;
+};
 import { findThirdPartyExtensionsDir, hasBundledOpenClawExtension } from './openclawLocalExtensions';
 import { getOpenClawTokenProxyPort } from './openclawTokenProxy';
 import { isSystemProxyEnabled } from './systemProxy';
@@ -1073,9 +1082,9 @@ export class OpenClawConfigSync {
       // First run or corrupt file — nothing to preserve.
     }
     const existingPluginEntries = (existingPlugins.entries ?? {}) as Record<string, unknown>;
-    console.log('[GW-RESTART-DIAG] existingGateway keys:', Object.keys(existingGateway).sort().join(',') || '(empty)');
-    console.log('[GW-RESTART-DIAG] existingPlugins keys:', Object.keys(existingPlugins).sort().join(',') || '(empty)');
-    console.log('[GW-RESTART-DIAG] existingPluginEntries keys:', Object.keys(existingPluginEntries).sort().join(',') || '(empty)');
+    console.log(`${gwDiagTs()} existingGateway keys:`, Object.keys(existingGateway).sort().join(',') || '(empty)');
+    console.log(`${gwDiagTs()} existingPlugins keys:`, Object.keys(existingPlugins).sort().join(',') || '(empty)');
+    console.log(`${gwDiagTs()} existingPluginEntries keys:`, Object.keys(existingPluginEntries).sort().join(',') || '(empty)');
 
     const dingTalkInstances = this.getDingTalkInstances();
     // DingTalk runs through OpenClaw plugin but still needs the gateway HTTP endpoint (chatCompletions)
@@ -1818,7 +1827,7 @@ export class OpenClawConfigSync {
       const nxtToolCount = Array.isArray(nxtTools) ? nxtTools.length : 0;
       mcpBridgeConfigChanged = curCallbackUrl !== nxtCallbackUrl || curToolsJson !== nxtToolsJson;
       if (mcpBridgeConfigChanged) {
-        console.log(`[GW-RESTART-DIAG] mcp-bridge config CHANGED: callbackUrl ${curCallbackUrl ?? 'null'} → ${nxtCallbackUrl ?? 'null'}, tools ${curToolCount} → ${nxtToolCount}`);
+        console.log(`${gwDiagTs()} mcp-bridge config CHANGED: callbackUrl ${curCallbackUrl ?? 'null'} → ${nxtCallbackUrl ?? 'null'}, tools ${curToolCount} → ${nxtToolCount}`);
       }
     } catch { /* ignore parse errors */ }
 
@@ -1832,25 +1841,25 @@ export class OpenClawConfigSync {
         const curPl = JSON.stringify(currentObj.plugins ?? {});
         const nxtPl = JSON.stringify(nextObj.plugins ?? {});
         if (curGw !== nxtGw) {
-          console.log('[GW-RESTART-DIAG] gateway DIFF:');
-          console.log('[GW-RESTART-DIAG]   old gateway keys:', Object.keys(currentObj.gateway ?? {}).sort().join(','));
-          console.log('[GW-RESTART-DIAG]   new gateway keys:', Object.keys(nextObj.gateway ?? {}).sort().join(','));
-          console.log('[GW-RESTART-DIAG]   old gateway:', curGw.slice(0, 500));
-          console.log('[GW-RESTART-DIAG]   new gateway:', nxtGw.slice(0, 500));
+          console.log(`${gwDiagTs()} gateway DIFF:`);
+          console.log(`${gwDiagTs()} old gateway keys:`, Object.keys(currentObj.gateway ?? {}).sort().join(','));
+          console.log(`${gwDiagTs()} new gateway keys:`, Object.keys(nextObj.gateway ?? {}).sort().join(','));
+          console.log(`${gwDiagTs()} old gateway:`, curGw.slice(0, 500));
+          console.log(`${gwDiagTs()} new gateway:`, nxtGw.slice(0, 500));
         } else {
-          console.log('[GW-RESTART-DIAG] gateway section UNCHANGED');
+          console.log(`${gwDiagTs()} gateway section UNCHANGED`);
         }
         if (curPl !== nxtPl) {
-          console.log('[GW-RESTART-DIAG] plugins DIFF:');
-          console.log('[GW-RESTART-DIAG]   old plugin entry keys:', Object.keys((currentObj.plugins?.entries) ?? {}).sort().join(','));
-          console.log('[GW-RESTART-DIAG]   new plugin entry keys:', Object.keys((nextObj.plugins?.entries) ?? {}).sort().join(','));
+          console.log(`${gwDiagTs()} plugins DIFF:`);
+          console.log(`${gwDiagTs()} old plugin entry keys:`, Object.keys((currentObj.plugins?.entries) ?? {}).sort().join(','));
+          console.log(`${gwDiagTs()} new plugin entry keys:`, Object.keys((nextObj.plugins?.entries) ?? {}).sort().join(','));
         } else {
-          console.log('[GW-RESTART-DIAG] plugins section UNCHANGED');
+          console.log(`${gwDiagTs()} plugins section UNCHANGED`);
         }
         // Check which top-level keys actually changed
         const allKeys = new Set([...Object.keys(currentObj), ...Object.keys(nextObj)]);
         const changedKeys = [...allKeys].filter(k => JSON.stringify(currentObj[k]) !== JSON.stringify(nextObj[k]));
-        console.log('[GW-RESTART-DIAG] top-level changed keys:', changedKeys.join(',') || '(none)');
+        console.log(`${gwDiagTs()} top-level changed keys:`, changedKeys.join(',') || '(none)');
       } catch { /* ignore parse errors in diag */ }
       try {
         ensureDir(path.dirname(configPath));
@@ -2040,12 +2049,12 @@ export class OpenClawConfigSync {
       env[key] = nimInstances[idx].token;
     }
 
-    const D = '[GW-RESTART-DIAG]';
+    const D = gwDiagTs;
     const keysSummary = Object.keys(env).sort().map(k => {
       const v = env[k];
       return `${k}=${v.length > 16 ? v.slice(0, 12) + '…(' + v.length + ')' : v}`;
     });
-    console.log(`${D} collectSecretEnvVars: ${Object.keys(env).length} keys: ${keysSummary.join(', ')}`);
+    console.log(`${D()} collectSecretEnvVars: ${Object.keys(env).length} keys: ${keysSummary.join(', ')}`);
 
     return env;
   }
