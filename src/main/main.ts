@@ -2750,6 +2750,7 @@ if (!gotTheLock) {
     activeSkillIds?: string[];
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
     agentId?: string;
+    modelOverride?: string;
   }) => {
     try {
       const activeEngine = resolveCoworkAgentEngine();
@@ -2786,8 +2787,13 @@ if (!gotTheLock) {
         systemPrompt,
         config.executionMode || 'local',
         options.activeSkillIds || [],
-        options.agentId || 'main'
+        options.agentId || 'main',
+        options.modelOverride || ''
       );
+
+      if (options.modelOverride) {
+        console.log('[Cowork:StartSession] session created with modelOverride:', session.id, options.modelOverride);
+      }
 
       // Update session status to 'running' before starting async task
       // This ensures the frontend receives the correct status immediately
