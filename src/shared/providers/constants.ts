@@ -592,14 +592,21 @@ export interface ProviderDef {
 class ProviderRegistryImpl {
   private readonly defs: readonly ProviderDef[];
   private readonly idIndex: ReadonlyMap<string, ProviderDef>;
+  private readonly modelCapabilityIndex: ReadonlyMap<string, boolean>;
 
   constructor(definitions: readonly ProviderDef[]) {
     this.defs = definitions;
     const idx = new Map<string, ProviderDef>();
+    const modelIdx = new Map<string, boolean>();
     for (const def of definitions) {
       idx.set(def.id, def);
+      for (const model of [...def.defaultModels, ...(def.codingPlanModels ?? [])]) {
+        const existing = modelIdx.get(model.id);
+        modelIdx.set(model.id, existing === true || model.supportsImage);
+      }
     }
     this.idIndex = idx;
+    this.modelCapabilityIndex = modelIdx;
   }
 
   /** All provider IDs in definition order. */
@@ -634,6 +641,37 @@ class ProviderRegistryImpl {
 
   getOpenClawProviderId(providerName: string): string {
     return this.idIndex.get(providerName)?.openClawProviderId ?? providerName ?? OpenClawProviderId.Lobster;
+  }
+
+  getProviderModelSupportsImage(providerName: string, modelId: string): boolean | undefined {
+    const def = this.idIndex.get(providerName);
+    if (!def) return undefined;
+    const model = [...def.defaultModels, ...(def.codingPlanModels ?? [])]
+      .find(candidate => candidate.id === modelId);
+    return model?.supportsImage;
+  }
+
+  getKnownModelSupportsImage(modelId: string): boolean | undefined {
+    return this.modelCapabilityIndex.get(modelId);
+  }
+
+  resolveModelSupportsImage(
+    providerName: string,
+    modelId: string,
+    configuredSupportsImage?: boolean,
+  ): boolean {
+    const providerModelSupportsImage = this.getProviderModelSupportsImage(providerName, modelId);
+    if (providerModelSupportsImage !== undefined) {
+      return providerModelSupportsImage;
+    }
+    if (configuredSupportsImage === true) {
+      return true;
+    }
+    const knownModelSupportsImage = this.getKnownModelSupportsImage(modelId);
+    if (knownModelSupportsImage === true) {
+      return true;
+    }
+    return configuredSupportsImage ?? false;
   }
 
   /** Provider IDs filtered by region. */

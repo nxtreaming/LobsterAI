@@ -1,4 +1,4 @@
-import { type ApiFormat,type ProviderConfig, ProviderName, resolveCodingPlanBaseUrl } from '../../shared/providers';
+import { type ApiFormat,type ProviderConfig, ProviderName, ProviderRegistry, resolveCodingPlanBaseUrl } from '../../shared/providers';
 import type { SqliteStore } from '../sqliteStore';
 import type { CoworkApiConfig } from './coworkConfigStore';
 import { type AnthropicApiFormat,normalizeProviderApiFormat } from './coworkFormatTransform';
@@ -27,6 +27,12 @@ type AppConfig = {
     defaultModelProvider?: string;
   };
   providers?: Record<string, LocalProviderConfig>;
+};
+
+type ProviderModelConfig = {
+  id: string;
+  name?: string;
+  supportsImage?: boolean;
 };
 
 export type ApiConfigResolution = {
@@ -79,6 +85,38 @@ export function getAllServerModelMetadata(): Array<{ modelId: string; supportsIm
     modelId,
     supportsImage: meta.supportsImage,
   }));
+}
+
+function buildServerFallbackModels(effectiveModelId: string): NonNullable<LocalProviderConfig['models']> {
+  const models = getAllServerModelMetadata().map((model) => ({
+    id: model.modelId,
+    name: model.modelId,
+    supportsImage: model.supportsImage,
+  }));
+
+  if (!models.some(model => model.id === effectiveModelId)) {
+    const cachedMeta = serverModelMetadataCache.get(effectiveModelId);
+    models.unshift({
+      id: effectiveModelId,
+      name: effectiveModelId,
+      supportsImage: cachedMeta?.supportsImage,
+    });
+  }
+
+  return models;
+}
+
+function normalizeProviderModels(providerName: string, models?: ProviderModelConfig[]): ProviderModelConfig[] {
+  return (models ?? [])
+    .filter(model => model.id?.trim())
+    .map(model => ({
+      ...model,
+      supportsImage: ProviderRegistry.resolveModelSupportsImage(
+        providerName,
+        model.id,
+        model.supportsImage,
+      ),
+    }));
 }
 
 const getStore = (): SqliteStore | null => {
@@ -136,7 +174,7 @@ function tryLobsteraiServerFallback(modelId?: string): MatchedProvider | null {
   console.log('[ClaudeSettings] lobsterai-server fallback activated:', { baseURL, modelId: effectiveModelId, supportsImage: cachedMeta?.supportsImage });
   return {
     providerName: ProviderName.LobsteraiServer,
-    providerConfig: { enabled: true, apiKey: tokens.accessToken, baseUrl: baseURL, apiFormat: 'openai', models: [{ id: effectiveModelId, name: effectiveModelId, supportsImage: cachedMeta?.supportsImage }] },
+    providerConfig: { enabled: true, apiKey: tokens.accessToken, baseUrl: baseURL, apiFormat: 'openai', models: buildServerFallbackModels(effectiveModelId) },
     modelId: effectiveModelId,
     apiFormat: 'openai',
     baseURL,
@@ -227,6 +265,7 @@ function resolveMatchedProvider(appConfig: AppConfig): { matched: MatchedProvide
   const providerConfig = shouldUseOpenAICodexOAuth(providerName, storedProviderConfig)
     ? { ...storedProviderConfig, authType: 'oauth' as const }
     : storedProviderConfig;
+  const normalizedProviderModels = normalizeProviderModels(providerName, providerConfig.models);
 
   // MiniMax OAuth mode guard: if OAuth is selected but login has not been completed
   // (no access token), do not use the stale API key as an OAuth token.
@@ -262,12 +301,15 @@ function resolveMatchedProvider(appConfig: AppConfig): { matched: MatchedProvide
     return { matched: null, error: `Provider ${providerName} requires API key for Anthropic-compatible mode.` };
   }
 
-  const matchedModel = providerConfig.models?.find((m) => m.id === modelId);
+  const matchedModel = normalizedProviderModels.find((m) => m.id === modelId);
 
   return {
     matched: {
       providerName,
-      providerConfig,
+      providerConfig: {
+        ...providerConfig,
+        models: normalizedProviderModels,
+      },
       modelId,
       apiFormat,
       baseURL,
@@ -525,7 +567,7 @@ export function resolveAllEnabledProviderConfigs(): ProviderRawConfig[] {
       if (!oauthToken) continue; // OAuth not completed, skip
       const oauthBaseUrl = ((providerConfig as any).oauthBaseUrl?.trim()) || providerConfig.baseUrl?.trim() || '';
       if (!oauthBaseUrl) continue;
-      const models = (providerConfig.models ?? []).filter((m) => m.id?.trim());
+      const models = normalizeProviderModels(providerName, providerConfig.models);
       if (models.length === 0) continue;
       result.push({
         providerName,
@@ -541,7 +583,7 @@ export function resolveAllEnabledProviderConfigs(): ProviderRawConfig[] {
 
     if (shouldUseOpenAICodexOAuth(providerName, providerConfig)) {
       const baseURL = providerConfig.baseUrl?.trim() || 'https://api.openai.com/v1';
-      const models = (providerConfig.models ?? []).filter((m) => m.id?.trim());
+      const models = normalizeProviderModels(providerName, providerConfig.models);
       if (models.length === 0) continue;
       result.push({
         providerName,
@@ -571,7 +613,7 @@ export function resolveAllEnabledProviderConfigs(): ProviderRawConfig[] {
 
     if (!effectiveBaseURL) continue;
 
-    const models = (providerConfig.models ?? []).filter((m) => m.id?.trim());
+    const models = normalizeProviderModels(providerName, providerConfig.models);
     if (models.length === 0) continue;
 
     result.push({

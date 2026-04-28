@@ -79,6 +79,11 @@ type ProviderConnectionTestResult = {
   provider: ProviderType;
 };
 
+const resolveModelSupportsImageForProvider = (
+  providerName: string,
+  model: { id: string; supportsImage?: boolean },
+): boolean => ProviderRegistry.resolveModelSupportsImage(providerName, model.id, model.supportsImage);
+
 const getOpenClawProviderIdForConfig = (
   providerName: string,
   providerConfig: ProviderConfig,
@@ -391,7 +396,7 @@ const getDefaultProviders = (): ProvidersConfig => {
         models: providerConfig.models?.map(model => ({
           ...model,
           name: model.name.replace('(Secure)', secureSuffix),
-          supportsImage: model.supportsImage ?? false,
+          supportsImage: resolveModelSupportsImageForProvider(providerKey, model),
         })),
       },
     ])
@@ -1123,7 +1128,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
                 return {
                   ...model,
                   id,
-                  supportsImage: model.supportsImage ?? false,
+                  supportsImage: ProviderRegistry.resolveModelSupportsImage(
+                    providerKey,
+                    id,
+                    model.supportsImage,
+                  ),
                 };
               });
               return [
@@ -1940,7 +1949,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
               provider: getProviderDisplayName(providerName, config),
               providerKey: providerName,
               openClawProviderId,
-              supportsImage: model.supportsImage ?? false,
+              supportsImage: resolveModelSupportsImageForProvider(providerName, model),
             });
           });
         }
@@ -2118,7 +2127,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     const nextModel = {
       id: modelId,
       name: modelName,
-      supportsImage: newModelSupportsImage,
+      supportsImage: ProviderRegistry.resolveModelSupportsImage(
+        activeProvider,
+        modelId,
+        newModelSupportsImage,
+      ),
     };
     const updatedModels = isEditingModel && editingModelId
       ? currentModels.map(model => (model.id === editingModelId ? nextModel : model))
@@ -2336,7 +2349,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
             baseUrl: resolveBaseUrl(providerKey as ProviderType, providerConfig.baseUrl, apiFormat),
             apiFormat,
             codingPlanEnabled: (providerConfig as ProviderConfig).codingPlanEnabled,
-            models: providerConfig.models,
+            models: normalizeModels(providerKey, providerConfig.models),
           },
         ] as const;
       })
@@ -2355,10 +2368,10 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     };
   };
 
-  const normalizeModels = (models?: Model[]) =>
+  const normalizeModels = (providerKey: string, models?: Model[]) =>
     models?.map(model => ({
       ...model,
-      supportsImage: model.supportsImage ?? false,
+      supportsImage: resolveModelSupportsImageForProvider(providerKey, model),
     }));
 
   const DEFAULT_EXPORT_PASSWORD = EXPORT_PASSWORD;
@@ -2475,7 +2488,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
           }
         }
 
-        const models = normalizeModels(providerData.models);
+        const models = normalizeModels(providerKey, providerData.models);
         const existing = providers[providerKey];
 
         providerUpdates[providerKey] = {
@@ -2559,7 +2572,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
           }
         }
 
-        const models = normalizeModels(providerData.models);
+        const models = normalizeModels(providerKey, providerData.models);
         const existing = providers[providerKey];
 
         providerUpdates[providerKey] = {

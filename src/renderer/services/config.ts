@@ -1,4 +1,4 @@
-import { type ApiFormat,ProviderRegistry } from '@shared/providers';
+import { type ApiFormat,type ProviderConfig,ProviderRegistry } from '@shared/providers';
 
 import { AppConfig, CONFIG_KEYS, defaultConfig, isCustomProvider } from '../config';
 import { localStore } from './store';
@@ -53,6 +53,18 @@ const normalizeProviderApiFormat = (providerKey: string, apiFormat: unknown): 'a
   return 'anthropic';
 };
 
+const normalizeProviderModels = (
+  providerKey: string,
+  models: ProviderConfig['models'],
+): ProviderConfig['models'] => models?.map(model => ({
+  ...model,
+  supportsImage: ProviderRegistry.resolveModelSupportsImage(
+    providerKey,
+    model.id,
+    model.supportsImage,
+  ),
+}));
+
 const normalizeProvidersConfig = (providers: AppConfig['providers']): AppConfig['providers'] => {
   if (!providers) {
     return providers;
@@ -65,6 +77,7 @@ const normalizeProvidersConfig = (providers: AppConfig['providers']): AppConfig[
         ...providerConfig,
         baseUrl: normalizeProviderBaseUrl(providerKey, providerConfig.baseUrl),
         apiFormat: normalizeProviderApiFormat(providerKey, providerConfig.apiFormat),
+        models: normalizeProviderModels(providerKey, providerConfig.models),
       },
     ])
   ) as AppConfig['providers'];
@@ -181,6 +194,10 @@ class ConfigService {
                     ...mergedProvider,
                     baseUrl: normalizeProviderBaseUrl(providerKey, mergedProvider.baseUrl),
                     apiFormat: normalizeProviderApiFormat(providerKey, mergedProvider.apiFormat),
+                    models: normalizeProviderModels(
+                      providerKey,
+                      mergedProvider.models as ProviderConfig['models'],
+                    ),
                   };
                 })(),
               ])

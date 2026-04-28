@@ -14,11 +14,10 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('./claudeSettings', () => ({
-  getAllServerModelMetadata: () => [],
-  resolveAllEnabledProviderConfigs: () => [],
-  resolveAllProviderApiKeys: () => ({}),
-  resolveRawApiConfig: () => ({
+const mockRuntimeState = vi.hoisted(() => ({
+  proxyPort: null as number | null,
+  serverModels: [] as Array<{ modelId: string; supportsImage?: boolean }>,
+  rawApiConfig: {
     config: {
       baseURL: 'https://api.openai.com/v1',
       apiKey: 'sk-test',
@@ -31,7 +30,14 @@ vi.mock('./claudeSettings', () => ({
       supportsImage: false,
       modelName: 'GPT Test',
     },
-  }),
+  },
+}));
+
+vi.mock('./claudeSettings', () => ({
+  getAllServerModelMetadata: () => mockRuntimeState.serverModels,
+  resolveAllEnabledProviderConfigs: () => [],
+  resolveAllProviderApiKeys: () => ({}),
+  resolveRawApiConfig: () => mockRuntimeState.rawApiConfig,
 }));
 
 vi.mock('./openclawLocalExtensions', () => ({
@@ -40,7 +46,7 @@ vi.mock('./openclawLocalExtensions', () => ({
 }));
 
 vi.mock('./openclawTokenProxy', () => ({
-  getOpenClawTokenProxyPort: () => null,
+  getOpenClawTokenProxyPort: () => mockRuntimeState.proxyPort,
 }));
 
 vi.mock('./openaiCodexAuth', () => ({
@@ -53,6 +59,22 @@ describe('OpenClawConfigSync runtime config output', () => {
   let stateDir: string;
 
   beforeEach(() => {
+    mockRuntimeState.proxyPort = null;
+    mockRuntimeState.serverModels = [];
+    mockRuntimeState.rawApiConfig = {
+      config: {
+        baseURL: 'https://api.openai.com/v1',
+        apiKey: 'sk-test',
+        model: 'gpt-test',
+        apiType: 'openai',
+      },
+      providerMetadata: {
+        providerName: 'openai',
+        codingPlanEnabled: false,
+        supportsImage: false,
+        modelName: 'GPT Test',
+      },
+    };
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-config-sync-'));
     stateDir = path.join(tmpDir, 'state');
     configPath = path.join(stateDir, 'openclaw.json');
@@ -113,6 +135,89 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(config.models.providers.openai.request.proxy).toEqual({ mode: 'env-proxy' });
   });
 
+  test('merges all server models into existing lobsterai provider and updates image input', async () => {
+    mockRuntimeState.proxyPort = 56646;
+    mockRuntimeState.serverModels = [
+      { modelId: 'qwen3.5-plus-YoudaoInner', supportsImage: true },
+      { modelId: 'qwen3.6-plus-YoudaoInner', supportsImage: true },
+      { modelId: 'deepseek-v3.2-YoudaoInner', supportsImage: false },
+    ];
+    mockRuntimeState.rawApiConfig = {
+      config: {
+        baseURL: 'https://lobsterai-server.youdao.com/api/proxy/v1',
+        apiKey: 'access-token',
+        model: 'qwen3.5-plus-YoudaoInner',
+        apiType: 'openai',
+      },
+      providerMetadata: {
+        providerName: 'lobsterai-server',
+        codingPlanEnabled: false,
+        supportsImage: false,
+        modelName: 'Qwen3.5 Plus',
+      },
+    };
+
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoConfig: () => null,
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    });
+
+    const result = sync.sync('server-models-updated');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const provider = config.models.providers['lobsterai-server'];
+    expect(provider.baseUrl).toBe('http://127.0.0.1:56646/v1');
+    expect(provider.models).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'qwen3.5-plus-YoudaoInner',
+        input: ['text', 'image'],
+      }),
+      expect.objectContaining({
+        id: 'qwen3.6-plus-YoudaoInner',
+        input: ['text', 'image'],
+      }),
+      expect.objectContaining({
+        id: 'deepseek-v3.2-YoudaoInner',
+        input: ['text'],
+      }),
+    ]));
+    expect(provider.models).toHaveLength(3);
+  });
+
   test('maps OpenAI OAuth mode to the OpenAI Codex provider', async () => {
     const { AuthType, OpenClawApi, OpenClawProviderId, ProviderName } = await import('../../shared/providers');
     const { buildProviderSelection } = await import('./openclawConfigSync');
@@ -140,6 +245,36 @@ describe('OpenClawConfigSync runtime config output', () => {
       'OpenAI-Beta': 'responses=experimental',
     });
     expect(selection.providerConfig).not.toHaveProperty('apiKey');
+  });
+
+  test('repairs stale image capability for known Qwen models before writing OpenClaw input', async () => {
+    const { ProviderName } = await import('../../shared/providers');
+    const { buildProviderSelection } = await import('./openclawConfigSync');
+
+    const qwenSelection = buildProviderSelection({
+      apiKey: 'sk-test',
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      modelId: 'qwen3.6-plus',
+      apiType: 'openai',
+      providerName: ProviderName.Qwen,
+      codingPlanEnabled: true,
+      supportsImage: false,
+      modelName: 'qwen3.6-plus',
+    });
+    expect(qwenSelection.providerConfig.models[0].input).toEqual(['text', 'image']);
+
+    const customSelection = buildProviderSelection({
+      apiKey: 'sk-test',
+      baseURL: 'https://example.com/v1',
+      modelId: 'qwen3.6-plus',
+      apiType: 'openai',
+      providerName: 'custom_0',
+      supportsImage: false,
+      modelName: 'qwen3.6-plus',
+    });
+    expect(customSelection.providerId).toBe('custom_0');
+    expect(customSelection.primaryModel).toBe('custom_0/qwen3.6-plus');
+    expect(customSelection.providerConfig.models[0].input).toEqual(['text', 'image']);
   });
 
   test('adds missing array items in MCP bridge tool schemas for OpenAI compatibility', async () => {

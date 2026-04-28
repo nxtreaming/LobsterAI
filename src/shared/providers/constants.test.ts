@@ -36,6 +36,17 @@ describe('ProviderRegistry', () => {
     expect(ProviderRegistry.get(ProviderName.Custom)).toBeUndefined();
   });
 
+  test('resolveModelSupportsImage repairs known provider model metadata', () => {
+    expect(ProviderRegistry.resolveModelSupportsImage(ProviderName.Qwen, 'qwen3.6-plus', false)).toBe(true);
+    expect(ProviderRegistry.resolveModelSupportsImage(ProviderName.Qwen, 'qwen3-coder-plus', true)).toBe(false);
+  });
+
+  test('resolveModelSupportsImage upgrades custom providers for globally known vision models', () => {
+    expect(ProviderRegistry.resolveModelSupportsImage('custom_0', 'qwen3.6-plus', false)).toBe(true);
+    expect(ProviderRegistry.resolveModelSupportsImage('custom_0', 'unknown-model', false)).toBe(false);
+    expect(ProviderRegistry.resolveModelSupportsImage('custom_0', 'unknown-model', true)).toBe(true);
+  });
+
   test('supportsCodingPlan is true for moonshot, qwen, zhipu, volcengine, qianfan, xiaomi', () => {
     expect(ProviderRegistry.supportsCodingPlan(ProviderName.Moonshot)).toBe(true);
     expect(ProviderRegistry.supportsCodingPlan(ProviderName.Qwen)).toBe(true);
