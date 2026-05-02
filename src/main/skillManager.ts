@@ -150,6 +150,26 @@ function tryWindowsDeleteFallback(targetDir: string): { success: boolean; detail
   return { success: false, detail };
 }
 
+function normalizeWindowsSkillDirectoryAttrs(targetDir: string): { success: boolean; detail?: string } {
+  if (process.platform !== 'win32') return { success: true };
+
+  const escapedPath = targetDir.replace(/"/g, '""');
+  const result = spawnSync('cmd.exe', ['/d', '/s', '/c', `attrib -r -s -h "${escapedPath}" /s /d`], {
+    stdio: 'pipe',
+    windowsHide: true,
+    timeout: 10000,
+  });
+
+  if (result.status === 0) {
+    return { success: true };
+  }
+
+  const stderr = result.stderr?.toString('utf-8').trim();
+  const stdout = result.stdout?.toString('utf-8').trim();
+  const detail = stderr || stdout || result.error?.message || `status=${result.status ?? 'null'}`;
+  return { success: false, detail };
+}
+
 /**
  * Build an environment for spawning skill scripts.
  * Merges the user's shell PATH with the current process environment.
@@ -1813,6 +1833,12 @@ export class SkillManager {
           suffix += 1;
         }
         cpRecursiveSync(skillDir, targetDir);
+        const normalizeResult = normalizeWindowsSkillDirectoryAttrs(targetDir);
+        if (normalizeResult.success) {
+          console.log('[skills] install normalization applied for "%s" at %s', folderName, targetDir);
+        } else {
+          console.warn('[skills] install normalization failed for "%s" at %s: %s', folderName, targetDir, normalizeResult.detail || 'unknown');
+        }
       }
 
       cleanupPathSafely(cleanupPath);
@@ -2062,6 +2088,12 @@ export class SkillManager {
           suffix += 1;
         }
         cpRecursiveSync(skillDir, targetDir);
+        const normalizeResult = normalizeWindowsSkillDirectoryAttrs(targetDir);
+        if (normalizeResult.success) {
+          console.log('[skills] install normalization applied for "%s" at %s', folderName, targetDir);
+        } else {
+          console.warn('[skills] install normalization failed for "%s" at %s: %s', folderName, targetDir, normalizeResult.detail || 'unknown');
+        }
         installedIds.push(path.basename(targetDir));
       }
     }

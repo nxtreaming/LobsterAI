@@ -43,6 +43,7 @@
 1. 在保持现有删除主路径不变的前提下，提升 Windows 删除成功率
 2. 仅在已知 Windows 权限类错误时启用兜底，避免扩大行为风险
 3. 增强日志可观测性，明确是否走了兜底路径
+4. 为导入成功增加明确反馈（toast），降低“已导入但无感知”的体验问题
 
 ---
 
@@ -67,13 +68,74 @@
   - 兜底成功：`directory removed via Windows fallback`
   - 兜底失败：`Windows fallback failed`
 
+### 增量优化决策（仅 Windows）
+
+为进一步降低“安装成功但删除失败”的概率，后续增量优化限定为 Windows：
+
+1. 在 skill 安装落盘后（`cpRecursiveSync` 完成后），对目标目录执行属性归一化  
+   `attrib -r -s -h "<targetDir>" /s /d`
+2. 该步骤仅在 `process.platform === 'win32'` 执行
+3. 归一化失败不阻塞安装流程，仅记录 `console.warn`
+4. 保留当前删除阶段 fallback 作为最终兜底
+
+不在本次变更中引入 macOS/Linux 的权限批量修正，避免跨平台权限语义差异带来的副作用。
+
+### 本次落地范围（确认版）
+
+#### 权限处理范围
+
+安装权限归一化通过后端公共安装落盘点统一执行，因此覆盖以下 4 类入口：
+
+1. 上传 `.zip`
+2. 上传文件夹
+3. 远程导入（GitHub/ClawHub/URL）
+4. 技能市场安装
+
+#### 成功提示范围
+
+仅为以下 3 类入口增加导入成功 toast：
+
+1. 上传 `.zip`
+2. 上传文件夹
+3. 远程导入
+
+不为“技能市场安装”新增 toast（市场页已有“已安装”状态标识）。
+不处理“通过对话创建 skill”入口。
+
+### UI 主题适配要求
+
+1. toast 使用现有全局事件与现有样式体系（`app:showToast`），不新增独立弹层样式实现
+2. 不引入硬编码颜色，沿用当前主题 token / 组件风格，保证浅色/深色主题一致性
+3. 成功提示文案简短，避免与已有错误提示组件（`ErrorMessage`）冲突
+
+### i18n 要求
+
+1. 新增导入成功提示 key，必须同时补齐中英文：
+   - `skillImportSuccess`
+2. 如果需要区分来源，可增加可选 key（同样中英文齐全）：
+   - `skillImportSuccessFromZip`
+   - `skillImportSuccessFromFolder`
+   - `skillImportSuccessFromRemote`
+3. 前端展示层不得硬编码用户可见文案，统一走 `i18nService.t(...)`
+
+### 异常处理要求
+
+1. Windows 权限归一化失败：
+   - 不阻塞安装成功返回
+   - 打 `console.warn` 并包含 skill id / 目录路径 / 错误摘要
+2. 导入主流程失败时不弹成功 toast，沿用现有错误显示逻辑
+3. 安全扫描需要确认安装（`pendingInstallId`）时，不提前弹成功 toast，待最终确认成功后再提示
+4. 任何异常路径必须保持 loading 结束，避免按钮长时间禁用
+
 ---
 
 ## 涉及文件
 
 | 文件 | 变更说明 |
 |---|---|
-| `src/main/skillManager.ts` | 增加 Windows 权限错误识别与 `attrib + rmdir` 删除兜底；补充日志 |
+| `src/main/skillManager.ts` | 删除兜底（已完成）+ 安装落盘后 Windows 属性归一化（仅 win32，失败不阻塞） |
+| `src/renderer/components/skills/SkillsManager.tsx` | 为上传 zip/上传文件夹/远程导入补充成功 toast；保持现有 loading 流程 |
+| `src/renderer/services/i18n.ts` | 增加导入成功提示的中英文文案 key |
 
 ---
 
@@ -113,7 +175,13 @@
 |---|---|
 | 普通环境可删除 | 仍走原路径成功，不影响既有行为 |
 | Windows 权限类失败（EPERM/EACCES/EBUSY） | 自动触发兜底并尽可能删除成功 |
+| Windows 导入后目录包含只读/系统/隐藏属性 | 安装后归一化清理属性，后续删除成功率提升 |
 | 兜底仍失败（强占用/企业策略） | 返回失败并输出清晰错误日志 |
+| 上传 zip 成功 | 显示导入成功 toast，列表刷新 |
+| 上传文件夹成功 | 显示导入成功 toast，列表刷新 |
+| 远程导入成功 | 显示导入成功 toast，列表刷新 |
+| 技能市场安装成功 | 不弹新增 toast，继续显示“已安装”状态 |
+| 远程导入返回 pendingInstallId（需确认） | 不提前提示成功，确认安装完成后再提示 |
 
 ---
 
@@ -121,12 +189,14 @@
 
 1. 兜底无法覆盖所有系统级限制（如企业 DLP/Defender 策略强拦截）
 2. 若目录被持续独占，`rmdir /s /q` 仍可能失败
-3. 当前修复关注删除成功率与日志清晰度，不改变前端错误文案策略
+3. 安装权限归一化是“最佳努力”步骤，不能替代系统级权限修复
+4. 技能市场安装不新增成功 toast，成功反馈依赖既有“已安装”状态
 
 ---
 
 ## 后续优化建议
 
 1. 在前端对 Windows 权限错误提供更友好提示（例如“关闭占用该目录的程序后重试”）
-2. 失败时附加“建议操作”字段，便于客服排障
+2. 删除失败时增加短退避重试（例如 300ms/800ms）
 3. 增加 Windows 平台集成测试或模拟测试覆盖权限错误分支
+4. 为安装后属性归一化补充日志字段：`normalizedAttrs=true/false`
