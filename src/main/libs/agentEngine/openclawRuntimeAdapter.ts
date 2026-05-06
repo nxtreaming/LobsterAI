@@ -3043,9 +3043,15 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     if (turn.assistantMessageId && segmentText !== previousSegmentText) {
-      // Only update in-memory state; SQLite write and IPC emit are handled
-      // by processAgentAssistantText on the agent event path.
-      turn.currentAssistantSegmentText = segmentText;
+      // Only update segment text from chat delta if the agent stream path has NOT
+      // been active. When agent events are present, processAgentAssistantText is the
+      // authority — it uses the raw text field which preserves formatting faithfully.
+      // The chat delta path uses extractGatewayMessageText which trims each content
+      // block and joins with \n. When the gateway splits content at a boundary inside
+      // a GFM table row, the join corrupts the table structure.
+      if (turn.agentAssistantTextLength === 0) {
+        turn.currentAssistantSegmentText = segmentText;
+      }
     }
   }
 
