@@ -51,7 +51,17 @@ function createReconcileStore(messages: Array<Record<string, unknown>>) {
         session.messages.push(created);
         return created;
       },
-      updateSession: () => {},
+      updateSession: (sessionId: string, patch: Record<string, unknown>) => {
+        expect(sessionId).toBe(session.id);
+        Object.assign(session, patch);
+      },
+      updateMessage: (sessionId: string, messageId: string, patch: Record<string, unknown>) => {
+        expect(sessionId).toBe(session.id);
+        const message = session.messages.find((m) => m.id === messageId);
+        if (!message) return false;
+        Object.assign(message, patch);
+        return true;
+      },
       replaceConversationMessages: (sessionId: string, authoritative: Array<{ role: string; text: string }>) => {
         replaceCallCount++;
         lastReplaceArgs = { sessionId, authoritative };
@@ -211,6 +221,73 @@ test('reconcileWithHistory: content mismatch — triggers replace', async () => 
   expect(getReplaceCallCount()).toBe(1);
   const args = getLastReplaceArgs()!;
   expect((args.authoritative[1] as Record<string, unknown>).text).toBe('Full complete response from the model.');
+});
+
+test('lifecycle fallback repairs managed session assistant text from history', async () => {
+  const brokenTable = [
+    'OpenClaw 优缺点总结',
+    '',
+    '| 维度 | 优点 ✅ | 缺点 ❌ |',
+    '|---------|',
+    '| 架构设计 | 单 Gateway | 单点风险 |',
+  ].join('\n');
+  const finalTable = [
+    'OpenClaw 优缺点总结',
+    '',
+    '| 维度 | 优点 ✅ | 缺点 ❌ |',
+    '|------|---------|---------|',
+    '| 架构设计 | 单 Gateway | 单点风险 |',
+  ].join('\n');
+  const { session, store, getReplaceCallCount } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: '以表格总结 OpenClaw', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: brokenTable, timestamp: 2, metadata: { isStreaming: true } },
+  ]);
+
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'user', content: '以表格总结 OpenClaw' },
+        { role: 'assistant', content: finalTable },
+      ],
+    }),
+  };
+
+  const turn = {
+    sessionId: session.id,
+    sessionKey: `agent:main:lobsterai:${session.id}`,
+    runId: 'run-1',
+    turnToken: 1,
+    startedAtMs: 1,
+    knownRunIds: new Set(['run-1']),
+    assistantMessageId: 'msg-2',
+    committedAssistantText: '',
+    currentAssistantSegmentText: brokenTable,
+    currentText: brokenTable,
+    agentAssistantTextLength: brokenTable.length,
+    currentContentText: brokenTable,
+    currentContentBlocks: [brokenTable],
+    sawNonTextContentBlocks: false,
+    textStreamMode: 'snapshot',
+    toolUseMessageIdByToolCallId: new Map(),
+    toolResultMessageIdByToolCallId: new Map(),
+    toolResultTextByToolCallId: new Map(),
+    stopRequested: false,
+    pendingUserSync: false,
+    bufferedChatPayloads: [],
+    bufferedAgentPayloads: [],
+  };
+
+  adapter.activeTurns.set(session.id, turn);
+  adapter.latestTurnTokenBySession.set(session.id, turn.turnToken);
+
+  await adapter.completeChannelTurnFallback(session.id, turn);
+
+  expect(getReplaceCallCount()).toBe(0);
+  expect(session.messages.find((message) => message.id === 'msg-2')?.content).toBe(finalTable);
+  expect(session.status).toBe('completed');
 });
 
 test('reconcileWithHistory: preserves tool messages', async () => {
