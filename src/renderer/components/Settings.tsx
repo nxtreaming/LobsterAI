@@ -409,16 +409,6 @@ const getDefaultActiveProvider = (): ProviderType => {
   return firstEnabledProvider ?? providerKeys[0];
 };
 
-/** Join workspace directory with a filename using platform-aware separator. */
-const joinWorkspacePath = (dir: string | undefined, filename: string): string => {
-  const base = dir?.trim() || '~/.openclaw/workspace';
-  const sep = window.electron.platform === 'win32' ? '\\' : '/';
-  // Normalize: if base already ends with a separator, don't double it
-  return base.endsWith(sep) || base.endsWith('/') || base.endsWith('\\')
-    ? `${base}${filename}`
-    : `${base}${sep}${filename}`;
-};
-
 // System shortcuts that should not be captured (clipboard, undo, select-all, quit, etc.)
 const isSystemShortcut = (e: KeyboardEvent): boolean => {
   const key = e.key.toLowerCase();
@@ -4426,9 +4416,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
             </div>
             <div className="flex flex-col flex-1 min-h-0 space-y-2">
               <p className="text-xs text-secondary shrink-0">{i18nService.t(activeItem.hintKey)}</p>
-              <div className="text-xs text-secondary opacity-60 shrink-0">
-                {i18nService.t('coworkBootstrapStoragePath')}：<span className="font-mono">{joinWorkspacePath(coworkConfig.workingDirectory, activeItem.key)}</span>
-              </div>
               <textarea
                 key={activeItem.key}
                 value={activeItem.value}
