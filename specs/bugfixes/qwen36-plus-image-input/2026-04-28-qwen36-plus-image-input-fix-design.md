@@ -11,6 +11,7 @@
 3. 自定义供应商中的已知视觉模型，例如 `custom_0/qwen3.6-plus`，也应获得正确的图片能力
 4. 服务端模型列表更新后，OpenClaw gateway 必须能拿到最新模型能力
 5. 修复不能把已知纯文本模型错误升级成视觉模型
+6. 即使 `openclaw.json` 已经写对，OpenClaw runtime 的 model catalog / 发图前能力预检也不能因为 provider alias 或 catalog miss 再把图片丢弃
 
 ## 核心结论
 
@@ -18,11 +19,22 @@
 
 OpenClaw gateway 依据 `openclaw.json` 中的 `models.providers[*].models[*].input` 判断模型是否支持图片。如果该字段是 `['text']`，gateway 会在请求进入 LLM 前丢弃图片。
 
+**2026-05-06 补充结论：第一次修复只覆盖了 LobsterAI 写配置的链路，还不够。** 最新日志显示，当前 `openclaw.json` 已经包含 `qwen3.6-plus` / `qwen3.6-plus-YoudaoInner` 的 `input: ['text', 'image']`，但 OpenClaw gateway 仍输出：
+
+```
+parseMessageWithAttachments: 1 attachment(s) dropped — model does not support images
+provider=lobsterai-server model=qwen3.6-plus-YoudaoInner
+promptImages=0
+```
+
+这说明图片不是在 LobsterAI 侧上传或配置写入阶段丢失，而是在 OpenClaw runtime 的 `resolveGatewayModelSupportsImages()` 预检阶段被判定为不支持图片。根因是 OpenClaw 当前版本的 model catalog 可能没有包含显式配置的 provider model，且 provider 比较使用精确字符串；`qwen-portal` 与 OpenClaw 原生 `qwen` 没有归一化到同一 provider，catalog miss 后函数直接返回 `false`。
+
 | 场景 | 错误表现 | 根因 |
 |---|---|---|
 | `lobsterai-server/qwen3.6-plus-YoudaoInner` | 模型不在 provider 注册表里，图片被丢弃 | `lobsterai-server` 只注册默认模型，未合并服务端全量模型 |
 | `qwen-portal/qwen3.6-plus` | 模型存在，但 `input` 被写成 `['text']` | 本地 provider config 中 `supportsImage:false` 覆盖了真实能力 |
 | `custom_0/qwen3.6-plus` | 自定义供应商同名视觉模型可能被当作文本模型 | 自定义模型只信任用户保存的 `supportsImage` |
+| `openclaw.json` 已写出 `input: ['text', 'image']`，但 gateway 仍丢图 | `parseMessageWithAttachments` 继续提示 model does not support images | OpenClaw model catalog 未合并显式配置模型，且 `qwen-portal` / `qwen` provider alias 未归一化；catalog miss 直接降级为不支持图片 |
 
 ---
 
@@ -52,6 +64,11 @@ OpenClawConfigSync
   → write openclaw.json models[].input
 
 OpenClaw gateway
+  → loadModelCatalog()
+  → merge explicit models.providers entries
+  → normalize provider aliases such as qwen-portal → qwen
+  → resolveGatewayModelSupportsImages()
+  → fallback to current OpenClaw config when catalog misses or is stale
   → parseMessageWithAttachments()
   → keep or drop image attachments based on models[].input
 ```
@@ -63,6 +80,7 @@ OpenClaw gateway
 3. **服务端模型按全量列表合并。** `lobsterai-server` 不再只注册当前默认模型。
 4. **已知纯文本模型不被误升级。** 如果 provider registry 明确某模型不支持图片，用户配置里的 `supportsImage:true` 也会被纠正。
 5. **未知模型尊重用户配置。** 对 registry 不认识的模型，用户勾选“支持图像输入”仍然有效。
+6. **OpenClaw runtime 不能只信 catalog。** 发图前能力预检必须使用 provider alias 归一化，并在 catalog miss 或 catalog 过期时回退到当前 `openclaw.json`。
 
 ---
 
@@ -101,6 +119,22 @@ auth:getModels
   → qwen3.6-plus-YoudaoInner writes input: ['text', 'image']
   → running gateway receives config by hot reload; no hard restart on model refresh
 ```
+
+### OpenClaw runtime 图像能力预检
+
+```
+chat.send
+  → receives imageAttachments
+  → resolves session model provider/model
+  → resolveGatewayModelSupportsImages({ provider, model })
+  → loadModelCatalog()
+  → find catalog entry by normalized provider + exact model id
+  → if catalog says image: keep images
+  → if catalog misses or says text-only: fallback to openclaw.json models.providers[*].models[*].input
+  → parseMessageWithAttachments({ supportsImages })
+```
+
+OpenClaw 的 model catalog 缓存是 runtime 内部的模型目录快照，不等同于 LobsterAI 设置页的 provider 表。它由 Pi `ModelRegistry`、provider plugin 补充项和显式 `openclaw.json.models.providers` 合并而来，并会被 gateway 的 `models.list` 和 `resolveGatewayModelSupportsImages()` 使用。此前显式配置模型没有可靠进入 catalog，导致 `qwen3.6-plus` 即使已经在 `openclaw.json` 中声明支持图片，仍可能在预检阶段被当成不支持图片。
 
 ---
 
@@ -273,6 +307,64 @@ custom_0: {
 
 `ProviderRegistry` 增加 global known model capability index。若 provider 不认识，但 model id 是已知视觉模型，例如 `qwen3.6-plus`、`gpt-5.4`、`gemini-3-pro-preview`，则自动修正为支持图片。
 
+### 问题 4：OpenClaw catalog / preflight 仍可能丢弃图片
+
+#### 现象
+
+2026-05-06 日志中，LobsterAI 侧已经确认：
+
+```
+chat.send imageAttachments diagnosis: { hasImageAttachments: true, imageAttachmentsCount: 1 }
+provider=lobsterai-server model=qwen3.6-plus-YoudaoInner
+```
+
+同时本地 `openclaw.json` 已包含：
+
+```typescript
+models.providers['lobsterai-server'].models[] = {
+  id: 'qwen3.6-plus-YoudaoInner',
+  input: ['text', 'image']
+}
+```
+
+但 OpenClaw gateway 仍然输出：
+
+```
+parseMessageWithAttachments: 1 attachment(s) dropped — model does not support images
+promptImages=0
+```
+
+#### 根因
+
+OpenClaw 当前版本的 `resolveGatewayModelSupportsImages()` 有三处问题：
+
+1. 只查 model catalog，catalog miss 时直接返回 `false`
+2. provider 使用精确字符串比较，`qwen-portal` 与 OpenClaw 原生 `qwen` 无法匹配
+3. model catalog 没有可靠合并 `openclaw.json.models.providers` 里的显式配置模型
+
+因此第一次修复写对配置后，仍可能被 OpenClaw runtime 的二次能力判断覆盖成“不支持图片”。
+
+#### 修复
+
+新增 OpenClaw 版本补丁：
+
+```text
+scripts/patches/v2026.4.14/openclaw-qwen-vision-catalog-fallback.patch
+```
+
+补丁内容：
+
+1. `normalizeProviderId()` 增加 `qwen-portal -> qwen` alias
+2. `loadModelCatalog()` 合并 `config.models.providers[*].models[*]` 显式配置模型
+3. catalog 去重使用 normalized provider + model id，避免 `qwen` 和 `qwen-portal` 重复
+4. `resolveGatewayModelSupportsImages()` 用 normalized provider 查 catalog
+5. catalog miss、catalog text-only 但 config 声明 image、catalog 加载失败时，回退读取当前 OpenClaw config 的 `input`
+6. 增加 OpenClaw 单测覆盖：
+   - `qwen-portal` alias 匹配 `qwen`
+   - 显式配置模型进入 catalog
+   - 自定义 / catalog miss 的视觉模型保留图片能力
+   - 显式 text-only 模型不会被误升级
+
 ---
 
 ## 涉及文件清单
@@ -287,6 +379,7 @@ custom_0: {
 | `src/main/main.ts` | `auth:getModels` 后同步模型能力，但不强制 gateway restart |
 | `src/renderer/services/config.ts` | 加载和迁移本地 provider config 时修正模型能力 |
 | `src/renderer/components/Settings.tsx` | 设置页新增/编辑/导入/导出模型时修正模型能力 |
+| `scripts/patches/v2026.4.14/openclaw-qwen-vision-catalog-fallback.patch` | OpenClaw runtime 补丁：provider alias、catalog 合并显式配置模型、发图前能力预检回退当前 config |
 
 ---
 
@@ -299,6 +392,17 @@ npm test -- openclawConfigSync providers/constants
 npm run build
 git diff --check
 ```
+
+2026-05-06 OpenClaw runtime 补丁验证：
+
+```bash
+git apply --check --ignore-whitespace scripts/patches/v2026.4.14/openclaw-qwen-vision-catalog-fallback.patch
+npm test -- openclawConfigSync.runtime -t Qwen
+npm test -- openclawConfigSync.runtime -t "merges all server"
+git diff --check
+```
+
+说明：`npm test -- openclawConfigSync.runtime` 全量运行当前会被既有测试桩问题阻塞，错误为 `this.getPopoInstances is not a function`，与 qwen 图像输入修复无关。
 
 ### 日志验证
 
@@ -337,6 +441,9 @@ provider=lobsterai-server/qwen3.6-plus-YoudaoInner promptImages=1
 | `custom_0/unknown-model` 本地配置为 `supportsImage:false` | OpenClaw 写出 `input: ['text']` |
 | `lobsterai-server` 服务端返回多个模型 | OpenClaw provider 包含全部服务端模型 |
 | `auth:getModels` 更新了模型能力 | OpenClaw 配置更新，gateway 不因模型列表刷新硬重启 |
+| `qwen-portal/qwen3.6-plus` 在 catalog 中只有 `qwen/qwen3.6-plus` | OpenClaw 通过 provider alias 匹配，保留图片 |
+| `lobsterai-server/qwen3.6-plus-YoudaoInner` 没进入 catalog 但 config 声明 image | `resolveGatewayModelSupportsImages()` 回退 config，保留图片 |
+| catalog miss 且 config 声明 `input: ['text']` | 仍按纯文本模型处理，不误升级 |
 
 ---
 
@@ -347,6 +454,8 @@ provider=lobsterai-server/qwen3.6-plus-YoudaoInner promptImages=1
 3. 如果真实模型能力与同名内置模型不同，例如某个自定义 endpoint 用同名模型但禁用了视觉能力，当前策略会按已知模型能力修正为支持图片。
 4. `auth:getModels` 失败时，`lobsterai-server` 只能使用已有缓存或当前模型兜底，无法自动发现新服务端模型。
 5. `auth:getModels` 可能在普通对话完成后被调用用于刷新额度和模型状态，因此不能把模型列表变化当作硬重启信号。
+6. `openclaw-qwen-vision-catalog-fallback.patch` 是针对 OpenClaw `v2026.4.14` 的版本补丁；升级 OpenClaw 后需要重新确认 upstream 是否已包含等价修复，或重新生成 patch。
+7. 补丁落地后，需要重新应用 OpenClaw patches 并重建/替换 bundled runtime，正在运行的旧 runtime 不会自动获得源码补丁。
 
 ---
 
