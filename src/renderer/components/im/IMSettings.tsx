@@ -17,7 +17,7 @@ import { i18nService } from '../../services/i18n';
 import { imService } from '../../services/im';
 import { RootState } from '../../store';
 import { clearError,setDingTalkConfig, setDingTalkInstanceConfig, setDiscordConfig, setDiscordInstanceConfig, setEmailInstanceConfig, setFeishuConfig, setFeishuInstanceConfig, setNeteaseBeeChanConfig, setNimConfig, setNimInstanceConfig, setPopoInstanceConfig, setQQConfig, setQQInstanceConfig, setTelegramInstanceConfig, setTelegramOpenClawConfig, setWecomConfig, setWecomInstanceConfig, setWeixinConfig } from '../../store/slices/imSlice';
-import type { EmailInstanceConfig, IMConnectivityCheck, IMConnectivityTestResult, IMGatewayConfig } from '../../types/im';
+import type { EmailInstanceConfig, IMConnectivityCheck, IMConnectivityTestResult, IMGatewayConfig, WeixinOpenClawConfig } from '../../types/im';
 import { MAX_DINGTALK_INSTANCES, MAX_DISCORD_INSTANCES, MAX_EMAIL_INSTANCES, MAX_FEISHU_INSTANCES, MAX_NIM_INSTANCES, MAX_POPO_INSTANCES, MAX_QQ_INSTANCES, MAX_TELEGRAM_INSTANCES, MAX_WECOM_INSTANCES } from '../../types/im';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 import Modal from '../common/Modal';
@@ -136,6 +136,7 @@ const IMSettings: React.FC = () => {
   const [weixinQrStatus, setWeixinQrStatus] = useState<'idle' | 'loading' | 'showing' | 'waiting' | 'success' | 'error'>('idle');
   const [weixinQrUrl, setWeixinQrUrl] = useState<string>('');
   const [weixinQrError, setWeixinQrError] = useState<string>('');
+  const [weixinAllowFromInput, setWeixinAllowFromInput] = useState<string>('');
   const weixinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [_localIp, setLocalIp] = useState<string>('');
   const isMountedRef = useRef(true);
@@ -2582,6 +2583,97 @@ const IMSettings: React.FC = () => {
                 {status.weixin.lastError}
               </div>
             )}
+
+            {/* Advanced Settings (collapsible) */}
+            <details className="group">
+              <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
+                {i18nService.t('imAdvancedSettings')}
+              </summary>
+              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
+                {/* DM Policy */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-secondary">
+                    DM Policy
+                  </label>
+                  <select
+                    value={weixinOpenClawConfig.dmPolicy}
+                    onChange={(e) => {
+                      const update = { dmPolicy: e.target.value as WeixinOpenClawConfig['dmPolicy'] };
+                      void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, ...update } });
+                    }}
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                  >
+                    <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
+                    <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
+                    <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
+                    <option value="disabled">{i18nService.t('imDmPolicyDisabled')}</option>
+                  </select>
+                </div>
+
+                {/* Allow From */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-secondary">
+                    Allow From (User IDs)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={weixinAllowFromInput}
+                      onChange={(e) => setWeixinAllowFromInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const id = weixinAllowFromInput.trim();
+                          if (id && !weixinOpenClawConfig.allowFrom.includes(id)) {
+                            const newIds = [...weixinOpenClawConfig.allowFrom, id];
+                            setWeixinAllowFromInput('');
+                            void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
+                          }
+                        }
+                      }}
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      placeholder="wxid_xxx@im.wechat"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = weixinAllowFromInput.trim();
+                        if (id && !weixinOpenClawConfig.allowFrom.includes(id)) {
+                          const newIds = [...weixinOpenClawConfig.allowFrom, id];
+                          setWeixinAllowFromInput('');
+                          void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
+                        }
+                      }}
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                    >
+                      {i18nService.t('add') || '添加'}
+                    </button>
+                  </div>
+                  {weixinOpenClawConfig.allowFrom.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {weixinOpenClawConfig.allowFrom.map((id) => (
+                        <span
+                          key={id}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
+                        >
+                          {id}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newIds = weixinOpenClawConfig.allowFrom.filter((uid) => uid !== id);
+                              void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
+                            }}
+                            className="text-secondary hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                          >
+                            <XMarkIcon className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </details>
           </div>
         )}
 
