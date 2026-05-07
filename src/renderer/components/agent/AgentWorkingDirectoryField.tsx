@@ -29,16 +29,18 @@ const AgentWorkingDirectoryField: React.FC<AgentWorkingDirectoryFieldProps> = ({
     const hasValue = value.trim().length > 0;
     return (
       <div className="relative min-w-0">
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div
+          className={`inline-flex h-8 min-w-0 max-w-[240px] items-center rounded-lg bg-surface-raised/70 text-sm transition-colors hover:bg-surface-raised ${
+            showFolderMenu ? 'text-foreground' : 'text-secondary'
+          }`}
+        >
           <button
             ref={buttonRef}
             type="button"
             title={hasValue ? value : i18nService.t('noFolderSelected')}
             aria-label={i18nService.t('agentDefaultWorkingDirectory')}
             onClick={() => setShowFolderMenu((open) => !open)}
-            className={`h-9 min-w-0 max-w-[220px] inline-flex items-center gap-2 rounded-xl px-2.5 text-sm transition-colors hover:bg-surface-raised ${
-              showFolderMenu ? 'bg-surface-raised text-foreground' : 'text-secondary'
-            }`}
+            className="inline-flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg pl-2.5 pr-2"
           >
             <FolderIcon className="h-4 w-4 flex-shrink-0" />
             <span className={`truncate ${hasValue ? 'text-foreground' : 'text-secondary'}`}>
@@ -51,7 +53,7 @@ const AgentWorkingDirectoryField: React.FC<AgentWorkingDirectoryFieldProps> = ({
               aria-label={i18nService.t('clear')}
               title={i18nService.t('clear')}
               onClick={() => onChange('')}
-              className="h-9 w-9 flex-shrink-0 inline-flex items-center justify-center rounded-xl text-secondary hover:bg-surface-raised hover:text-foreground transition-colors"
+              className="h-full w-7 flex-shrink-0 inline-flex items-center justify-center rounded-lg text-secondary hover:text-foreground transition-colors"
             >
               <XMarkIcon className="h-3.5 w-3.5" />
             </button>

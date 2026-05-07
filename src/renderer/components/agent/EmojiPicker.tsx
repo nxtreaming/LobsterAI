@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+
 import { i18nService } from '../../services/i18n';
 
 interface EmojiCategory {
@@ -134,9 +135,8 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({ value, onChange }) => {
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         title={i18nService.t('emojiPickerTitle') || 'Choose icon'}
-        className={`w-12 h-[38px] flex items-center justify-center rounded-lg border text-lg transition-colors
-          dark:border-claude-darkBorder border-claude-border
-          hover:bg-claude-surfaceHover dark:hover:bg-claude-darkSurfaceHover
+        className={`w-11 h-11 flex items-center justify-center rounded-xl text-lg transition-colors bg-surface-raised/70
+          hover:bg-surface-raised
           ${isOpen ? 'ring-2 ring-claude-accent' : ''}
         `}
       >

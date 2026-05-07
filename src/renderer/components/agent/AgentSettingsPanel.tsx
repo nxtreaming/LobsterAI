@@ -1,4 +1,4 @@
-import { ExclamationTriangleIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon } from '@heroicons/react/24/outline';
 import type { Platform } from '@shared/platform';
 import { PlatformRegistry } from '@shared/platform';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -15,9 +15,10 @@ import { resolveOpenClawModelRef, toOpenClawModelRef } from '../../utils/opencla
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 import Modal from '../common/Modal';
 import TrashIcon from '../icons/TrashIcon';
+import AgentConfirmDialog from './AgentConfirmDialog';
 import AgentDetailToolbar from './AgentDetailToolbar';
 import AgentSkillSelector from './AgentSkillSelector';
-import { AgentDetailTab } from './constants';
+import { AgentConfirmDialogVariant, AgentDetailTab } from './constants';
 import EmojiPicker from './EmojiPicker';
 
 type MultiInstancePlatform = 'dingtalk' | 'feishu' | 'qq' | 'wecom' | 'nim' | 'telegram' | 'discord' | 'popo';
@@ -32,11 +33,9 @@ const isMultiInstancePlatform = (platform: Platform): platform is MultiInstanceP
 interface AgentSettingsPanelProps {
   agentId: string | null;
   onClose: () => void;
-  onSwitchAgent?: (agentId: string) => void;
 }
 
-const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClose, onSwitchAgent }) => {
-  const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
+const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClose }) => {
   const agents = useSelector((state: RootState) => state.agent.agents);
   const imStatus = useSelector((state: RootState) => state.im.status);
   const availableModels = useSelector((state: RootState) => state.model.availableModels);
@@ -407,48 +406,40 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
 
   return (
     <>
-    <Modal onClose={handleClose} className="w-full max-w-3xl mx-4 rounded-xl shadow-xl bg-surface border border-border max-h-[82vh] flex flex-col overflow-hidden">
-        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-border">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <EmojiPicker value={icon} onChange={setIcon} />
+      <Modal
+        onClose={handleClose}
+        overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/10 dark:bg-black/50"
+        className="w-[calc(100vw-56px)] max-w-[854px] h-[82vh] max-h-[664px] rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.16)] bg-surface border border-border/80 flex flex-col overflow-hidden"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-4 px-7 py-5">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <EmojiPicker value={icon} onChange={setIcon} />
+            <div className="min-w-0 flex-1 pt-0.5">
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={i18nService.t('agentNamePlaceholder')}
                 aria-label={i18nService.t('agentName')}
-                className="min-w-0 flex-1 bg-transparent text-base font-semibold text-foreground placeholder:text-secondary/40 focus:outline-none"
+                className="w-full bg-transparent text-lg font-semibold leading-6 text-foreground placeholder:text-secondary/40 focus:outline-none"
+              />
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={i18nService.t('agentDescriptionPlaceholder')}
+                aria-label={i18nService.t('agentDescription')}
+                className="mt-0.5 w-full bg-transparent text-sm leading-5 text-secondary placeholder:text-secondary/50 focus:outline-none"
               />
             </div>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={i18nService.t('agentDescriptionPlaceholder')}
-              aria-label={i18nService.t('agentDescription')}
-              className="mt-2 w-full bg-transparent text-sm text-secondary placeholder:text-secondary/50 focus:outline-none"
-            />
           </div>
-          <div className="flex items-center gap-1">
-            {!isMainAgent && (
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-              >
-                <TrashIcon className="h-4 w-4" />
-                {i18nService.t('delete')}
-              </button>
-            )}
-            <button type="button" onClick={handleClose} className="p-2 rounded-lg hover:bg-surface-raised transition-colors">
-              <XMarkIcon className="h-5 w-5 text-secondary" />
-            </button>
-          </div>
+          <button type="button" onClick={handleClose} className="mt-1 p-2 rounded-lg hover:bg-surface-raised transition-colors">
+            <XMarkIcon className="h-5 w-5 text-secondary" />
+          </button>
         </div>
 
         {/* Tab bar */}
-        <div className="flex border-b border-border px-5">
+        <div className="flex shrink-0 border-b border-border px-7">
           {tabs.map((tab) => (
             <button
               key={tab.key}
@@ -456,27 +447,27 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
               onClick={() => setActiveTab(tab.key)}
               className={`px-4 py-2.5 text-sm font-medium transition-colors relative ${
                 activeTab === tab.key
-                  ? 'text-primary'
+                  ? 'text-foreground'
                   : 'text-secondary hover:text-foreground'
               }`}
             >
               {tab.label}
               {activeTab === tab.key && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
+                <div className="absolute bottom-[-1px] left-0 right-0 h-0.5 bg-foreground rounded-full" />
               )}
             </button>
           ))}
         </div>
 
         {/* Tab content */}
-        <div className="px-5 py-4 overflow-y-auto flex-1 min-h-[360px]">
+        <div className="px-7 py-7 overflow-hidden flex-1 min-h-0">
           {activeTab === AgentDetailTab.Prompt && (
             <textarea
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
               placeholder={i18nService.t('agentSystemPromptPlaceholder')}
               aria-label={i18nService.t('systemPrompt')}
-              className="h-full min-h-[320px] w-full resize-none rounded-lg border border-transparent bg-transparent px-1 py-1 text-sm leading-6 text-foreground placeholder:text-secondary/45 focus:border-border focus:outline-none"
+              className="h-full min-h-0 w-full resize-none border border-transparent bg-transparent text-sm leading-6 text-foreground placeholder:text-secondary/45 focus:outline-none"
             />
           )}
 
@@ -486,7 +477,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
               onChange={(e) => setIdentity(e.target.value)}
               placeholder={i18nService.t('agentIdentityPlaceholder')}
               aria-label={i18nService.t('agentIdentity')}
-              className="h-full min-h-[320px] w-full resize-none rounded-lg border border-transparent bg-transparent px-1 py-1 text-sm leading-6 text-foreground placeholder:text-secondary/45 focus:border-border focus:outline-none"
+              className="h-full min-h-0 w-full resize-none border border-transparent bg-transparent text-sm leading-6 text-foreground placeholder:text-secondary/45 focus:outline-none"
             />
           )}
 
@@ -495,10 +486,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
           )}
 
           {activeTab === AgentDetailTab.Im && (
-            <div>
-              <p className="text-xs text-secondary/60 mb-4">
-                {i18nService.t('agentIMBindHint')}
-              </p>
+            <div className="h-full overflow-y-auto">
               <div className="space-y-1">
                 {PlatformRegistry.platforms
                   .filter((platform) => (getVisibleIMPlatforms(i18nService.getLanguage()) as readonly string[]).includes(platform))
@@ -514,7 +502,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
         </div>
 
         {/* Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-border">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-5 py-3.5 border-t border-border">
           <AgentDetailToolbar
             model={model}
             onModelChange={setModel}
@@ -522,117 +510,51 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
             onWorkingDirectoryChange={setWorkingDirectory}
           />
           <div className="flex shrink-0 gap-2">
-            {onSwitchAgent && agentId !== currentAgentId && (
+            {!isMainAgent && (
               <button
                 type="button"
-                onClick={() => onSwitchAgent(agentId)}
-                className="px-4 py-2 text-sm font-medium rounded-lg border border-primary text-primary hover:bg-primary/10 transition-colors"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="inline-flex h-9 items-center gap-1.5 px-3 text-sm font-medium rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
               >
-                {i18nService.t('switchToAgent')}
+                <TrashIcon className="h-4 w-4" />
+                {i18nService.t('delete')}
               </button>
             )}
             <button
               type="button"
-              onClick={handleClose}
-              className="px-4 py-2 text-sm font-medium rounded-lg text-secondary hover:bg-surface-raised transition-colors"
-            >
-              {i18nService.t('cancel')}
-            </button>
-            <button
-              type="button"
               onClick={handleSave}
               disabled={!name.trim() || saving}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-white hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="h-9 px-5 text-sm font-medium rounded-lg bg-primary text-white hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {saving ? i18nService.t('saving') : i18nService.t('save')}
             </button>
           </div>
         </div>
-    </Modal>
+      </Modal>
 
-    {/* Delete Confirmation Modal */}
-    {showDeleteConfirm && (
-      <div
-        className="fixed inset-0 z-[9999] flex items-center justify-center"
-        onClick={() => setShowDeleteConfirm(false)}
-      >
-        <div className="absolute inset-0 bg-black/40 dark:bg-black/60" />
-        <div
-          className="relative w-80 rounded-xl shadow-2xl bg-surface border border-border p-5"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex flex-col items-center text-center">
-            <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-3">
-              <ExclamationTriangleIcon className="w-5 h-5 text-red-500" />
-            </div>
-            <h3 className="text-sm font-semibold text-foreground mb-2">
-              {i18nService.t('agentDeleteConfirmTitle') || 'Confirm Delete Agent'}
-            </h3>
-            <p className="text-sm text-secondary mb-5">
-              {(i18nService.t('agentDeleteConfirmMessage') || 'Are you sure you want to delete Agent "{name}"? This action cannot be undone.').replace('{name}', name)}
-            </p>
-            <div className="flex items-center gap-3 w-full">
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 px-4 py-2 text-sm rounded-lg text-foreground border border-border hover:bg-surface-raised transition-colors"
-              >
-                {i18nService.t('cancel') || 'Cancel'}
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                className="flex-1 px-4 py-2 text-sm rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
-              >
-                {i18nService.t('delete') || 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )}
+      {showDeleteConfirm && (
+        <AgentConfirmDialog
+          variant={AgentConfirmDialogVariant.Delete}
+          title={i18nService.t('agentDeleteConfirmTitle')}
+          message={i18nService.t('agentDeleteConfirmMessage').replace('{name}', name)}
+          cancelLabel={i18nService.t('cancel')}
+          confirmLabel={i18nService.t('delete')}
+          onCancel={() => setShowDeleteConfirm(false)}
+          onConfirm={handleDelete}
+        />
+      )}
 
-    {/* Unsaved Changes Confirmation Modal */}
-    {showUnsavedConfirm && (
-      <div
-        className="fixed inset-0 z-[9999] flex items-center justify-center"
-        onClick={() => setShowUnsavedConfirm(false)}
-      >
-        <div className="absolute inset-0 bg-black/40 dark:bg-black/60" />
-        <div
-          className="relative w-80 rounded-xl shadow-2xl bg-surface border border-border p-5"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex flex-col items-center text-center">
-            <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-3">
-              <ExclamationTriangleIcon className="w-5 h-5 text-amber-500" />
-            </div>
-            <h3 className="text-sm font-semibold text-foreground mb-2">
-              {i18nService.t('agentUnsavedTitle') || 'Unsaved Changes'}
-            </h3>
-            <p className="text-sm text-secondary mb-5">
-              {i18nService.t('agentUnsavedMessage') || 'You have unsaved changes. Are you sure you want to discard them?'}
-            </p>
-            <div className="flex items-center gap-3 w-full">
-              <button
-                type="button"
-                onClick={() => setShowUnsavedConfirm(false)}
-                className="flex-1 px-4 py-2 text-sm rounded-lg text-foreground border border-border hover:bg-surface-raised transition-colors"
-              >
-                {i18nService.t('cancel') || 'Cancel'}
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDiscard}
-                className="flex-1 px-4 py-2 text-sm rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
-              >
-                {i18nService.t('discard') || 'Discard'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )}
+      {showUnsavedConfirm && (
+        <AgentConfirmDialog
+          variant={AgentConfirmDialogVariant.Unsaved}
+          title={i18nService.t('agentUnsavedTitle')}
+          message={i18nService.t('agentUnsavedMessage')}
+          cancelLabel={i18nService.t('agentUnsavedStay')}
+          confirmLabel={i18nService.t('agentUnsavedDiscard')}
+          onCancel={() => setShowUnsavedConfirm(false)}
+          onConfirm={handleConfirmDiscard}
+        />
+      )}
     </>
   );
 };

@@ -1,4 +1,4 @@
-import { CpuChipIcon } from '@heroicons/react/24/outline';
+import { CubeIcon } from '@heroicons/react/24/outline';
 import React from 'react';
 
 import { i18nService } from '../../services/i18n';
@@ -21,10 +21,10 @@ const AgentDetailToolbar: React.FC<AgentDetailToolbarProps> = ({
 }) => (
   <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
     <div
-      className="flex min-w-0 items-center gap-1 text-secondary"
+      className="flex h-8 min-w-0 items-center gap-1 rounded-lg bg-surface-raised/70 pl-2 text-foreground"
       title={i18nService.t('agentDefaultModel')}
     >
-      <CpuChipIcon className="h-4 w-4 flex-shrink-0" />
+      <CubeIcon className="h-4 w-4 flex-shrink-0 text-secondary" />
       <ModelSelector
         dropdownDirection="up"
         value={model}
