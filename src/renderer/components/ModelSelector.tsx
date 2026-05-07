@@ -1,5 +1,6 @@
 import { CheckIcon,ChevronDownIcon } from '@heroicons/react/24/outline';
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { useDispatch,useSelector } from 'react-redux';
 
 import { i18nService } from '../services/i18n';
@@ -20,9 +21,13 @@ interface ModelSelectorProps {
   defaultLabel?: string;
   /** Disable interaction while the selected model is being persisted. */
   disabled?: boolean;
+  /** Render the dropdown outside the local stacking context. */
+  portal?: boolean;
 }
 
 const DROPDOWN_MAX_HEIGHT = 256; // matches max-h-64
+const DROPDOWN_WIDTH = 240; // matches w-60
+const DROPDOWN_VIEWPORT_MARGIN = 8;
 
 const ModelSelector: React.FC<ModelSelectorProps> = ({
   dropdownDirection = 'auto',
@@ -30,11 +35,14 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   onChange,
   defaultLabel,
   disabled = false,
+  portal = false,
 }) => {
   const dispatch = useDispatch();
   const [isOpen, setIsOpen] = React.useState(false);
   const [resolvedDirection, setResolvedDirection] = React.useState<'up' | 'down'>('down');
+  const [portalStyle, setPortalStyle] = React.useState<React.CSSProperties>({});
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
 
   const controlled = onChange !== undefined;
   const globalSelectedModel = useSelector((state: RootState) => state.model.defaultSelectedModel);
@@ -45,17 +53,21 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   // 点击外部区域关闭下拉框
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const isInsideTrigger = containerRef.current?.contains(target);
+      const isInsideDropdown = dropdownRef.current?.contains(target);
+
+      if (!isInsideTrigger && !isInsideDropdown) {
         setIsOpen(false);
       }
     };
 
     if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('mousedown', handleClickOutside, true);
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('mousedown', handleClickOutside, true);
     };
   }, [isOpen]);
 
@@ -67,12 +79,54 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     return spaceBelow < DROPDOWN_MAX_HEIGHT && rect.top > spaceBelow ? 'up' : 'down';
   }, [dropdownDirection]);
 
+  const updatePortalPosition = React.useCallback((direction: 'up' | 'down') => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(rect.left, DROPDOWN_VIEWPORT_MARGIN),
+      window.innerWidth - DROPDOWN_WIDTH - DROPDOWN_VIEWPORT_MARGIN
+    );
+    const nextStyle: React.CSSProperties = {
+      left,
+      position: 'fixed',
+      width: DROPDOWN_WIDTH,
+      zIndex: 10000,
+    };
+
+    if (direction === 'up') {
+      nextStyle.bottom = window.innerHeight - rect.top + 4;
+    } else {
+      nextStyle.top = rect.bottom + 4;
+    }
+
+    setPortalStyle(nextStyle);
+  }, []);
+
+  React.useEffect(() => {
+    if (!isOpen || !portal) return;
+
+    const handlePositionUpdate = () => updatePortalPosition(resolvedDirection);
+    window.addEventListener('resize', handlePositionUpdate);
+    window.addEventListener('scroll', handlePositionUpdate, true);
+
+    return () => {
+      window.removeEventListener('resize', handlePositionUpdate);
+      window.removeEventListener('scroll', handlePositionUpdate, true);
+    };
+  }, [isOpen, portal, resolvedDirection, updatePortalPosition]);
+
   const toggleOpen = () => {
     if (disabled) return;
     if (!isOpen) {
-      setResolvedDirection(resolveDirection());
+      const nextDirection = resolveDirection();
+      setResolvedDirection(nextDirection);
+      if (portal) {
+        updatePortalPosition(nextDirection);
+      }
+      setIsOpen(true);
+    } else {
+      setIsOpen(false);
     }
-    setIsOpen(!isOpen);
   };
 
   const handleModelSelect = (model: Model | null) => {
@@ -141,6 +195,40 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     </div>
   );
 
+  const dropdown = isOpen ? (
+    <div
+      ref={dropdownRef}
+      style={portal ? portalStyle : undefined}
+      className={`${portal ? '' : `absolute ${dropdownPositionClass}`} w-60 bg-surface rounded-xl popover-enter shadow-popover z-50 border-border border overflow-hidden`}
+    >
+      <div className="max-h-64 overflow-y-auto">
+        {defaultLabel && (
+          <button
+            type="button"
+            onClick={() => handleModelSelect(null)}
+            className={`w-full px-4 py-2.5 text-left dark:text-claude-darkText text-claude-text dark:hover:bg-claude-darkSurfaceHover hover:bg-claude-surfaceHover flex items-center justify-between transition-colors ${
+              !selectedModel ? 'dark:bg-claude-darkSurfaceHover/50 bg-claude-surfaceHover/50' : ''
+            }`}
+          >
+            <span className="text-sm">{defaultLabel}</span>
+            {!selectedModel && <CheckIcon className="h-4 w-4 text-claude-accent" />}
+          </button>
+        )}
+        {hasBothGroups ? (
+          <>
+            {renderGroupHeader(i18nService.t('modelGroupServer'))}
+            {serverModels.map(renderModelItem)}
+            <div className="my-1 border-t border-border" />
+            {renderGroupHeader(i18nService.t('modelGroupUser'))}
+            {userModels.map(renderModelItem)}
+          </>
+        ) : (
+          availableModels.map(renderModelItem)
+        )}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div ref={containerRef} className={`relative ${disabled ? 'cursor-wait' : 'cursor-pointer'}`}>
       <button
@@ -153,35 +241,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         <ChevronDownIcon className="h-4 w-4 shrink-0 dark:text-claude-darkTextSecondary text-claude-textSecondary" />
       </button>
 
-      {isOpen && (
-        <div className={`absolute ${dropdownPositionClass} w-60 bg-surface rounded-xl popover-enter shadow-popover z-50 border-border border overflow-hidden`}>
-          <div className="max-h-64 overflow-y-auto">
-            {defaultLabel && (
-              <button
-                type="button"
-                onClick={() => handleModelSelect(null)}
-                className={`w-full px-4 py-2.5 text-left dark:text-claude-darkText text-claude-text dark:hover:bg-claude-darkSurfaceHover hover:bg-claude-surfaceHover flex items-center justify-between transition-colors ${
-                  !selectedModel ? 'dark:bg-claude-darkSurfaceHover/50 bg-claude-surfaceHover/50' : ''
-                }`}
-              >
-                <span className="text-sm">{defaultLabel}</span>
-                {!selectedModel && <CheckIcon className="h-4 w-4 text-claude-accent" />}
-              </button>
-            )}
-            {hasBothGroups ? (
-              <>
-                {renderGroupHeader(i18nService.t('modelGroupServer'))}
-                {serverModels.map(renderModelItem)}
-                <div className="my-1 border-t border-border" />
-                {renderGroupHeader(i18nService.t('modelGroupUser'))}
-                {userModels.map(renderModelItem)}
-              </>
-            ) : (
-              availableModels.map(renderModelItem)
-            )}
-          </div>
-        </div>
-      )}
+      {portal && dropdown ? createPortal(dropdown, document.body) : dropdown}
     </div>
   );
 };

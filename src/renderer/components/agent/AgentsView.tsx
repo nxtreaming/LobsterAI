@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../store';
 import { agentService } from '../../services/agent';
-import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { PlusIcon } from '@heroicons/react/24/outline';
 import type { PresetAgent } from '../../types/agent';
@@ -16,7 +15,6 @@ interface AgentsViewProps {
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   onNewChat?: () => void;
-  onShowCowork?: () => void;
   updateBadge?: React.ReactNode;
 }
 
@@ -24,7 +22,6 @@ const AgentsView: React.FC<AgentsViewProps> = ({
   isSidebarCollapsed,
   onToggleSidebar,
   onNewChat,
-  onShowCowork,
   updateBadge,
 }) => {
   const isMac = window.electron.platform === 'darwin';
@@ -57,12 +54,6 @@ const AgentsView: React.FC<AgentsViewProps> = ({
     } finally {
       setAddingPreset(null);
     }
-  };
-
-  const handleSwitchAgent = (agentId: string) => {
-    agentService.switchAgent(agentId);
-    coworkService.loadSessions(agentId);
-    onShowCowork?.();
   };
 
   return (
@@ -179,10 +170,6 @@ const AgentsView: React.FC<AgentsViewProps> = ({
       <AgentSettingsPanel
         agentId={settingsAgentId}
         onClose={() => setSettingsAgentId(null)}
-        onSwitchAgent={(id) => {
-          setSettingsAgentId(null);
-          handleSwitchAgent(id);
-        }}
       />
     </div>
   );

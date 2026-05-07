@@ -8,14 +8,15 @@ import FolderSelectorPopover from '../cowork/FolderSelectorPopover';
 interface AgentWorkingDirectoryFieldProps {
   value: string;
   onChange: (value: string) => void;
+  compact?: boolean;
 }
 
-const truncatePath = (value: string): string => {
+const truncatePath = (value: string, maxLength = 72): string => {
   if (!value.trim()) return i18nService.t('noFolderSelected');
-  return getCompactFolderName(value, 72) || value;
+  return getCompactFolderName(value, maxLength) || value;
 };
 
-const AgentWorkingDirectoryField: React.FC<AgentWorkingDirectoryFieldProps> = ({ value, onChange }) => {
+const AgentWorkingDirectoryField: React.FC<AgentWorkingDirectoryFieldProps> = ({ value, onChange, compact = false }) => {
   const [showFolderMenu, setShowFolderMenu] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -23,6 +24,52 @@ const AgentWorkingDirectoryField: React.FC<AgentWorkingDirectoryFieldProps> = ({
     onChange(path);
     setShowFolderMenu(false);
   };
+
+  if (compact) {
+    const hasValue = value.trim().length > 0;
+    return (
+      <div className="relative min-w-0">
+        <div
+          className={`inline-flex h-8 min-w-0 max-w-[240px] items-center rounded-lg bg-surface-raised/70 text-sm transition-colors hover:bg-surface-raised ${
+            showFolderMenu ? 'text-foreground' : 'text-secondary'
+          }`}
+        >
+          <button
+            ref={buttonRef}
+            type="button"
+            title={hasValue ? value : i18nService.t('noFolderSelected')}
+            aria-label={i18nService.t('agentDefaultWorkingDirectory')}
+            onClick={() => setShowFolderMenu((open) => !open)}
+            className="inline-flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg pl-2.5 pr-2"
+          >
+            <FolderIcon className="h-4 w-4 flex-shrink-0" />
+            <span className={`truncate ${hasValue ? 'text-foreground' : 'text-secondary'}`}>
+              {truncatePath(value, 40)}
+            </span>
+          </button>
+          {hasValue && (
+            <button
+              type="button"
+              aria-label={i18nService.t('clear')}
+              title={i18nService.t('clear')}
+              onClick={() => onChange('')}
+              className="h-full w-7 flex-shrink-0 inline-flex items-center justify-center rounded-lg text-secondary hover:text-foreground transition-colors"
+            >
+              <XMarkIcon className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <FolderSelectorPopover
+          isOpen={showFolderMenu}
+          onClose={() => setShowFolderMenu(false)}
+          onSelectFolder={handleFolderSelect}
+          anchorRef={buttonRef as React.RefObject<HTMLElement>}
+          portal
+          placement="top"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="relative">

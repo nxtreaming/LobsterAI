@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import FolderPlusIcon from '../icons/FolderPlusIcon';
-import ClockIcon from '../icons/ClockIcon';
-import ChevronRightIcon from '../icons/ChevronRightIcon';
-import FolderIcon from '../icons/FolderIcon';
-import { i18nService } from '../../services/i18n';
+import React, { useCallback,useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+
 import { coworkService } from '../../services/cowork';
+import { i18nService } from '../../services/i18n';
 import { getCompactFolderName } from '../../utils/path';
+import ChevronRightIcon from '../icons/ChevronRightIcon';
+import ClockIcon from '../icons/ClockIcon';
+import FolderIcon from '../icons/FolderIcon';
+import FolderPlusIcon from '../icons/FolderPlusIcon';
 
 // Custom tooltip for folder paths
 interface PathTooltipProps {
@@ -24,7 +26,7 @@ const PathTooltip: React.FC<PathTooltipProps> = ({ path, anchorRect, visible }) 
     left: anchorRect.left + anchorRect.width / 2,
     transform: 'translate(-50%, -100%)',
     maxWidth: '400px',
-    zIndex: 100,
+    zIndex: 10002,
   };
 
   return (
@@ -42,13 +44,20 @@ interface FolderSelectorPopoverProps {
   onClose: () => void;
   onSelectFolder: (path: string) => void;
   anchorRef: React.RefObject<HTMLElement>;
+  portal?: boolean;
+  placement?: 'top' | 'bottom';
 }
+
+const POPOVER_WIDTH = 224; // matches w-56
+const POPOVER_VIEWPORT_MARGIN = 8;
 
 const FolderSelectorPopover: React.FC<FolderSelectorPopoverProps> = ({
   isOpen,
   onClose,
   onSelectFolder,
   anchorRef,
+  portal = false,
+  placement = 'top',
 }) => {
   const [recentFolders, setRecentFolders] = useState<string[]>([]);
   const [showRecentSubmenu, setShowRecentSubmenu] = useState(false);
@@ -59,11 +68,35 @@ const FolderSelectorPopover: React.FC<FolderSelectorPopoverProps> = ({
     path: string;
     rect: DOMRect | null;
   }>({ visible: false, path: '', rect: null });
+  const [portalStyle, setPortalStyle] = useState<React.CSSProperties>({});
   const popoverRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
   const recentFoldersRef = useRef<HTMLDivElement>(null);
   const tooltipTimerRef = useRef<NodeJS.Timeout | null>(null);
   const submenuCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const updatePortalPosition = useCallback(() => {
+    if (!anchorRef.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(rect.left, POPOVER_VIEWPORT_MARGIN),
+      window.innerWidth - POPOVER_WIDTH - POPOVER_VIEWPORT_MARGIN
+    );
+    const nextStyle: React.CSSProperties = {
+      left,
+      position: 'fixed',
+      width: POPOVER_WIDTH,
+      zIndex: 10000,
+    };
+
+    if (placement === 'top') {
+      nextStyle.bottom = window.innerHeight - rect.top + 8;
+    } else {
+      nextStyle.top = rect.bottom + 8;
+    }
+
+    setPortalStyle(nextStyle);
+  }, [anchorRef, placement]);
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -78,6 +111,12 @@ const FolderSelectorPopover: React.FC<FolderSelectorPopoverProps> = ({
   }, []);
 
   // Load recent folders when popover opens
+  useLayoutEffect(() => {
+    if (isOpen && portal) {
+      updatePortalPosition();
+    }
+  }, [isOpen, portal, updatePortalPosition]);
+
   useEffect(() => {
     if (isOpen) {
       const loadRecentFolders = async () => {
@@ -106,7 +145,19 @@ const FolderSelectorPopover: React.FC<FolderSelectorPopoverProps> = ({
         submenuCloseTimerRef.current = null;
       }
     }
-  }, [isOpen]);
+  }, [isOpen, portal, updatePortalPosition]);
+
+  useEffect(() => {
+    if (!isOpen || !portal) return;
+
+    window.addEventListener('resize', updatePortalPosition);
+    window.addEventListener('scroll', updatePortalPosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updatePortalPosition);
+      window.removeEventListener('scroll', updatePortalPosition, true);
+    };
+  }, [isOpen, portal, updatePortalPosition]);
 
   // Handle click outside
   useEffect(() => {
@@ -123,8 +174,8 @@ const FolderSelectorPopover: React.FC<FolderSelectorPopoverProps> = ({
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside, true);
+    return () => document.removeEventListener('mousedown', handleClickOutside, true);
   }, [isOpen, onClose, anchorRef]);
 
   // Handle escape key
@@ -231,12 +282,13 @@ const FolderSelectorPopover: React.FC<FolderSelectorPopoverProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  const popoverContent = (
     <>
       {/* Main popover */}
       <div
         ref={popoverRef}
-        className="absolute bottom-full left-0 mb-2 w-56 rounded-lg border border-border bg-surface shadow-lg z-50"
+        style={portal ? portalStyle : undefined}
+        className={`${portal ? '' : 'absolute bottom-full left-0 mb-2'} w-56 rounded-lg border border-border bg-surface shadow-lg z-50`}
       >
         {/* Add Folder option */}
         <button
@@ -270,7 +322,7 @@ const FolderSelectorPopover: React.FC<FolderSelectorPopoverProps> = ({
       {showRecentSubmenu && (
         <div
           ref={submenuRef}
-          className="fixed w-64 max-h-80 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg z-[60]"
+          className="fixed w-64 max-h-80 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg z-[10001]"
           style={{ top: submenuPosition.top, left: submenuPosition.left }}
           onMouseEnter={handleSubmenuMouseEnter}
           onMouseLeave={handleSubmenuMouseLeave}
@@ -308,6 +360,8 @@ const FolderSelectorPopover: React.FC<FolderSelectorPopoverProps> = ({
       />
     </>
   );
+
+  return portal ? createPortal(popoverContent, document.body) : popoverContent;
 };
 
 export default FolderSelectorPopover;

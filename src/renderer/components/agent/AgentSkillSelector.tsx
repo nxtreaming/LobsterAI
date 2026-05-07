@@ -1,9 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { CheckIcon } from '@heroicons/react/24/outline';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { RootState } from '../../store';
+
 import { i18nService } from '../../services/i18n';
 import { skillService } from '../../services/skill';
-import { CheckIcon } from '@heroicons/react/24/outline';
+import { RootState } from '../../store';
+import PuzzleIcon from '../icons/PuzzleIcon';
 import SearchIcon from '../icons/SearchIcon';
 
 interface AgentSkillSelectorProps {
@@ -14,10 +16,15 @@ interface AgentSkillSelectorProps {
 const AgentSkillSelector: React.FC<AgentSkillSelectorProps> = ({ selectedSkillIds, onChange }) => {
   const skills = useSelector((state: RootState) => state.skill.skills);
   const [search, setSearch] = useState('');
-  const [i18nReady, setI18nReady] = useState(false);
+  const [i18nReady, setI18nReady] = useState(() => skillService.hasLocalizedSkillDescriptions());
+  const shouldUseFallbackDescription = i18nReady || i18nService.getLanguage() !== 'zh';
 
   // Load localized skill descriptions from marketplace API
   useEffect(() => {
+    if (skillService.hasLocalizedSkillDescriptions()) {
+      setI18nReady(true);
+      return;
+    }
     skillService.fetchMarketplaceSkills()
       .then(() => setI18nReady(true))
       .catch(() => setI18nReady(true));
@@ -29,12 +36,15 @@ const AgentSkillSelector: React.FC<AgentSkillSelectorProps> = ({ selectedSkillId
   );
 
   const filteredSkills = useMemo(() => {
-    if (!search.trim()) return enabledSkills;
-    const q = search.toLowerCase();
-    return enabledSkills.filter(
-      (s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
-    );
-  }, [enabledSkills, search]);
+    const q = search.trim().toLowerCase();
+    return enabledSkills.filter((skill) => {
+      if (!q) return true;
+      const localizedDescription = shouldUseFallbackDescription
+        ? skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description)
+        : '';
+      return skill.name.toLowerCase().includes(q) || localizedDescription.toLowerCase().includes(q);
+    });
+  }, [enabledSkills, search, shouldUseFallbackDescription]);
 
   const toggle = (skillId: string) => {
     if (selectedSkillIds.includes(skillId)) {
@@ -45,63 +55,79 @@ const AgentSkillSelector: React.FC<AgentSkillSelectorProps> = ({ selectedSkillId
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <p className="text-xs text-secondary/60 mb-3">
-        {i18nService.t('agentSkillsHint') || 'Select skills available to this Agent. Leave empty to use all enabled skills.'}
-      </p>
-      {enabledSkills.length > 5 && (
-        <div className="mb-2">
-          <div className="relative">
-            <SearchIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-secondary/50" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={i18nService.t('agentSkillsSearch') || 'Search skills...'}
-              className="w-full pl-8 pr-3 py-1.5 text-sm rounded border border-border bg-transparent text-foreground"
-            />
-          </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mb-4 flex items-center gap-2 text-xs leading-5 text-secondary/60">
+        <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-secondary/30 text-secondary/60">
+          <span className="text-[10px] font-medium leading-none">i</span>
         </div>
-      )}
-      <div className="flex-1 overflow-y-auto">
+        <span>{i18nService.t('agentSkillsHint')}</span>
+      </div>
+
+      <div className="mb-3 shrink-0">
+        <div className="relative min-w-0 flex-1">
+          <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary/45" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={i18nService.t('agentSkillsSearch')}
+            className="h-9 w-full rounded-md border border-border-subtle bg-surface-raised/30 pl-9 pr-3 text-xs text-foreground placeholder:text-secondary/45 focus:border-border focus:bg-surface focus:outline-none"
+          />
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
         {filteredSkills.length === 0 ? (
-          <div className="px-3 py-3 text-sm text-secondary/50 text-center">
-            {enabledSkills.length === 0 ? 'No skills installed' : 'No matching skills'}
+          <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border text-sm text-secondary/60">
+            {enabledSkills.length === 0
+              ? i18nService.t('agentSkillsNoInstalled')
+              : i18nService.t('agentSkillsNoMatches')}
           </div>
         ) : (
-          filteredSkills.map((skill) => {
-            const isSelected = selectedSkillIds.includes(skill.id);
-            return (
-              <button
-                key={skill.id}
-                type="button"
-                onClick={() => toggle(skill.id)}
-                className={`group w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-surface-raised transition-colors rounded-lg ${
-                  isSelected ? 'bg-primary/5' : ''
-                }`}
-              >
-                <div className={`mt-0.5 flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                  isSelected
-                    ? 'bg-primary border-primary'
-                    : 'border-border dark:border-gray-500 group-hover:border-gray-400 dark:group-hover:border-gray-300'
-                }`}>
-                  {isSelected && <CheckIcon className="h-3 w-3 text-white" />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-foreground truncate">
-                    {skill.name}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {filteredSkills.map((skill) => {
+              const isSelected = selectedSkillIds.includes(skill.id);
+              const description = shouldUseFallbackDescription
+                ? skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description)
+                : '';
+
+              return (
+                <button
+                  key={skill.id}
+                  type="button"
+                  onClick={() => toggle(skill.id)}
+                  className={`group relative flex min-h-[96px] items-start gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors hover:border-primary/60 hover:bg-surface-raised/50 ${
+                    isSelected
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border bg-surface'
+                  }`}
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-raised">
+                    <PuzzleIcon className="h-[18px] w-[18px] text-secondary" />
                   </div>
-                  {skill.description && (
-                    <div className="text-xs text-secondary/60 truncate">
-                      {i18nReady
-                        ? skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description)
-                        : skill.description}
+                  <div className="min-w-0 flex-1 pr-8">
+                    <div className="truncate text-sm font-medium leading-5 text-foreground">
+                      {skill.name}
                     </div>
-                  )}
-                </div>
-              </button>
-            );
-          })
+                    {description && (
+                      <div className="mt-1 line-clamp-2 text-xs leading-[18px] text-secondary/80">
+                        {description}
+                      </div>
+                    )}
+                  </div>
+                  <div
+                    className={`absolute right-3.5 top-3.5 flex h-5 w-5 items-center justify-center rounded border transition-colors ${
+                      isSelected
+                        ? 'border-primary bg-primary'
+                        : 'border-border bg-surface group-hover:border-primary/50'
+                    }`}
+                  >
+                    {isSelected && <CheckIcon className="h-3.5 w-3.5 text-white" />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
