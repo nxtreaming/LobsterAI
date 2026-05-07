@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { OpenClawSessionPatch } from '../../common/openclawSession';
 import type { AppUpdateCheckResult, AppUpdateRuntimeState } from '../../shared/appUpdate/constants';
 interface ApiResponse {
@@ -64,6 +63,13 @@ interface CoworkConfig {
   memoryGuardLevel: 'strict' | 'standard' | 'relaxed';
   memoryUserMemoriesMaxItems: number;
   skipMissedJobs: boolean;
+  embeddingEnabled: boolean;
+  embeddingProvider: string;
+  embeddingModel: string;
+  embeddingLocalModelPath: string;
+  embeddingVectorWeight: number;
+  embeddingRemoteBaseUrl: string;
+  embeddingRemoteApiKey: string;
   openClawSessionPolicy: OpenClawSessionPolicyConfig;
 }
 
@@ -78,6 +84,13 @@ type CoworkConfigUpdate = Partial<Pick<
   | 'memoryGuardLevel'
   | 'memoryUserMemoriesMaxItems'
   | 'skipMissedJobs'
+  | 'embeddingEnabled'
+  | 'embeddingProvider'
+  | 'embeddingModel'
+  | 'embeddingLocalModelPath'
+  | 'embeddingVectorWeight'
+  | 'embeddingRemoteBaseUrl'
+  | 'embeddingRemoteApiKey'
 >>;
 
 interface CoworkUserMemoryEntry {
@@ -280,8 +293,8 @@ interface IElectronAPI {
   agents: {
     list: () => Promise<Agent[]>;
     get: (id: string) => Promise<Agent | null>;
-    create: (request: { id?: string; name: string; description?: string; systemPrompt?: string; identity?: string; model?: string; icon?: string; skillIds?: string[]; source?: string; presetId?: string }) => Promise<Agent>;
-    update: (id: string, updates: { name?: string; description?: string; systemPrompt?: string; identity?: string; model?: string; icon?: string; skillIds?: string[]; enabled?: boolean }) => Promise<Agent>;
+    create: (request: { id?: string; name: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; source?: string; presetId?: string }) => Promise<Agent>;
+    update: (id: string, updates: { name?: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; enabled?: boolean }) => Promise<Agent>;
     delete: (id: string) => Promise<void>;
     presets: () => Promise<PresetAgent[]>;
     addPreset: (presetId: string) => Promise<Agent>;
@@ -441,6 +454,7 @@ interface IElectronAPI {
       missingEntries?: string[];
       error?: string;
     }>;
+    fromRenderer: (level: string, tag: string, message: string) => void;
   };
   im: {
     getConfig: () => Promise<{ success: boolean; config?: IMGatewayConfig; error?: string }>;
@@ -461,6 +475,11 @@ interface IElectronAPI {
     // POPO QR login
     popoQrLoginStart: () => Promise<{ success: boolean; qrUrl?: string; taskToken?: string; timeoutMs?: number; message?: string }>;
     popoQrLoginPoll: (taskToken: string) => Promise<{ success: boolean; appKey?: string; appSecret?: string; aesKey?: string; message: string }>;
+
+    // POPO Multi-Instance
+    addPopoInstance: (name: string) => Promise<{ success: boolean; instance?: import('./im').PopoInstanceConfig; error?: string }>;
+    deletePopoInstance: (instanceId: string) => Promise<{ success: boolean; error?: string }>;
+    setPopoInstanceConfig: (instanceId: string, config: Record<string, unknown>, options?: { syncGateway?: boolean }) => Promise<{ success: boolean; error?: string }>;
 
     listPairingRequests: (platform: string) => Promise<{
       success: boolean;
@@ -646,6 +665,18 @@ interface IElectronAPI {
     }>;
     onTokenUpdated: (callback: (data: { token: string; baseUrl: string }) => void) => () => void;
   };
+  openaiCodexOAuth: {
+    start: () => Promise<
+      | { success: true; email: string | null; accountId: string | null; expiresAt: number }
+      | { success: false; error: string }
+    >;
+    cancel: () => Promise<void>;
+    logout: () => Promise<void>;
+    status: () => Promise<
+      | { loggedIn: true; email: string | null; accountId: string | null; expiresAt: number }
+      | { loggedIn: false }
+    >;
+  };
 }
 
 // IM Gateway types
@@ -699,7 +730,7 @@ interface IMGatewayConfig {
   nim: NimMultiInstanceConfig;
   'netease-bee': NeteaseBeeChanConfig;
   wecom: WecomMultiInstanceConfig;
-  popo: PopoOpenClawConfig;
+  popo: PopoMultiInstanceConfig;
   weixin: WeixinOpenClawConfig;
   email: EmailMultiInstanceConfig;
   settings: IMSettings;
@@ -996,6 +1027,24 @@ interface PopoOpenClawConfig {
   debug: boolean;
 }
 
+interface PopoInstanceConfig extends PopoOpenClawConfig {
+  instanceId: string;
+  instanceName: string;
+}
+
+interface PopoInstanceStatus extends PopoGatewayStatus {
+  instanceId: string;
+  instanceName: string;
+}
+
+interface PopoMultiInstanceConfig {
+  instances: PopoInstanceConfig[];
+}
+
+interface PopoMultiInstanceStatus {
+  instances: PopoInstanceStatus[];
+}
+
 interface WeixinOpenClawConfig {
   enabled: boolean;
   accountId: string;
@@ -1020,7 +1069,7 @@ interface IMGatewayStatus {
   nim: NimMultiInstanceStatus;
   'netease-bee': NeteaseBeeChanGatewayStatus;
   wecom: WecomMultiInstanceStatus;
-  popo: PopoGatewayStatus;
+  popo: PopoMultiInstanceStatus;
   weixin: WeixinGatewayStatus;
   email: EmailMultiInstanceStatus;
 }

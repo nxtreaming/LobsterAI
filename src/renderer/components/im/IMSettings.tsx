@@ -16,9 +16,9 @@ import { useDispatch, useSelector } from 'react-redux';
 import { i18nService } from '../../services/i18n';
 import { imService } from '../../services/im';
 import { RootState } from '../../store';
-import { clearError,setDingTalkConfig, setDingTalkInstanceConfig, setDiscordConfig, setDiscordInstanceConfig, setEmailInstanceConfig, setFeishuConfig, setFeishuInstanceConfig, setNeteaseBeeChanConfig, setNimConfig, setNimInstanceConfig, setPopoConfig, setQQConfig, setQQInstanceConfig, setTelegramInstanceConfig, setTelegramOpenClawConfig, setWecomConfig, setWecomInstanceConfig, setWeixinConfig } from '../../store/slices/imSlice';
-import type { EmailInstanceConfig, IMConnectivityCheck, IMConnectivityTestResult, IMGatewayConfig, PopoOpenClawConfig } from '../../types/im';
-import { MAX_DINGTALK_INSTANCES, MAX_DISCORD_INSTANCES, MAX_EMAIL_INSTANCES, MAX_FEISHU_INSTANCES, MAX_NIM_INSTANCES, MAX_QQ_INSTANCES, MAX_TELEGRAM_INSTANCES, MAX_WECOM_INSTANCES } from '../../types/im';
+import { clearError,setDingTalkConfig, setDingTalkInstanceConfig, setDiscordConfig, setDiscordInstanceConfig, setEmailInstanceConfig, setFeishuConfig, setFeishuInstanceConfig, setNeteaseBeeChanConfig, setNimConfig, setNimInstanceConfig, setPopoInstanceConfig, setQQConfig, setQQInstanceConfig, setTelegramInstanceConfig, setTelegramOpenClawConfig, setWecomConfig, setWecomInstanceConfig, setWeixinConfig } from '../../store/slices/imSlice';
+import type { EmailInstanceConfig, IMConnectivityCheck, IMConnectivityTestResult, IMGatewayConfig, WeixinOpenClawConfig } from '../../types/im';
+import { MAX_DINGTALK_INSTANCES, MAX_DISCORD_INSTANCES, MAX_EMAIL_INSTANCES, MAX_FEISHU_INSTANCES, MAX_NIM_INSTANCES, MAX_POPO_INSTANCES, MAX_QQ_INSTANCES, MAX_TELEGRAM_INSTANCES, MAX_WECOM_INSTANCES } from '../../types/im';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 import Modal from '../common/Modal';
 import TrashIcon from '../icons/TrashIcon';
@@ -27,6 +27,7 @@ import DiscordInstanceSettings from './DiscordInstanceSettings';
 import FeishuInstanceSettings from './FeishuInstanceSettings';
 import NimInstanceSettings from './NimInstanceSettings';
 import { nimFallbackInstanceSchema, nimFallbackUiHints } from './nimSchemaFallback';
+import PopoInstanceSettings from './PopoInstanceSettings';
 import QQInstanceSettings from './QQInstanceSettings';
 import type { UiHint } from './SchemaForm';
 import TelegramInstanceSettings from './TelegramInstanceSettings';
@@ -114,6 +115,8 @@ const IMSettings: React.FC = () => {
   const [telegramExpanded, setTelegramExpanded] = useState(false);
   const [activeDiscordInstanceId, setActiveDiscordInstanceId] = useState<string | null>(null);
   const [discordExpanded, setDiscordExpanded] = useState(false);
+  const [activePopoInstanceId, setActivePopoInstanceId] = useState<string | null>(null);
+  const [popoExpanded, setPopoExpanded] = useState(false);
   const [testingPlatform, setTestingPlatform] = useState<Platform | null>(null);
   const [connectivityResults, setConnectivityResults] = useState<Partial<Record<Platform, IMConnectivityTestResult>>>({});
   const [connectivityModalPlatform, setConnectivityModalPlatform] = useState<Platform | null>(null);
@@ -133,13 +136,9 @@ const IMSettings: React.FC = () => {
   const [weixinQrStatus, setWeixinQrStatus] = useState<'idle' | 'loading' | 'showing' | 'waiting' | 'success' | 'error'>('idle');
   const [weixinQrUrl, setWeixinQrUrl] = useState<string>('');
   const [weixinQrError, setWeixinQrError] = useState<string>('');
+  const [weixinAllowFromInput, setWeixinAllowFromInput] = useState<string>('');
   const weixinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // POPO QR login state
-  const [popoQrStatus, setPopoQrStatus] = useState<'idle' | 'loading' | 'showing' | 'waiting' | 'success' | 'error'>('idle');
-  const [popoQrUrl, setPopoQrUrl] = useState<string>('');
-  const [popoQrError, setPopoQrError] = useState<string>('');
-  const popoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [localIp, setLocalIp] = useState<string>('');
+  const [_localIp, setLocalIp] = useState<string>('');
   const isMountedRef = useRef(true);
 
   // OpenClaw config schema for schema-driven forms
@@ -270,16 +269,6 @@ const IMSettings: React.FC = () => {
     }
   }, [activePlatform]);
 
-  // Reset popo QR login state when switching away from popo
-  useEffect(() => {
-    if (activePlatform !== 'popo') {
-      if (popoTimerRef.current) { clearTimeout(popoTimerRef.current); popoTimerRef.current = null; }
-      setPopoQrStatus('idle');
-      setPopoQrUrl('');
-      setPopoQrError('');
-    }
-  }, [activePlatform]);
-
   // Reset password visibility when switching platforms
   useEffect(() => {
     setShowSecrets({});
@@ -400,10 +389,6 @@ const IMSettings: React.FC = () => {
 
   const discordMultiConfig = config.discord;
 
-  // State for POPO allow-from inputs
-  const [popoAllowedUserIdInput, setPopoAllowedUserIdInput] = useState('');
-  const [popoGroupAllowIdInput, setPopoGroupAllowIdInput] = useState('');
-
 
   // Handle NetEase Bee config change
   const handleNeteaseBeeChanChange = (field: 'clientId' | 'secret', value: string) => {
@@ -412,19 +397,6 @@ const IMSettings: React.FC = () => {
 
   // Handle Weixin OpenClaw config
   const weixinOpenClawConfig = config.weixin;
-
-  // Handle POPO OpenClaw config change
-  const popoConfig = config.popo;
-  const handlePopoChange = (update: Partial<PopoOpenClawConfig>) => {
-    dispatch(setPopoConfig(update));
-  };
-  const handleSavePopoConfig = async (override?: Partial<PopoOpenClawConfig>) => {
-    if (!configLoaded) return;
-    const configToSave = override
-      ? { ...popoConfig, ...override }
-      : popoConfig;
-    await imService.persistConfig({ popo: configToSave });
-  };
 
   const handleWeixinQrLogin = async () => {
     setWeixinQrStatus('loading');
@@ -477,65 +449,6 @@ const IMSettings: React.FC = () => {
     }
   };
 
-  const handlePopoQrLogin = async () => {
-    setPopoQrStatus('loading');
-    setPopoQrError('');
-    try {
-      const startResult = await window.electron.im.popoQrLoginStart();
-      if (!isMountedRef.current) return;
-
-      if (!startResult.success || !startResult.qrUrl) {
-        setPopoQrStatus('error');
-        setPopoQrError(startResult.message || i18nService.t('imPopoQrFailed'));
-        return;
-      }
-
-      setPopoQrUrl(startResult.qrUrl);
-      setPopoQrStatus('showing');
-
-      // QR expires in ~10 minutes
-      if (popoTimerRef.current) clearTimeout(popoTimerRef.current);
-      popoTimerRef.current = setTimeout(() => {
-        if (!isMountedRef.current) return;
-        setPopoQrStatus('error');
-        setPopoQrError(i18nService.t('imPopoQrExpired'));
-      }, startResult.timeoutMs || 600000);
-
-      // Start polling for scan result
-      setPopoQrStatus('waiting');
-      const pollResult = await window.electron.im.popoQrLoginPoll(startResult.taskToken!);
-      if (popoTimerRef.current) { clearTimeout(popoTimerRef.current); popoTimerRef.current = null; }
-      if (!isMountedRef.current) return;
-
-      if (pollResult.success && pollResult.appKey && pollResult.appSecret && pollResult.aesKey) {
-        setPopoQrStatus('success');
-        // Auto-fill credentials and enable
-        const update: Partial<PopoOpenClawConfig> = {
-          appKey: pollResult.appKey,
-          appSecret: pollResult.appSecret,
-          aesKey: pollResult.aesKey,
-          connectionMode: 'websocket',
-          enabled: true,
-        };
-        handlePopoChange(update);
-        dispatch(clearError());
-        // Persist to DB with gateway sync so openclaw.json gets updated and gateway restarts
-        await imService.updateConfig({ popo: { ...popoConfig, ...update } });
-        // Explicitly trigger config sync to ensure openclaw.json is written immediately
-        await window.electron.im.syncConfig();
-        await imService.loadStatus();
-      } else {
-        setPopoQrStatus('error');
-        setPopoQrError(pollResult.message || i18nService.t('imPopoQrFailed'));
-      }
-    } catch (err) {
-      if (popoTimerRef.current) { clearTimeout(popoTimerRef.current); popoTimerRef.current = null; }
-      if (!isMountedRef.current) return;
-      setPopoQrStatus('error');
-      setPopoQrError(String(err));
-    }
-  };
-
 
   const handleSaveConfig = async () => {
     if (!configLoaded) return;
@@ -573,12 +486,6 @@ const IMSettings: React.FC = () => {
     // For Weixin, save weixin config directly (OpenClaw mode)
     if (activePlatform === 'weixin') {
       await imService.persistConfig({ weixin: weixinOpenClawConfig });
-      return;
-    }
-
-    // For POPO, save popo config directly (OpenClaw mode)
-    if (activePlatform === 'popo') {
-      await imService.persistConfig({ popo: popoConfig });
       return;
     }
 
@@ -695,13 +602,7 @@ const IMSettings: React.FC = () => {
       }
 
       if (platform === 'popo') {
-        const newEnabled = !popoConfig.enabled;
-        const success = await imService.updateConfig({ popo: { ...popoConfig, enabled: newEnabled } });
-        if (success) {
-          dispatch(setPopoConfig({ enabled: newEnabled }));
-          if (newEnabled) dispatch(clearError());
-          await imService.loadStatus();
-        }
+        // POPO multi-instance: toggle is handled per-instance in PopoInstanceSettings
         return;
       }
 
@@ -746,7 +647,7 @@ const IMSettings: React.FC = () => {
   const qqConnected = status.qq?.instances?.some(i => i.connected) ?? false;
   const wecomConnected = status.wecom?.instances?.some(i => i.connected) ?? false;
   const weixinConnected = status.weixin?.connected ?? false;
-  const popoConnected = status.popo?.connected ?? false;
+  const popoConnected = status.popo?.instances?.some(i => i.connected) ?? false;
   const emailConnected = status.email.instances.some(i => i.connected);
 
   // Compute visible platforms based on language
@@ -819,6 +720,9 @@ const IMSettings: React.FC = () => {
     }
     if (platform === 'discord') {
       return config.discord.instances?.some(i => i.enabled);
+    }
+    if (platform === 'popo') {
+      return config.popo.instances?.some(i => i.enabled);
     }
     return (config[platform] as { enabled: boolean }).enabled;
   };
@@ -1076,7 +980,7 @@ const IMSettings: React.FC = () => {
       'netease-bee': setNeteaseBeeChanConfig,
       wecom: setWecomConfig,
       weixin: setWeixinConfig,
-      popo: setPopoConfig,
+      popo: null, // POPO is multi-instance; toggle handled per-instance in PopoInstanceSettings
       email: null, // Email is multi-instance; toggle handled per-instance in EmailSettings
     };
     return actionMap[platform];
@@ -1600,6 +1504,65 @@ const IMSettings: React.FC = () => {
             );
           }
 
+          if (platform === 'popo') {
+            return (
+              <div key="popo">
+                <div
+                  onClick={() => { setActivePlatform('popo'); setActivePopoInstanceId(null); setPopoExpanded(!popoExpanded); }}
+                  className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
+                    activePlatform === 'popo'
+                      ? 'bg-primary-muted border border-primary shadow-subtle'
+                      : 'bg-surface hover:bg-surface-raised border border-transparent'
+                  }`}
+                >
+                  <div className="flex flex-1 items-center">
+                    <div className="mr-2 flex h-7 w-7 items-center justify-center">
+                      <img src={PlatformRegistry.logo('popo')} alt="POPO" className="w-6 h-6 object-contain rounded-md" />
+                    </div>
+                    <span className={`text-sm font-medium truncate ${activePlatform === 'popo' ? 'text-primary' : 'text-foreground'}`}>
+                      {i18nService.t('popo')}
+                    </span>
+                  </div>
+                  <span className="text-xs opacity-50">{popoExpanded ? '\u25BC' : '\u25B6'}</span>
+                </div>
+                {popoExpanded && (
+                  <div className="ml-5 mt-1 space-y-1">
+                    {config.popo.instances.map((inst) => {
+                      const instStatus = status.popo?.instances?.find(s => s.instanceId === inst.instanceId);
+                      const isSelected = activePlatform === 'popo' && activePopoInstanceId === inst.instanceId;
+                      const dotColor = !inst.enabled ? 'bg-gray-400' : (instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500');
+                      return (
+                        <div
+                          key={inst.instanceId}
+                          onClick={() => { setActivePlatform('popo'); setActivePopoInstanceId(inst.instanceId); }}
+                          className={`flex items-center p-1.5 pl-2 rounded-lg cursor-pointer transition-colors text-sm ${
+                            isSelected ? 'bg-primary/10 dark:bg-primary/20' : 'hover:bg-surface-raised'
+                          }`}
+                        >
+                          <div className={`w-2 h-2 rounded-full mr-2 flex-shrink-0 ${dotColor}`} />
+                          <span className="truncate">{inst.instanceName}</span>
+                        </div>
+                      );
+                    })}
+                    {config.popo.instances.length < MAX_POPO_INSTANCES && (
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const inst = await imService.addPopoInstance(`POPO Bot ${config.popo.instances.length + 1}`);
+                          if (inst) { setActivePopoInstanceId(inst.instanceId); setPopoExpanded(true); }
+                        }}
+                        className="w-full text-left p-1.5 pl-2 rounded-lg text-xs text-secondary hover:text-primary hover:bg-surface-raised transition-colors"
+                      >
+                        + {language === 'zh' ? '添加实例' : 'Add Instance'}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           return (
             <div
               key={platform}
@@ -1652,8 +1615,8 @@ const IMSettings: React.FC = () => {
 
       {/* Platform Settings - Right Side */}
       <div className="flex-1 min-w-0 pl-4 pr-2 space-y-4 overflow-y-auto [scrollbar-gutter:stable]">
-        {/* Header with status (hidden for multi-instance platforms that render per-instance headers) */}
-        {activePlatform !== 'qq' && activePlatform !== 'feishu' && activePlatform !== 'dingtalk' && activePlatform !== 'email' && activePlatform !== 'wecom' && activePlatform !== 'nim' && activePlatform !== 'telegram' && activePlatform !== 'discord' && (
+        {/* Header with status (only for single-instance platforms without per-instance headers) */}
+        {(activePlatform === 'weixin' || activePlatform === 'netease-bee') && (
         <div className="flex items-center gap-3 pb-3 border-b border-border-subtle">
           <div className="flex items-center gap-2">
              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-surface border border-border-subtle p-1">
@@ -2620,6 +2583,97 @@ const IMSettings: React.FC = () => {
                 {status.weixin.lastError}
               </div>
             )}
+
+            {/* Advanced Settings (collapsible) */}
+            <details className="group">
+              <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
+                {i18nService.t('imAdvancedSettings')}
+              </summary>
+              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
+                {/* DM Policy */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-secondary">
+                    DM Policy
+                  </label>
+                  <select
+                    value={weixinOpenClawConfig.dmPolicy}
+                    onChange={(e) => {
+                      const update = { dmPolicy: e.target.value as WeixinOpenClawConfig['dmPolicy'] };
+                      void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, ...update } });
+                    }}
+                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                  >
+                    <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
+                    <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
+                    <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
+                    <option value="disabled">{i18nService.t('imDmPolicyDisabled')}</option>
+                  </select>
+                </div>
+
+                {/* Allow From */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-secondary">
+                    Allow From (User IDs)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={weixinAllowFromInput}
+                      onChange={(e) => setWeixinAllowFromInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const id = weixinAllowFromInput.trim();
+                          if (id && !weixinOpenClawConfig.allowFrom.includes(id)) {
+                            const newIds = [...weixinOpenClawConfig.allowFrom, id];
+                            setWeixinAllowFromInput('');
+                            void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
+                          }
+                        }
+                      }}
+                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
+                      placeholder="wxid_xxx@im.wechat"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = weixinAllowFromInput.trim();
+                        if (id && !weixinOpenClawConfig.allowFrom.includes(id)) {
+                          const newIds = [...weixinOpenClawConfig.allowFrom, id];
+                          setWeixinAllowFromInput('');
+                          void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
+                        }
+                      }}
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                    >
+                      {i18nService.t('add') || '添加'}
+                    </button>
+                  </div>
+                  {weixinOpenClawConfig.allowFrom.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {weixinOpenClawConfig.allowFrom.map((id) => (
+                        <span
+                          key={id}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
+                        >
+                          {id}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newIds = weixinOpenClawConfig.allowFrom.filter((uid) => uid !== id);
+                              void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
+                            }}
+                            className="text-secondary hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                          >
+                            <XMarkIcon className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </details>
           </div>
         )}
 
@@ -2722,582 +2776,75 @@ const IMSettings: React.FC = () => {
           );
         })()}
 
-        {activePlatform === 'popo' && (
-          <div className="space-y-3">
-            {/* Scan QR code section */}
-            <div className="rounded-lg border border-dashed border-border-subtle p-4 text-center space-y-3">
-              {(popoQrStatus === 'idle' || popoQrStatus === 'error') && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void handlePopoQrLogin()}
-                    className="px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {i18nService.t('imPopoScanBtn')}
-                  </button>
-                  <p className="text-xs text-secondary">
-                    {i18nService.t('imPopoScanHint')}
-                  </p>
-                  {popoQrStatus === 'error' && popoQrError && (
-                    <div className="flex items-center justify-center gap-1.5 text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg">
-                      <XCircleIcon className="h-4 w-4 flex-shrink-0" />
-                      {popoQrError}
-                    </div>
-                  )}
-                </>
-              )}
-              {popoQrStatus === 'loading' && (
-                <div className="flex items-center justify-center gap-2 py-4">
-                  <ArrowPathIcon className="h-5 w-5 animate-spin text-primary" />
-                  <span className="text-sm text-secondary">
-                    {i18nService.t('imPopoQrLoading')}
-                  </span>
-                </div>
-              )}
-              {(popoQrStatus === 'showing' || popoQrStatus === 'waiting') && popoQrUrl && (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium text-foreground">
-                    {i18nService.t('imPopoQrScanPrompt')}
-                  </p>
-                  <div className="flex justify-center">
-                    <div className="p-3 bg-white rounded-lg border border-border-subtle">
-                      <QRCodeSVG value={popoQrUrl} size={192} />
-                    </div>
-                  </div>
-                  {popoQrStatus === 'waiting' && (
-                    <p className="text-xs text-secondary animate-pulse">
-                      {i18nService.t('imPopoQrWaiting')}
-                    </p>
-                  )}
-                </div>
-              )}
-              {popoQrStatus === 'success' && (
-                <div className="flex items-center justify-center gap-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-3 py-2 rounded-lg">
-                  <CheckCircleIcon className="h-4 w-4 flex-shrink-0" />
-                  {i18nService.t('imPopoQrSuccess')}
-                </div>
-              )}
-            </div>
-
-            {/* Platform Guide */}
-            <PlatformGuide
-              steps={[
-                i18nService.t('imPopoGuideStep1'),
-                i18nService.t('imPopoGuideStep2'),
-                i18nService.t('imPopoGuideStep3'),
-              ]}
-                guideUrl={PlatformRegistry.guideUrl('popo')}
-            />
-
-            {/* Bound status badge */}
-            {popoConfig.appKey && (
-              <div className="text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-3 py-2 rounded-lg">
-                AppKey: {popoConfig.appKey}
-              </div>
-            )}
-
-            {/* AES Key input */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-secondary">AES Key</label>
-              <div className="relative">
-                <input
-                  type={showSecrets['popo.aesKey'] ? 'text' : 'password'}
-                  value={popoConfig.aesKey}
-                  onChange={(e) => handlePopoChange({ aesKey: e.target.value })}
-                  onBlur={() => void handleSavePopoConfig()}
-                  placeholder="••••••••••••"
-                  className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
-                />
-                <div className="absolute right-2 inset-y-0 flex items-center gap-1">
-                  {popoConfig.aesKey && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handlePopoChange({ aesKey: '' });
-                        void handleSavePopoConfig({ aesKey: '' });
-                      }}
-                      className="p-0.5 rounded text-secondary hover:text-primary transition-colors"
-                      title={i18nService.t('clear') || 'Clear'}
-                    >
-                      <XCircleIconSolid className="h-4 w-4" />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setShowSecrets(prev => ({ ...prev, 'popo.aesKey': !prev['popo.aesKey'] }))}
-                    className="p-0.5 rounded text-secondary hover:text-primary transition-colors"
-                    title={showSecrets['popo.aesKey'] ? (i18nService.t('hide') || 'Hide') : (i18nService.t('show') || 'Show')}
-                  >
-                    {showSecrets['popo.aesKey'] ? <EyeIcon className="h-4 w-4" /> : <EyeSlashIcon className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-              {popoConfig.aesKey && popoConfig.aesKey.length !== 32 && (
-                <p className="text-xs text-amber-500">AES Key {i18nService.t('imPopoAesKeyLengthWarning')}（{i18nService.t('imPopoAesKeyLengthCurrent')} {popoConfig.aesKey.length}）</p>
-              )}
-            </div>
-
-            {/* Connectivity test */}
-            <div className="pt-1">
-              {renderConnectivityTestButton('popo')}
-            </div>
-
-            {/* Advanced Settings (collapsible) — credentials, connection mode, policies */}
-            <details className="group">
-              <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
-                {i18nService.t('imAdvancedSettings')}
-              </summary>
-              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
-
-                {/* Connection Mode selector */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">
-                    {i18nService.t('imPopoConnectionMode')}
-                  </label>
-                  <select
-                    value={popoConfig.connectionMode || (popoConfig.token ? 'webhook' : 'websocket')}
-                    onChange={(e) => {
-                      const update = { connectionMode: e.target.value as PopoOpenClawConfig['connectionMode'] };
-                      handlePopoChange(update);
-                      void handleSavePopoConfig(update);
-                    }}
-                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                  >
-                    <option value="websocket">{i18nService.t('imPopoConnectionModeWebsocket')}</option>
-                    <option value="webhook">{i18nService.t('imPopoConnectionModeWebhook')}</option>
-                  </select>
-                </div>
-
-                {/* Credential hint */}
-                <p className="text-xs text-secondary">
-                  {i18nService.t('imPopoCredentialHint')}
-                </p>
-
-                {/* AppKey input */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">AppKey</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={popoConfig.appKey}
-                      onChange={(e) => handlePopoChange({ appKey: e.target.value })}
-                      onBlur={() => void handleSavePopoConfig()}
-                      placeholder="AppKey"
-                      className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-8 text-sm transition-colors"
-                    />
-                    {popoConfig.appKey && (
-                      <div className="absolute right-2 inset-y-0 flex items-center">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handlePopoChange({ appKey: '' });
-                            void handleSavePopoConfig({ appKey: '' });
-                          }}
-                          className="p-0.5 rounded text-secondary hover:text-primary transition-colors"
-                          title={i18nService.t('clear') || 'Clear'}
-                        >
-                          <XCircleIconSolid className="h-4 w-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* AppSecret input */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">AppSecret</label>
-                  <div className="relative">
-                    <input
-                      type={showSecrets['popo.appSecret'] ? 'text' : 'password'}
-                      value={popoConfig.appSecret}
-                      onChange={(e) => handlePopoChange({ appSecret: e.target.value })}
-                      onBlur={() => void handleSavePopoConfig()}
-                      placeholder="••••••••••••"
-                      className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
-                    />
-                    <div className="absolute right-2 inset-y-0 flex items-center gap-1">
-                      {popoConfig.appSecret && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handlePopoChange({ appSecret: '' });
-                            void handleSavePopoConfig({ appSecret: '' });
-                          }}
-                          className="p-0.5 rounded text-secondary hover:text-primary transition-colors"
-                          title={i18nService.t('clear') || 'Clear'}
-                        >
-                          <XCircleIconSolid className="h-4 w-4" />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setShowSecrets(prev => ({ ...prev, 'popo.appSecret': !prev['popo.appSecret'] }))}
-                        className="p-0.5 rounded text-secondary hover:text-primary transition-colors"
-                        title={showSecrets['popo.appSecret'] ? (i18nService.t('hide') || 'Hide') : (i18nService.t('show') || 'Show')}
-                      >
-                        {showSecrets['popo.appSecret'] ? <EyeIcon className="h-4 w-4" /> : <EyeSlashIcon className="h-4 w-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Token input (webhook mode only) */}
-                {(popoConfig.connectionMode || (popoConfig.token ? 'webhook' : 'websocket')) === 'webhook' && (
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">Token</label>
-                  <div className="relative">
-                    <input
-                      type={showSecrets['popo.token'] ? 'text' : 'password'}
-                      value={popoConfig.token}
-                      onChange={(e) => handlePopoChange({ token: e.target.value })}
-                      onBlur={() => void handleSavePopoConfig()}
-                      placeholder="••••••••••••"
-                      className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
-                    />
-                    <div className="absolute right-2 inset-y-0 flex items-center gap-1">
-                      {popoConfig.token && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handlePopoChange({ token: '' });
-                            void handleSavePopoConfig({ token: '' });
-                          }}
-                          className="p-0.5 rounded text-secondary hover:text-primary transition-colors"
-                          title={i18nService.t('clear') || 'Clear'}
-                        >
-                          <XCircleIconSolid className="h-4 w-4" />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setShowSecrets(prev => ({ ...prev, 'popo.token': !prev['popo.token'] }))}
-                        className="p-0.5 rounded text-secondary hover:text-primary transition-colors"
-                        title={showSecrets['popo.token'] ? (i18nService.t('hide') || 'Hide') : (i18nService.t('show') || 'Show')}
-                      >
-                        {showSecrets['popo.token'] ? <EyeIcon className="h-4 w-4" /> : <EyeSlashIcon className="h-4 w-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                )}
-
-                {/* AES Key input */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">AES Key</label>
-                  <div className="relative">
-                    <input
-                      type={showSecrets['popo.aesKey'] ? 'text' : 'password'}
-                      value={popoConfig.aesKey}
-                      onChange={(e) => handlePopoChange({ aesKey: e.target.value })}
-                      onBlur={() => void handleSavePopoConfig()}
-                      placeholder="••••••••••••"
-                      className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 pr-16 text-sm transition-colors"
-                    />
-                    <div className="absolute right-2 inset-y-0 flex items-center gap-1">
-                      {popoConfig.aesKey && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handlePopoChange({ aesKey: '' });
-                            void handleSavePopoConfig({ aesKey: '' });
-                          }}
-                          className="p-0.5 rounded text-secondary hover:text-primary transition-colors"
-                          title={i18nService.t('clear') || 'Clear'}
-                        >
-                          <XCircleIconSolid className="h-4 w-4" />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setShowSecrets(prev => ({ ...prev, 'popo.aesKey': !prev['popo.aesKey'] }))}
-                        className="p-0.5 rounded text-secondary hover:text-primary transition-colors"
-                        title={showSecrets['popo.aesKey'] ? (i18nService.t('hide') || 'Hide') : (i18nService.t('show') || 'Show')}
-                      >
-                        {showSecrets['popo.aesKey'] ? <EyeIcon className="h-4 w-4" /> : <EyeSlashIcon className="h-4 w-4" />}
-                      </button>
-                    </div>
-                  </div>
-                  {popoConfig.aesKey && popoConfig.aesKey.length !== 32 && (
-                    <p className="text-xs text-amber-500">AES Key {i18nService.t('lang') === 'zh' ? '需要为 32 个字符' : 'must be 32 characters'}（{i18nService.t('lang') === 'zh' ? '当前' : 'current'} {popoConfig.aesKey.length}）</p>
-                  )}
-                </div>
-
-                {/* Webhook fields (webhook mode only) */}
-                {(popoConfig.connectionMode || (popoConfig.token ? 'webhook' : 'websocket')) === 'webhook' && (
-                <>
-                {/* Webhook Base URL */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">Webhook Base URL</label>
-                  <input
-                    type="text"
-                    value={popoConfig.webhookBaseUrl}
-                    onChange={(e) => handlePopoChange({ webhookBaseUrl: e.target.value })}
-                    onBlur={() => void handleSavePopoConfig()}
-                    placeholder={localIp ? `http://${localIp}` : i18nService.t('imPopoWebhookPlaceholder')}
-                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                  />
-                </div>
-
-                {/* Webhook Path */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">Webhook Path</label>
-                  <input
-                    type="text"
-                    value={popoConfig.webhookPath}
-                    onChange={(e) => handlePopoChange({ webhookPath: e.target.value })}
-                    onBlur={() => void handleSavePopoConfig()}
-                    placeholder="/popo/callback"
-                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                  />
-                </div>
-
-                {/* Webhook Port */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">Webhook Port</label>
-                  <input
-                    type="number"
-                    value={popoConfig.webhookPort}
-                    onChange={(e) => handlePopoChange({ webhookPort: parseInt(e.target.value) || 3100 })}
-                    onBlur={() => void handleSavePopoConfig()}
-                    placeholder="3100"
-                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                  />
-                </div>
-                </>
-                )}
-
-                {/* DM Policy */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">
-                    DM Policy
-                  </label>
-                  <select
-                    value={popoConfig.dmPolicy}
-                    onChange={(e) => {
-                      const update = { dmPolicy: e.target.value as PopoOpenClawConfig['dmPolicy'] };
-                      handlePopoChange(update);
-                      void handleSavePopoConfig(update);
-                    }}
-                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                  >
-                    <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
-                    <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
-                    <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
-                    <option value="disabled">{i18nService.t('imDmPolicyDisabled')}</option>
-                  </select>
-                </div>
-
-                {/* Pairing Requests (shown when dmPolicy is 'pairing') */}
-                {popoConfig.dmPolicy === 'pairing' && renderPairingSection('popo')}
-
-                {/* Allow From */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">
-                    Allow From (User IDs)
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={popoAllowedUserIdInput}
-                      onChange={(e) => setPopoAllowedUserIdInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const id = popoAllowedUserIdInput.trim();
-                          if (id && !popoConfig.allowFrom.includes(id)) {
-                            const newIds = [...popoConfig.allowFrom, id];
-                            handlePopoChange({ allowFrom: newIds });
-                            setPopoAllowedUserIdInput('');
-                            void imService.persistConfig({ popo: { ...popoConfig, allowFrom: newIds } });
-                          }
-                        }
-                      }}
-                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                      placeholder={i18nService.t('imPopoUserIdPlaceholder')}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const id = popoAllowedUserIdInput.trim();
-                        if (id && !popoConfig.allowFrom.includes(id)) {
-                          const newIds = [...popoConfig.allowFrom, id];
-                          handlePopoChange({ allowFrom: newIds });
-                          setPopoAllowedUserIdInput('');
-                          void imService.persistConfig({ popo: { ...popoConfig, allowFrom: newIds } });
-                        }
-                      }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                    >
-                      {i18nService.t('add') || '添加'}
-                    </button>
-                  </div>
-                  {popoConfig.allowFrom.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {popoConfig.allowFrom.map((id) => (
-                        <span
-                          key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
-                        >
-                          {id}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newIds = popoConfig.allowFrom.filter((uid) => uid !== id);
-                              handlePopoChange({ allowFrom: newIds });
-                              void imService.persistConfig({ popo: { ...popoConfig, allowFrom: newIds } });
-                            }}
-                            className="text-secondary hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                          >
-                            <XMarkIcon className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Group Policy */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">
-                    Group Policy
-                  </label>
-                  <select
-                    value={popoConfig.groupPolicy}
-                    onChange={(e) => {
-                      const update = { groupPolicy: e.target.value as PopoOpenClawConfig['groupPolicy'] };
-                      handlePopoChange(update);
-                      void handleSavePopoConfig(update);
-                    }}
-                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                  >
-                    <option value="open">Open</option>
-                    <option value="allowlist">Allowlist</option>
-                    <option value="disabled">Disabled</option>
-                  </select>
-                </div>
-
-                {/* Group Allow From */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">
-                    Group Allow From (Chat IDs)
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={popoGroupAllowIdInput}
-                      onChange={(e) => setPopoGroupAllowIdInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const id = popoGroupAllowIdInput.trim();
-                          if (id && !popoConfig.groupAllowFrom.includes(id)) {
-                            const newIds = [...popoConfig.groupAllowFrom, id];
-                            handlePopoChange({ groupAllowFrom: newIds });
-                            setPopoGroupAllowIdInput('');
-                            void imService.persistConfig({ popo: { ...popoConfig, groupAllowFrom: newIds } });
-                          }
-                        }
-                      }}
-                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                      placeholder={i18nService.t('imPopoGroupIdPlaceholder')}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const id = popoGroupAllowIdInput.trim();
-                        if (id && !popoConfig.groupAllowFrom.includes(id)) {
-                          const newIds = [...popoConfig.groupAllowFrom, id];
-                          handlePopoChange({ groupAllowFrom: newIds });
-                          setPopoGroupAllowIdInput('');
-                          void imService.persistConfig({ popo: { ...popoConfig, groupAllowFrom: newIds } });
-                        }
-                      }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                    >
-                      {i18nService.t('add') || '添加'}
-                    </button>
-                  </div>
-                  {popoConfig.groupAllowFrom.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {popoConfig.groupAllowFrom.map((id) => (
-                        <span
-                          key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
-                        >
-                          {id}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newIds = popoConfig.groupAllowFrom.filter((gid) => gid !== id);
-                              handlePopoChange({ groupAllowFrom: newIds });
-                              void imService.persistConfig({ popo: { ...popoConfig, groupAllowFrom: newIds } });
-                            }}
-                            className="text-secondary hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                          >
-                            <XMarkIcon className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Text Chunk Limit */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">Text Chunk Limit</label>
-                  <input
-                    type="number"
-                    value={popoConfig.textChunkLimit}
-                    onChange={(e) => handlePopoChange({ textChunkLimit: parseInt(e.target.value) || 3000 })}
-                    onBlur={() => void handleSavePopoConfig()}
-                    placeholder="3000"
-                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                  />
-                </div>
-
-                {/* Rich Text Chunk Limit */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">Rich Text Chunk Limit</label>
-                  <input
-                    type="number"
-                    value={popoConfig.richTextChunkLimit}
-                    onChange={(e) => handlePopoChange({ richTextChunkLimit: parseInt(e.target.value) || 5000 })}
-                    onBlur={() => void handleSavePopoConfig()}
-                    placeholder="5000"
-                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                  />
-                </div>
-
-                {/* Debug toggle */}
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-secondary">Debug</label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !popoConfig.debug;
-                      handlePopoChange({ debug: next });
-                      void handleSavePopoConfig({ debug: next });
-                    }}
-                    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                      popoConfig.debug ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
-                    }`}
-                  >
-                    <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                      popoConfig.debug ? 'translate-x-4' : 'translate-x-0'
-                    }`} />
-                  </button>
-                </div>
-              </div>
-            </details>
-
-            {/* Error display */}
-            {status.popo?.lastError && (
-              <div className="text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg">
-                {status.popo.lastError}
-              </div>
+        {activePlatform === 'popo' && !activePopoInstanceId && (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <img src={PlatformRegistry.logo('popo')} alt="POPO" className="w-12 h-12 object-contain rounded-md mb-4 opacity-50" />
+            <p className="text-sm text-secondary mb-4">
+              {config.popo.instances.length === 0
+                ? (language === 'zh' ? '尚未添加 POPO 实例，点击下方按钮添加' : 'No POPO instances yet. Click below to add one.')
+                : (language === 'zh' ? '请在左侧选择一个 POPO 实例' : 'Select a POPO instance from the sidebar.')}
+            </p>
+            {config.popo.instances.length < MAX_POPO_INSTANCES && (
+              <button
+                type="button"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  const inst = await imService.addPopoInstance(`POPO Bot ${config.popo.instances.length + 1}`);
+                  if (inst) { setActivePopoInstanceId(inst.instanceId); setPopoExpanded(true); }
+                }}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              >
+                + {language === 'zh' ? '添加 POPO 实例' : 'Add POPO Instance'}
+              </button>
             )}
           </div>
         )}
+        {activePlatform === 'popo' && activePopoInstanceId && (() => {
+          const selectedInstance = config.popo.instances.find(i => i.instanceId === activePopoInstanceId);
+          if (!selectedInstance) return null;
+          const selectedStatus = status.popo?.instances?.find(s => s.instanceId === activePopoInstanceId);
+          return (
+            <PopoInstanceSettings
+              instance={selectedInstance}
+              instanceStatus={selectedStatus}
+              onConfigChange={(update) => {
+                dispatch(setPopoInstanceConfig({ instanceId: activePopoInstanceId, config: update }));
+              }}
+              onSave={async (override) => {
+                const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
+                if (selectedInstance.enabled) {
+                  await imService.updatePopoInstanceConfig(activePopoInstanceId, configToSave);
+                } else {
+                  await imService.persistPopoInstanceConfig(activePopoInstanceId, configToSave);
+                }
+              }}
+              onRename={async (newName) => {
+                dispatch(setPopoInstanceConfig({ instanceId: activePopoInstanceId, config: { instanceName: newName } as any }));
+                await imService.persistPopoInstanceConfig(activePopoInstanceId, { instanceName: newName } as any);
+              }}
+              onDelete={async () => {
+                await imService.deletePopoInstance(activePopoInstanceId);
+                const remaining = config.popo.instances.filter(i => i.instanceId !== activePopoInstanceId);
+                setActivePopoInstanceId(remaining.length > 0 ? remaining[0].instanceId : null);
+              }}
+              onToggleEnabled={async () => {
+                const newEnabled = !selectedInstance.enabled;
+                if (newEnabled && !(selectedInstance.appKey && selectedInstance.appSecret && selectedInstance.aesKey)) return;
+                const success = await imService.updatePopoInstanceConfig(activePopoInstanceId, { enabled: newEnabled });
+                if (success) {
+                  dispatch(setPopoInstanceConfig({ instanceId: activePopoInstanceId, config: { enabled: newEnabled } }));
+                  if (newEnabled) dispatch(clearError());
+                }
+              }}
+              onTestConnectivity={() => {
+                void handleConnectivityTest('popo');
+              }}
+              testingPlatform={testingPlatform}
+              connectivityResults={connectivityResults}
+              language={language}
+            />
+          );
+        })()}
 
         {connectivityModalPlatform && (
           <Modal onClose={() => setConnectivityModalPlatform(null)} overlayClassName="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" className="w-full max-w-2xl bg-surface rounded-2xl shadow-modal border border-border overflow-hidden">

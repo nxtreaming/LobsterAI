@@ -14,11 +14,19 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('./claudeSettings', () => ({
-  getAllServerModelMetadata: () => [],
-  resolveAllEnabledProviderConfigs: () => [],
-  resolveAllProviderApiKeys: () => ({}),
-  resolveRawApiConfig: () => ({
+const mockRuntimeState = vi.hoisted(() => ({
+  proxyPort: null as number | null,
+  serverModels: [] as Array<{ modelId: string; supportsImage?: boolean }>,
+  enabledProviders: [] as Array<{
+    providerName: string;
+    baseURL: string;
+    apiKey: string;
+    apiType: 'anthropic' | 'openai';
+    authType?: 'apikey' | 'oauth';
+    codingPlanEnabled: boolean;
+    models: Array<{ id: string; name: string; supportsImage?: boolean }>;
+  }>,
+  rawApiConfig: {
     config: {
       baseURL: 'https://api.openai.com/v1',
       apiKey: 'sk-test',
@@ -31,16 +39,35 @@ vi.mock('./claudeSettings', () => ({
       supportsImage: false,
       modelName: 'GPT Test',
     },
-  }),
+  },
+}));
+
+vi.mock('./claudeSettings', () => ({
+  getAllServerModelMetadata: () => mockRuntimeState.serverModels,
+  resolveAllEnabledProviderConfigs: () => mockRuntimeState.enabledProviders,
+  resolveAllProviderApiKeys: () => ({}),
+  resolveRawApiConfig: () => mockRuntimeState.rawApiConfig,
 }));
 
 vi.mock('./openclawLocalExtensions', () => ({
   findThirdPartyExtensionsDir: () => null,
-  hasBundledOpenClawExtension: () => true,
+  hasBundledOpenClawExtension: (id: string) => id !== 'qwen-portal-auth',
+  resolveOpenClawExtensionPluginId: (id: string) => {
+    const manifestIds: Record<string, string> = {
+      'clawemail-email': 'email',
+      'openclaw-nim-channel': 'nimsuite-openclaw-nim-channel',
+    };
+    if (id === 'qwen-portal-auth') return null;
+    return manifestIds[id] ?? id;
+  },
 }));
 
 vi.mock('./openclawTokenProxy', () => ({
-  getOpenClawTokenProxyPort: () => null,
+  getOpenClawTokenProxyPort: () => mockRuntimeState.proxyPort,
+}));
+
+vi.mock('./openaiCodexAuth', () => ({
+  readOpenAICodexAuthFile: () => ({ accountId: 'acct-test' }),
 }));
 
 describe('OpenClawConfigSync runtime config output', () => {
@@ -49,14 +76,377 @@ describe('OpenClawConfigSync runtime config output', () => {
   let stateDir: string;
 
   beforeEach(() => {
+    mockRuntimeState.proxyPort = null;
+    mockRuntimeState.serverModels = [];
+    mockRuntimeState.enabledProviders = [];
+    mockRuntimeState.rawApiConfig = {
+      config: {
+        baseURL: 'https://api.openai.com/v1',
+        apiKey: 'sk-test',
+        model: 'gpt-test',
+        apiType: 'openai',
+      },
+      providerMetadata: {
+        providerName: 'openai',
+        codingPlanEnabled: false,
+        supportsImage: false,
+        modelName: 'GPT Test',
+      },
+    };
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-config-sync-'));
     stateDir = path.join(tmpDir, 'state');
     configPath = path.join(stateDir, 'openclaw.json');
     fs.mkdirSync(stateDir, { recursive: true });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+    const { setSystemProxyEnabled } = await import('./systemProxy');
+    setSystemProxyEnabled(false);
+  });
+
+  test('writes model provider env-proxy transport when system proxy is enabled', async () => {
+    const { setSystemProxyEnabled } = await import('./systemProxy');
+    setSystemProxyEnabled(true);
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    });
+
+    const result = sync.sync('test');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.models.providers.openai.request.proxy).toEqual({ mode: 'env-proxy' });
+  });
+
+  test('does not create an agent model allowlist for OpenAI OAuth when system proxy is enabled', async () => {
+    const { ProviderName } = await import('../../shared/providers');
+    const { setSystemProxyEnabled } = await import('./systemProxy');
+    setSystemProxyEnabled(true);
+    mockRuntimeState.rawApiConfig = {
+      config: {
+        baseURL: 'https://api.openai.com/v1',
+        apiKey: '',
+        model: 'gpt-5.4',
+        apiType: 'openai',
+      },
+      providerMetadata: {
+        providerName: ProviderName.OpenAI,
+        authType: 'oauth',
+        codingPlanEnabled: false,
+        supportsImage: true,
+        modelName: 'GPT-5.4',
+      },
+    };
+    mockRuntimeState.enabledProviders = [
+      {
+        providerName: ProviderName.OpenAI,
+        baseURL: 'https://api.openai.com/v1',
+        apiKey: '',
+        apiType: 'openai',
+        authType: 'oauth',
+        codingPlanEnabled: false,
+        models: [{ id: 'gpt-5.4', name: 'GPT-5.4', supportsImage: true }],
+      },
+      {
+        providerName: ProviderName.DeepSeek,
+        baseURL: 'https://api.deepseek.com',
+        apiKey: 'sk-deepseek',
+        apiType: 'openai',
+        codingPlanEnabled: false,
+        models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', supportsImage: false }],
+      },
+    ];
+
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    });
+
+    const result = sync.sync('openai-oauth-system-proxy');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.models.providers['openai-codex']).toBeDefined();
+    expect(config.models.providers.deepseek).toBeDefined();
+    expect(config.agents.defaults.models).toBeUndefined();
+    expect(config.agents.defaults.workspace).toBe(path.join(stateDir, 'workspace-main'));
+    expect(config.agents.defaults.cwd).toBe(path.resolve(tmpDir));
+  });
+
+  test('merges all server models into existing lobsterai provider and updates image input', async () => {
+    mockRuntimeState.proxyPort = 56646;
+    mockRuntimeState.serverModels = [
+      { modelId: 'qwen3.5-plus-YoudaoInner', supportsImage: true },
+      { modelId: 'qwen3.6-plus-YoudaoInner', supportsImage: true },
+      { modelId: 'deepseek-v3.2-YoudaoInner', supportsImage: false },
+    ];
+    mockRuntimeState.rawApiConfig = {
+      config: {
+        baseURL: 'https://lobsterai-server.youdao.com/api/proxy/v1',
+        apiKey: 'access-token',
+        model: 'qwen3.5-plus-YoudaoInner',
+        apiType: 'openai',
+      },
+      providerMetadata: {
+        providerName: 'lobsterai-server',
+        codingPlanEnabled: false,
+        supportsImage: false,
+        modelName: 'Qwen3.5 Plus',
+      },
+    };
+
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    });
+
+    const result = sync.sync('server-models-updated');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const provider = config.models.providers['lobsterai-server'];
+    expect(provider.baseUrl).toBe('http://127.0.0.1:56646/v1');
+    expect(provider.models).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'qwen3.5-plus-YoudaoInner',
+        input: ['text', 'image'],
+      }),
+      expect.objectContaining({
+        id: 'qwen3.6-plus-YoudaoInner',
+        input: ['text', 'image'],
+      }),
+      expect.objectContaining({
+        id: 'deepseek-v3.2-YoudaoInner',
+        input: ['text'],
+      }),
+    ]));
+    expect(provider.models).toHaveLength(3);
+  });
+
+  test('maps OpenAI OAuth mode to the OpenAI Codex provider', async () => {
+    const { AuthType, OpenClawApi, OpenClawProviderId, ProviderName } = await import('../../shared/providers');
+    const { buildProviderSelection } = await import('./openclawConfigSync');
+
+    const selection = buildProviderSelection({
+      apiKey: '',
+      baseURL: 'https://api.openai.com/v1',
+      modelId: 'gpt-5.4',
+      apiType: 'openai',
+      providerName: ProviderName.OpenAI,
+      authType: 'oauth',
+      codingPlanEnabled: false,
+      supportsImage: true,
+      modelName: 'GPT-5.4',
+    });
+
+    expect(selection.providerId).toBe(OpenClawProviderId.OpenAICodex);
+    expect(selection.primaryModel).toBe(`${OpenClawProviderId.OpenAICodex}/gpt-5.4`);
+    expect(selection.providerConfig.baseUrl).toBe('https://chatgpt.com/backend-api/codex');
+    expect(selection.providerConfig.api).toBe(OpenClawApi.OpenAICodexResponses);
+    expect(selection.providerConfig.auth).toBe(AuthType.OAuth);
+    expect(selection.providerConfig.headers).toEqual({
+      'chatgpt-account-id': 'acct-test',
+      originator: 'pi',
+      'OpenAI-Beta': 'responses=experimental',
+    });
+    expect(selection.providerConfig).not.toHaveProperty('apiKey');
+  });
+
+  test('repairs stale image capability for known Qwen models before writing OpenClaw input', async () => {
+    const { ProviderName } = await import('../../shared/providers');
+    const { buildProviderSelection } = await import('./openclawConfigSync');
+
+    const qwenSelection = buildProviderSelection({
+      apiKey: 'sk-test',
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      modelId: 'qwen3.6-plus',
+      apiType: 'openai',
+      providerName: ProviderName.Qwen,
+      codingPlanEnabled: true,
+      supportsImage: false,
+      modelName: 'qwen3.6-plus',
+    });
+    expect(qwenSelection.providerConfig.models[0].input).toEqual(['text', 'image']);
+
+    const customSelection = buildProviderSelection({
+      apiKey: 'sk-test',
+      baseURL: 'https://example.com/v1',
+      modelId: 'qwen3.6-plus',
+      apiType: 'openai',
+      providerName: 'custom_0',
+      supportsImage: false,
+      modelName: 'qwen3.6-plus',
+    });
+    expect(customSelection.providerId).toBe('custom_0');
+    expect(customSelection.primaryModel).toBe('custom_0/qwen3.6-plus');
+    expect(customSelection.providerConfig.models[0].input).toEqual(['text', 'image']);
+  });
+
+  test('adds missing array items in MCP bridge tool schemas for OpenAI compatibility', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+      getMcpBridgeConfig: () => ({
+        callbackUrl: 'http://127.0.0.1:12345/mcp',
+        askUserCallbackUrl: 'http://127.0.0.1:12345/ask',
+        secret: 'test-secret',
+        tools: [{
+          server: 'github',
+          name: 'create_issue',
+          description: 'Create an issue',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              attachments: {
+                type: 'array',
+                description: 'Optional issue attachments',
+              },
+            },
+          },
+        }],
+      }),
+    });
+
+    const result = sync.sync('test');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const [tool] = config.plugins.entries['mcp-bridge'].config.tools;
+    expect(tool.inputSchema.properties.attachments.items).toEqual({});
   });
 
   test('writes Telegram streaming in the nested schema expected by current OpenClaw', async () => {
@@ -108,7 +498,7 @@ describe('OpenClawConfigSync runtime config output', () => {
       getQQInstances: () => [],
       getWecomConfig: () => null,
       getWecomInstances: () => [],
-      getPopoConfig: () => null,
+      getPopoInstances: () => [],
       getNimConfig: () => null,
       getNeteaseBeeChanConfig: () => null,
       getWeixinConfig: () => null,
@@ -171,7 +561,7 @@ describe('OpenClawConfigSync runtime config output', () => {
       getQQInstances: () => [],
       getWecomConfig: () => null,
       getWecomInstances: () => [],
-      getPopoConfig: () => null,
+      getPopoInstances: () => [],
       getNimConfig: () => null,
       getNeteaseBeeChanConfig: () => null,
       getWeixinConfig: () => null,
@@ -275,7 +665,7 @@ describe('OpenClawConfigSync runtime config output', () => {
       }],
       getWecomConfig: () => null,
       getWecomInstances: () => [],
-      getPopoConfig: () => null,
+      getPopoInstances: () => [],
       getNimConfig: () => null,
       getNeteaseBeeChanConfig: () => null,
       getWeixinConfig: () => null,
@@ -292,6 +682,82 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(config.plugins.entries).not.toHaveProperty('feishu');
     expect(config.plugins.entries.qqbot).toEqual({ enabled: true });
     expect(config.plugins.entries).not.toHaveProperty('openclaw-qqbot');
+  });
+
+  test('writes plugin entries using manifest ids and removes stale package ids', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      plugins: {
+        entries: {
+          'clawemail-email': { enabled: true },
+          'openclaw-nim-channel': { enabled: true },
+        },
+      },
+    }, null, 2));
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getEmailOpenClawConfig: () => ({
+        instances: [{
+          instanceId: 'email-work',
+          instanceName: 'Work Email',
+          enabled: true,
+          transport: 'ws',
+          email: 'user@example.com',
+          apiKey: 'ck_test',
+          agentId: 'main',
+        }],
+      }),
+      getNimInstances: () => [{
+        instanceId: 'nim-work',
+        instanceName: 'NIM Work',
+        enabled: true,
+        appKey: 'nim-app-key',
+        account: 'nim-account',
+        token: 'nim-token',
+      }],
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    } as never);
+
+    const result = sync.sync('manifest-plugin-ids');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.plugins.entries).not.toHaveProperty('clawemail-email');
+    expect(config.plugins.entries).not.toHaveProperty('openclaw-nim-channel');
+    expect(config.plugins.entries.email).toEqual({ enabled: true });
+    expect(config.plugins.entries['nimsuite-openclaw-nim-channel']).toEqual({ enabled: true });
   });
 
   test('writes weixin channel config using dmPolicy and allowFrom instead of unsupported accountId', async () => {
@@ -324,7 +790,7 @@ describe('OpenClawConfigSync runtime config output', () => {
       getQQInstances: () => [],
       getWecomConfig: () => null,
       getWecomInstances: () => [],
-      getPopoConfig: () => null,
+      getPopoInstances: () => [],
       getNimConfig: () => null,
       getNeteaseBeeChanConfig: () => null,
       getWeixinConfig: () => ({

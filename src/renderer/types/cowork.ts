@@ -83,6 +83,13 @@ export interface CoworkConfig {
   memoryGuardLevel: 'strict' | 'standard' | 'relaxed';
   memoryUserMemoriesMaxItems: number;
   skipMissedJobs: boolean;
+  embeddingEnabled: boolean;
+  embeddingProvider: string;
+  embeddingModel: string;
+  embeddingLocalModelPath: string;
+  embeddingVectorWeight: number;
+  embeddingRemoteBaseUrl: string;
+  embeddingRemoteApiKey: string;
   openClawSessionPolicy: OpenClawSessionPolicyConfig;
 }
 
@@ -97,6 +104,13 @@ export type CoworkConfigUpdate = Partial<Pick<
   | 'memoryGuardLevel'
   | 'memoryUserMemoriesMaxItems'
   | 'skipMissedJobs'
+  | 'embeddingEnabled'
+  | 'embeddingProvider'
+  | 'embeddingModel'
+  | 'embeddingLocalModelPath'
+  | 'embeddingVectorWeight'
+  | 'embeddingRemoteBaseUrl'
+  | 'embeddingRemoteApiKey'
 >>;
 
 export interface CoworkApiConfig {
@@ -184,6 +198,7 @@ export interface CoworkStartOptions {
   title?: string;
   activeSkillIds?: string[];
   agentId?: string;
+  modelOverride?: string;
   imageAttachments?: CoworkImageAttachment[];
 }
 

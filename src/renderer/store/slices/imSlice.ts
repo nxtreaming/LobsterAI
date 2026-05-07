@@ -24,6 +24,8 @@ import type {
   NimConfig,
   NimInstanceConfig,
   NimMultiInstanceConfig,
+  PopoInstanceConfig,
+  PopoMultiInstanceConfig,
   PopoOpenClawConfig,
   QQInstanceConfig,
   QQMultiInstanceConfig,
@@ -244,8 +246,28 @@ const imSlice = createSlice({
         i => i.instanceId !== action.payload
       );
     },
+    /** @deprecated Use setPopoInstanceConfig instead */
     setPopoConfig: (state, action: PayloadAction<Partial<PopoOpenClawConfig>>) => {
-      state.config.popo = { ...state.config.popo, ...action.payload };
+      const first = state.config.popo.instances[0];
+      if (first) Object.assign(first, action.payload);
+    },
+    setPopoInstances: (state, action: PayloadAction<PopoInstanceConfig[]>) => {
+      state.config.popo = { instances: action.payload };
+    },
+    setPopoMultiInstanceConfig: (state, action: PayloadAction<PopoMultiInstanceConfig>) => {
+      state.config.popo = action.payload;
+    },
+    setPopoInstanceConfig: (state, action: PayloadAction<{ instanceId: string; config: Partial<PopoOpenClawConfig> }>) => {
+      const inst = state.config.popo.instances.find(i => i.instanceId === action.payload.instanceId);
+      if (inst) Object.assign(inst, action.payload.config);
+    },
+    addPopoInstance: (state, action: PayloadAction<PopoInstanceConfig>) => {
+      state.config.popo.instances.push(action.payload);
+    },
+    removePopoInstance: (state, action: PayloadAction<string>) => {
+      state.config.popo.instances = state.config.popo.instances.filter(
+        i => i.instanceId !== action.payload
+      );
     },
     setWeixinConfig: (state, action: PayloadAction<Partial<WeixinOpenClawConfig>>) => {
       state.config.weixin = { ...state.config.weixin, ...action.payload };
@@ -332,6 +354,11 @@ export const {
   addWecomInstance,
   removeWecomInstance,
   setPopoConfig,
+  setPopoInstances,
+  setPopoMultiInstanceConfig,
+  setPopoInstanceConfig,
+  addPopoInstance,
+  removePopoInstance,
   setWeixinConfig,
   setEmailInstances,
   setEmailMultiInstanceConfig,

@@ -2,8 +2,8 @@
 name: youdaonote
 description: "有道云笔记官方 skill，支持笔记 CRUD（创建/读取/更新/删除）、待办管理、网页剪藏、笔记搜索、文件夹管理等基础操作。如需构建知识库或 Wiki，请使用 youdaonote-llm-wiki skill 而非本 skill。"
 official: true
-version: 1.0.6
-minCliVersion: "1.3.0"
+version: 1.0.8
+minCliVersion: "1.3.2"
 ---
 
 # YoudaoNote — 有道云笔记
@@ -12,38 +12,48 @@ minCliVersion: "1.3.0"
 
 ## 前置条件（Agent 自动处理）
 
-执行任何操作前，Agent 必须先运行 `youdaonote list` 检测 CLI 是否可用：
+执行任何操作前，Agent 必须先运行 `youdaonote -s ydn list` 检测 CLI 是否可用：
 - **`command not found`** → 立即跳转「CLI 未安装处理」自动安装，**禁止只展示安装步骤让用户手动操作**
+- **`-s` 选项报错（`error: unknown option '-s'`）** → CLI 版本 < 1.3.2，不支持全局 `-s` 参数，需升级：先尝试 `youdaonote upgrade`；若不支持该命令，则按「CLI 未安装处理」中的安装方式重新安装；Windows 用户参考安装指南（https://note.youdao.com/help-center/cli-install-guide.html）
 - **API Key 错误** → 提示用户访问 **https://mopen.163.com** 获取 API Key（须使用手机号登录，且云笔记账号已绑定手机号），然后执行 `youdaonote config set apiKey <用户提供的Key>`。**获取 API Key 的地址只有这一个，禁止告知用户其他地址。**
-- **正常返回目录列表** → 运行 `youdaonote version`，若版本低于 `1.2.0`，展示升级建议后继续执行；否则可运行 `youdaonote help --json` 获取当前 CLI 全部能力的结构化描述（JSON），用于确认命令是否可用，下方速查表作为 fallback
+- **正常返回目录列表** → 运行 `youdaonote -s ydn version` 检查版本，若版本低于 `minCliVersion` 需要升级：CLI 支持 `upgrade` 命令时执行 `youdaonote -s ydn upgrade`，否则按「CLI 未安装处理」中的升级方式操作；Windows 用户或升级失败时参考安装指南（https://note.youdao.com/help-center/cli-install-guide.html）。版本满足要求后可运行 `youdaonote -s ydn help --json` 获取当前 CLI 全部能力的结构化描述（JSON），用于确认命令是否可用，下方速查表作为 fallback
+
+## 全局参数
+
+所有命令调用时**必须**加上 `-s ydn`，用于使用统计：
+
+```bash
+youdaonote -s ydn <command> [options]
+```
 
 ## 命令速查
 
 | 命令 | 用途 | 示例 |
 |------|------|------|
-| `mkdir` | 创建文件夹 | `youdaonote mkdir "文件夹名" [-f <父目录ID>]` |
-| `save` | 保存笔记（✅ 推荐，支持 Markdown 富文本） | `youdaonote save --file note.json` |
-| `create` | 创建笔记（⚠️ 仅纯文本，不支持 Markdown 富文本） | `youdaonote create -n "标题" -c "内容" [-f <目录ID>]` |
-| `update` | 更新 Markdown 笔记 | `youdaonote update <fileId> -c "内容"` 或 `--file content.md` |
-| `delete` | 删除笔记 | `youdaonote delete <fileId>` |
-| `rename` | 重命名笔记 | `youdaonote rename <fileId> "新标题"` |
-| `move` | 移动笔记 | `youdaonote move <fileId> <目录ID>` |
-| `search` | 搜索笔记 | `youdaonote search "关键词"` |
-| `list` | 浏览目录 | `youdaonote list -f <目录ID>` |
-| `read` | 读取笔记 | `youdaonote read <fileId>` |
-| `recent` | 最近收藏 | `youdaonote recent -l 20 -c --json` |
-| `clip` | 网页剪藏（服务端） | `youdaonote clip "https://..." [-f <目录ID>] --json` |
-| `clip-save` | 保存外部剪藏 JSON | `youdaonote clip-save --file data.json` |
-| `todo list` | 列出待办 | `youdaonote todo list [--group <分组ID>] --json` |
-| `todo create` | 创建待办 | `youdaonote todo create -t "标题" [-c "内容"] [-d 2025-12-31] [-g <分组ID>]` |
-| `todo update` | 更新待办 | `youdaonote todo update <todoId> [--done] [--undone] [-t "新标题"]` |
-| `todo delete` | 删除待办 | `youdaonote todo delete <todoId>` |
-| `todo groups` | 列出待办分组 | `youdaonote todo groups --json` |
-| `todo group-create` | 创建分组 | `youdaonote todo group-create "分组名"` |
-| `todo group-rename` | 重命名分组 | `youdaonote todo group-rename <groupId> "新名"` |
-| `todo group-delete` | 删除分组 | `youdaonote todo group-delete <groupId>` |
-| `check` | 健康检查 | `youdaonote check` |
-| `config show` | 查看配置 | `youdaonote config show --json` |
+| `mkdir` | 创建文件夹 | `youdaonote -s ydn mkdir "文件夹名" [-f <父目录ID>]` |
+| `save` | 保存笔记（✅ 推荐，支持 Markdown 富文本） | `youdaonote -s ydn save --file note.json` |
+| `create` | 创建笔记（⚠️ 仅纯文本，不支持 Markdown 富文本） | `youdaonote -s ydn create -n "标题" -c "内容" [-f <目录ID>]` |
+| `update` | 更新 Markdown 笔记 | `youdaonote -s ydn update <fileId> -c "内容"` 或 `--file content.md` |
+| `delete` | 删除笔记 | `youdaonote -s ydn delete <fileId>` |
+| `rename` | 重命名笔记 | `youdaonote -s ydn rename <fileId> "新标题"` |
+| `move` | 移动笔记 | `youdaonote -s ydn move <fileId> <目录ID>` |
+| `search` | 搜索笔记 | `youdaonote -s ydn search "关键词"` |
+| `list` | 浏览目录 | `youdaonote -s ydn list -f <目录ID>` |
+| `read` | 读取笔记 | `youdaonote -s ydn read <fileId>` |
+| `recent` | 最近收藏 | `youdaonote -s ydn recent -l 20 -c --json` |
+| `clip` | 网页剪藏（服务端） | `youdaonote -s ydn clip "https://..." [-f <目录ID>] --json` |
+| `clip-save` | 保存外部剪藏 JSON | `youdaonote -s ydn clip-save --file data.json` |
+| `todo list` | 列出待办 | `youdaonote -s ydn todo list [--group <分组ID>] --json` |
+| `todo create` | 创建待办 | `youdaonote -s ydn todo create -t "标题" [-c "内容"] [-d 2025-12-31] [-g <分组ID>]` |
+| `todo update` | 更新待办 | `youdaonote -s ydn todo update <todoId> [--done] [--undone] [-t "新标题"]` |
+| `todo delete` | 删除待办 | `youdaonote -s ydn todo delete <todoId>` |
+| `todo groups` | 列出待办分组 | `youdaonote -s ydn todo groups --json` |
+| `todo group-create` | 创建分组 | `youdaonote -s ydn todo group-create "分组名"` |
+| `todo group-rename` | 重命名分组 | `youdaonote -s ydn todo group-rename <groupId> "新名"` |
+| `todo group-delete` | 删除分组 | `youdaonote -s ydn todo group-delete <groupId>` |
+| `upgrade` | 升级 CLI | `youdaonote -s ydn upgrade [--check] [--force] [--json]` |
+| `check` | 健康检查 | `youdaonote -s ydn check` |
+| `config show` | 查看配置 | `youdaonote -s ydn config show --json` |
 | `config set` | 设置配置 | `youdaonote config set apiKey YOUR_KEY` |
 
 ## 笔记管理
@@ -82,7 +92,7 @@ B  保存为有道专有格式（.note）
   ```
   备选（短内容）：`{"title":"标题.note","type":"note","contentFormat":"md","content":"Markdown 内容","parentId":"文件夹ID"}`
 
-> `parentId` 为可选字段：填写 `youdaonote list` 返回的文件夹 ID 可指定目标目录；不填则默认存入「我的资源/收藏笔记」。
+> `parentId` 为可选字段：填写 `youdaonote -s ydn list` 返回的文件夹 ID 可指定目标目录；不填则默认存入「我的资源/收藏笔记」。
 - **用户未明确选择**（回复"随便"/"你决定"等）：默认选 A
 
 ### 创建 / 保存
@@ -90,32 +100,32 @@ B  保存为有道专有格式（.note）
 ```bash
 # ✅ 推荐：contentFile 方案（Write 工具写文件 → save 传路径，无需 JSON 转义）
 # Step 1：Write 工具将 Markdown 写入 /tmp/note-content.md
-printf '%s\n' '{"title":"笔记.md","type":"md","contentFile":"/tmp/note-content.md"}' | youdaonote save --json
+printf '%s\n' '{"title":"笔记.md","type":"md","contentFile":"/tmp/note-content.md"}' | youdaonote -s ydn save --json
 # ✅ 短内容可直接内联（无换行/特殊字符时）
-printf '%s\n' '{"title":"笔记","contentFormat":"md","content":"# 标题\n\n内容"}' | youdaonote save
+printf '%s\n' '{"title":"笔记","contentFormat":"md","content":"# 标题\n\n内容"}' | youdaonote -s ydn save
 # ⚠️ 仅纯文本，不支持 Markdown 格式，有格式需求时禁用
-youdaonote create -n "标题" -c "纯文本内容"
+youdaonote -s ydn create -n "标题" -c "纯文本内容"
 ```
 
 ### 其他操作
 
 ```bash
-youdaonote search "关键词"
-youdaonote list [-f <目录ID>]            # 浏览目录，id 可传给 read
-youdaonote read <fileId>                 # 返回 JSON 含 content、rawFormat（md/note/txt）和 isRaw（是否原始内容）
-youdaonote recent -l 20 -c --json       # 最近收藏
-youdaonote update <fileId> -c "新内容"
-youdaonote update <fileId> --file content.md  # 大内容（>10KB）从文件读取
-youdaonote delete <fileId>
-youdaonote rename <fileId> "新标题"
-youdaonote move <fileId> <目录ID>
+youdaonote -s ydn search "关键词"
+youdaonote -s ydn list [-f <目录ID>]            # 浏览目录，id 可传给 read
+youdaonote -s ydn read <fileId>                 # 返回 JSON 含 content、rawFormat（md/note/txt）和 isRaw（是否原始内容）
+youdaonote -s ydn recent -l 20 -c --json       # 最近收藏
+youdaonote -s ydn update <fileId> -c "新内容"
+youdaonote -s ydn update <fileId> --file content.md  # 大内容（>10KB）从文件读取
+youdaonote -s ydn delete <fileId>
+youdaonote -s ydn rename <fileId> "新标题"
+youdaonote -s ydn move <fileId> <目录ID>
 ```
 
 ## 网页剪藏
 
 ```bash
-youdaonote clip "https://example.com/article" --json
-youdaonote clip "https://example.com/article" -f <目录ID> --json  # 保存到指定目录
+youdaonote -s ydn clip "https://example.com/article" --json
+youdaonote -s ydn clip "https://example.com/article" -f <目录ID> --json  # 保存到指定目录
 ```
 
 ## CLI 未安装处理（Agent 必须自动执行）
@@ -129,16 +139,13 @@ export PATH="$HOME/.local/bin:$PATH"
 # 安装后立即重新执行用户原始请求
 ```
 
-**Windows（CMD/PowerShell）**：Agent 应自动完成下载、解压、加入 PATH 的全过程，尽量不让用户手动操作。下载地址：
-- x64（常见新 CPU）：https://artifact.lx.netease.com/download/youdaonote-cli/youdaonote-cli-windows-x64.tar.gz
-- x64（旧 CPU、无 AVX2 等，运行默认包秒退 / 退出码约 `0xC000001D`）：https://artifact.lx.netease.com/download/youdaonote-cli/youdaonote-cli-win-x64-bl.tar.gz
-- ARM64：https://artifact.lx.netease.com/download/youdaonote-cli/youdaonote-cli-windows-arm64.tar.gz
+**升级**：若 CLI 支持 `upgrade` 命令，优先使用 `youdaonote -s ydn upgrade`；否则重新执行上述安装脚本。
 
-安装策略：先尝试默认 x64 包，若运行闪退或退出码为 `0xC000001D`，自动换用 x64 baseline 包重试。
+**Windows 或安装失败**：参考安装指南（https://note.youdao.com/help-center/cli-install-guide.html）。
 
 ## 故障排查
 
-运行 `youdaonote check --json`，根据 `status: "fail"` 的项执行：
+运行 `youdaonote -s ydn check --json`，根据 `status: "fail"` 的项执行：
 
 | 失败项 | 处理动作 |
 |--------|---------|
@@ -150,6 +157,7 @@ export PATH="$HOME/.local/bin:$PATH"
 - 所有命令支持 `--json` 输出机器可解析格式
 - 大内容通过 `--file` 传递，避免命令行参数限制
 - Windows CMD 中 URL 含 `&` 时必须用双引号括起
+- Windows 管道/重定向场景中文可能乱码（CLI 输出 UTF-8，但 PowerShell/CMD 默认按 GBK 解读）：PowerShell 中执行 `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)`，CMD 中执行 `chcp 65001`；可运行 `youdaonote -s ydn check` 查看诊断建议
 - `list` 输出的 `id` 与 `read` 的 `fileId` 等价
 - `read` 返回的 `rawFormat` 标识笔记原始格式：`md`=Markdown、`note`=云笔记、`txt`=纯文本；`isRaw` 标识返回的 content 是否为原始内容（`true`=原文可直接编辑，`false`=经过转换的纯文本）
 - **禁止用 `create` 保存 Markdown 内容**：`create` 不支持 `contentFormat`，即使内容含 Markdown 语法也会存为纯文本静默丢失格式，有格式需求时一律使用 `save` 并指定 `contentFormat: "md"`

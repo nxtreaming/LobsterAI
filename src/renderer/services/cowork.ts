@@ -516,8 +516,11 @@ class CoworkService {
 
     const result = await sessionApi.patch({ sessionId, patch });
     if (result.success && result.session) {
-      store.dispatch(setCurrentSession(result.session));
-      store.dispatch(setStreaming(result.session.status === 'running'));
+      const currentSessionId = store.getState().cowork.currentSessionId;
+      if (currentSessionId === sessionId) {
+        store.dispatch(setCurrentSession(result.session));
+        store.dispatch(setStreaming(result.session.status === 'running'));
+      }
       return result.session;
     }
 

@@ -18,6 +18,7 @@ type ChangePayload<T = unknown> = {
 };
 
 const USER_MEMORIES_MIGRATION_KEY = 'userMemories.migration.v1.completed';
+const AGENT_WORKING_DIRECTORY_BACKFILL_KEY = 'agents.workingDirectoryBackfill.v1.completed';
 
 export class SqliteStore {
   private db: Database.Database;
@@ -165,6 +166,7 @@ export class SqliteStore {
         system_prompt TEXT NOT NULL DEFAULT '',
         identity TEXT NOT NULL DEFAULT '',
         model TEXT NOT NULL DEFAULT '',
+        working_directory TEXT NOT NULL DEFAULT '',
         icon TEXT NOT NULL DEFAULT '',
         skill_ids TEXT NOT NULL DEFAULT '[]',
         enabled INTEGER NOT NULL DEFAULT 1,
@@ -262,6 +264,18 @@ export class SqliteStore {
       // Column already exists or migration not needed.
     }
 
+    // Migration: Add working_directory column to agents
+    try {
+      const agentCols = this.db.pragma('table_info(agents)') as Array<{ name: string }>;
+      const agentColNames = agentCols.map(c => c.name);
+      if (!agentColNames.includes('working_directory')) {
+        this.db.exec("ALTER TABLE agents ADD COLUMN working_directory TEXT NOT NULL DEFAULT '';");
+        this.didRunMigration = true;
+      }
+    } catch {
+      // Column already exists or migration not needed.
+    }
+
     // Migration: Ensure default 'main' agent exists
     try {
       const mainAgent = this.db.prepare("SELECT id FROM agents WHERE id = 'main'").get();
@@ -290,6 +304,31 @@ export class SqliteStore {
       }
     } catch (error) {
       console.warn('Failed to ensure main agent:', error);
+    }
+
+    // Migration: Backfill agent working directories from the legacy global cwd once.
+    try {
+      if (this.get<string>(AGENT_WORKING_DIRECTORY_BACKFILL_KEY) !== '1') {
+        const cwdRow = this.db
+          .prepare("SELECT value FROM cowork_config WHERE key = 'workingDirectory'")
+          .get() as { value: string } | undefined;
+        const legacyWorkingDirectory = cwdRow?.value?.trim() || '';
+        if (legacyWorkingDirectory) {
+          const result = this.db
+            .prepare(
+              `UPDATE agents
+               SET working_directory = ?, updated_at = ?
+               WHERE TRIM(COALESCE(working_directory, '')) = ''`,
+            )
+            .run(legacyWorkingDirectory, Date.now());
+          if (result.changes > 0) {
+            this.didRunMigration = true;
+          }
+        }
+        this.set(AGENT_WORKING_DIRECTORY_BACKFILL_KEY, '1');
+      }
+    } catch (error) {
+      console.warn('[SqliteStore] failed to backfill agent working directories:', error);
     }
 
     try {

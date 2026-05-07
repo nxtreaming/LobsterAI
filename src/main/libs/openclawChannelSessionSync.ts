@@ -5,8 +5,6 @@
  * to local Cowork sessions so that conversations are visible in the LobsterAI UI.
  */
 
-import { session } from '@electron/remote';
-
 import { PlatformRegistry } from '../../shared/platform';
 import type { CoworkStore } from '../coworkStore';
 import { t } from '../i18n';
@@ -198,7 +196,7 @@ export function extractAccountIdFromKey(sessionKey: string): string | null {
   return null;
 }
 
-const MULTI_INSTANCE_PLATFORMS = new Set<Platform>(['dingtalk', 'feishu', 'qq', 'email', 'nim', 'wecom', 'telegram', 'discord']);
+const MULTI_INSTANCE_PLATFORMS = new Set<Platform>(['dingtalk', 'feishu', 'qq', 'email', 'nim', 'wecom', 'telegram', 'discord', 'popo']);
 
 /**
  * Resolve the agent binding for a platform, supporting per-instance bindings.
@@ -275,7 +273,7 @@ function getChannelTitlePrefix(platform: string): string {
 export interface ChannelSessionSyncDeps {
   coworkStore: CoworkStore;
   imStore: IMStore;
-  getDefaultCwd: () => string;
+  getDefaultCwd: (agentId?: string) => string;
   /** Optional synchronous lookup: jobId → human-readable name (for cron session titles). */
   resolveJobName?: (jobId: string) => string | null;
 }
@@ -283,7 +281,7 @@ export interface ChannelSessionSyncDeps {
 export class OpenClawChannelSessionSync {
   private readonly coworkStore: CoworkStore;
   private readonly imStore: IMStore;
-  private readonly getDefaultCwd: () => string;
+  private readonly getDefaultCwd: (agentId?: string) => string;
   private readonly resolveJobName: ((jobId: string) => string | null) | null;
 
   /** In-memory cache: openclawSessionKey → local sessionId. */
@@ -406,7 +404,7 @@ export class OpenClawChannelSessionSync {
             : parsed.conversationId;
           const shortId = displayId.length > 12 ? displayId.slice(-12) : displayId;
           const title = `${titlePrefix} ${shortId}`;
-          const cwd = this.getDefaultCwd();
+          const cwd = this.getDefaultCwd(currentAgentId);
           const newSession = this.coworkStore.createSession(
             title,
             cwd,
@@ -421,6 +419,7 @@ export class OpenClawChannelSessionSync {
             parsed.platform,
             newSession.id,
             currentAgentId,
+            sessionKey,
           );
           this.syncedSessionKeys.set(sessionKey, newSession.id);
           // Mark so pollChannelSessions skips full history sync for this session —
@@ -433,6 +432,9 @@ export class OpenClawChannelSessionSync {
           existingMapping.coworkSessionId,
         );
         this.syncedSessionKeys.set(sessionKey, existingMapping.coworkSessionId);
+        if (existingMapping.openClawSessionKey !== sessionKey) {
+          this.imStore.updateSessionOpenClawSessionKey(parsed.conversationId, parsed.platform, sessionKey);
+        }
         this.imStore.updateSessionLastActive(parsed.conversationId, parsed.platform);
         return existingMapping.coworkSessionId;
       }
@@ -450,11 +452,11 @@ export class OpenClawChannelSessionSync {
       : parsed.conversationId;
     const shortId = displayId.length > 12 ? displayId.slice(-12) : displayId;
     const title = `${titlePrefix} ${shortId}`;
-    const cwd = this.getDefaultCwd();
     // Look up the per-platform agent binding so the session is filed under the correct agent.
     const imSettings = this.imStore.getIMSettings();
     const accountId = extractAccountIdFromKey(sessionKey);
     const agentId = resolveAgentBinding(imSettings.platformAgentBindings, parsed.platform, accountId);
+    const cwd = this.getDefaultCwd(agentId);
     console.log(
       '[ChannelSessionSync] creating new cowork session: title=',
       title,
@@ -470,7 +472,7 @@ export class OpenClawChannelSessionSync {
     );
 
     // 6. Persist mapping
-    this.imStore.createSessionMapping(parsed.conversationId, parsed.platform, session.id, agentId);
+    this.imStore.createSessionMapping(parsed.conversationId, parsed.platform, session.id, agentId, sessionKey);
     console.log(
       '[ChannelSessionSync] persisted mapping: conversationId=',
       parsed.conversationId,
@@ -511,6 +513,9 @@ export class OpenClawChannelSessionSync {
       const session = this.coworkStore.getSession(existingMapping.coworkSessionId);
       if (session) {
         this.syncedSessionKeys.set(sessionKey, existingMapping.coworkSessionId);
+        if (existingMapping.openClawSessionKey !== sessionKey) {
+          this.imStore.updateSessionOpenClawSessionKey(parsed.conversationId, parsed.platform, sessionKey);
+        }
         return existingMapping.coworkSessionId;
       }
       // Stale mapping, clean up
@@ -518,6 +523,24 @@ export class OpenClawChannelSessionSync {
     }
 
     return null;
+  }
+
+  getOpenClawSessionKeyForCoworkSession(sessionId: string): {
+    isChannelSession: boolean;
+    sessionKey: string | null;
+  } {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      return { isChannelSession: false, sessionKey: null };
+    }
+
+    const mapping = this.imStore.getSessionMappingByCoworkSessionId(normalizedSessionId);
+    if (!mapping) {
+      return { isChannelSession: false, sessionKey: null };
+    }
+
+    const sessionKey = mapping.openClawSessionKey?.trim() || null;
+    return { isChannelSession: true, sessionKey };
   }
 
   /** Check whether a sessionKey belongs to a recognized channel, main agent, or cron session. */
@@ -543,7 +566,7 @@ export class OpenClawChannelSessionSync {
       return cached;
     }
 
-    const cwd = this.getDefaultCwd();
+    const cwd = this.getDefaultCwd('main');
     console.log('[ChannelSessionSync] creating main agent session: key=', sessionKey, 'cwd=', cwd);
     const session = this.coworkStore.createSession('[OpenClaw]', cwd, '', 'local');
     console.log('[ChannelSessionSync] created main agent session:', session.id);
@@ -573,7 +596,8 @@ export class OpenClawChannelSessionSync {
     const title = jobName
       ? `[${cronLabel}] ${jobName}`
       : `[${cronLabel}] ${jobId.length > 8 ? jobId.slice(0, 8) : jobId}`;
-    const cwd = this.getDefaultCwd();
+    const agentId = extractAgentIdFromKey(sessionKey) || 'main';
+    const cwd = this.getDefaultCwd(agentId);
     console.log(
       '[ChannelSessionSync] creating cron session: key=',
       sessionKey,
@@ -582,7 +606,7 @@ export class OpenClawChannelSessionSync {
       'cwd=',
       cwd,
     );
-    const session = this.coworkStore.createSession(title, cwd, '', 'local');
+    const session = this.coworkStore.createSession(title, cwd, '', 'local', [], agentId);
     console.log('[ChannelSessionSync] created cron session:', session.id);
 
     this.syncedSessionKeys.set(sessionKey, session.id);

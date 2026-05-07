@@ -464,6 +464,26 @@ export interface PopoGatewayStatus {
   lastOutboundAt: number | null;
 }
 
+export const MAX_POPO_INSTANCES = 5;
+
+export interface PopoInstanceConfig extends PopoOpenClawConfig {
+  instanceId: string;
+  instanceName: string;
+}
+
+export interface PopoInstanceStatus extends PopoGatewayStatus {
+  instanceId: string;
+  instanceName: string;
+}
+
+export interface PopoMultiInstanceConfig {
+  instances: PopoInstanceConfig[];
+}
+
+export interface PopoMultiInstanceStatus {
+  instances: PopoInstanceStatus[];
+}
+
 // ==================== Weixin (微信) Types ====================
 
 export interface WeixinOpenClawConfig {
@@ -555,7 +575,7 @@ export interface IMGatewayConfig {
   nim: NimMultiInstanceConfig;
   'netease-bee': NeteaseBeeChanConfig;
   wecom: WecomMultiInstanceConfig;
-  popo: PopoOpenClawConfig;
+  popo: PopoMultiInstanceConfig;
   weixin: WeixinOpenClawConfig;
   email: EmailMultiInstanceConfig;
   settings: IMSettings;
@@ -577,7 +597,7 @@ export interface IMGatewayStatus {
   nim: NimMultiInstanceStatus;
   'netease-bee': NeteaseBeeChanGatewayStatus;
   wecom: WecomMultiInstanceStatus;
-  popo: PopoGatewayStatus;
+  popo: PopoMultiInstanceStatus;
   weixin: WeixinGatewayStatus;
   email: EmailMultiInstanceStatus;
 }
@@ -844,6 +864,8 @@ export const DEFAULT_POPO_CONFIG: PopoOpenClawConfig = {
   debug: true,
 };
 
+export const DEFAULT_POPO_MULTI_INSTANCE_CONFIG: PopoMultiInstanceConfig = { instances: [] };
+
 export const DEFAULT_WEIXIN_CONFIG: WeixinOpenClawConfig = {
   enabled: false,
   accountId: '',
@@ -868,7 +890,7 @@ export const DEFAULT_IM_CONFIG: IMGatewayConfig = {
   nim: DEFAULT_NIM_MULTI_INSTANCE_CONFIG,
   'netease-bee': DEFAULT_NETEASE_BEE_CONFIG,
   wecom: DEFAULT_WECOM_MULTI_INSTANCE_CONFIG,
-  popo: DEFAULT_POPO_CONFIG,
+  popo: DEFAULT_POPO_MULTI_INSTANCE_CONFIG,
   weixin: DEFAULT_WEIXIN_CONFIG,
   email: DEFAULT_EMAIL_MULTI_INSTANCE_CONFIG,
   settings: DEFAULT_IM_SETTINGS,
@@ -903,11 +925,7 @@ export const DEFAULT_IM_STATUS: IMGatewayStatus = {
     instances: [],
   },
   popo: {
-    connected: false,
-    startedAt: null,
-    lastError: null,
-    lastInboundAt: null,
-    lastOutboundAt: null,
+    instances: [],
   },
   weixin: {
     connected: false,

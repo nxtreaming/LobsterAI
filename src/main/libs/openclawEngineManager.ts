@@ -8,9 +8,26 @@ import os from 'os';
 import path from 'path';
 
 import { ensureElectronNodeShim, getElectronNodeRuntimePath, getSkillsRoot } from './coworkUtil';
+import {
+  formatGatewayLogDateKey,
+  type GatewayLogEntry,
+  getGatewayLogPath,
+  getRecentGatewayLogEntries,
+  pruneGatewayLogs,
+} from './gatewayLogRotation';
+import { getCodexHomeDir } from './openaiCodexAuth';
 import { cleanupStaleThirdPartyPluginsFromBundledDir, listLocalOpenClawExtensionIds,syncLocalOpenClawExtensionsIntoRuntime } from './openclawLocalExtensions';
 import { appendPythonRuntimeToEnv } from './pythonRuntime';
-import { isSystemProxyEnabled, resolveSystemProxyUrl } from './systemProxy';
+
+const gwDiagTs = (): string => {
+  const d = new Date();
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  const tz = d.getTimezoneOffset();
+  const sign = tz <= 0 ? '+' : '-';
+  const abs = Math.abs(tz);
+  return `[GW-RESTART-DIAG] ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`;
+};
+import { isSystemProxyEnabled, resolveSystemProxyUrlForTargets } from './systemProxy';
 
 type GatewayProcess = UtilityProcess | ChildProcess;
 
@@ -145,7 +162,6 @@ export class OpenClawEngineManager extends EventEmitter {
   private readonly stateDir: string;
   private readonly gatewayTokenPath: string;
   private readonly gatewayPortPath: string;
-  private readonly gatewayLogPath: string;
   private readonly configPath: string;
 
   private desiredVersion: string;
@@ -159,6 +175,7 @@ export class OpenClawEngineManager extends EventEmitter {
   private startGatewayPromise: Promise<OpenClawEngineStatus> | null = null;
   private secretEnvVars: Record<string, string> = {};
   private gatewaySpawnedAt: number | null = null;
+  private gatewayLogPrunedDateKey: string | null = null;
 
   constructor() {
     super();
@@ -170,12 +187,12 @@ export class OpenClawEngineManager extends EventEmitter {
 
     this.gatewayTokenPath = path.join(this.stateDir, 'gateway-token');
     this.gatewayPortPath = path.join(this.stateDir, 'gateway-port.json');
-    this.gatewayLogPath = path.join(this.logsDir, 'gateway.log');
     this.configPath = path.join(this.stateDir, 'openclaw.json');
 
     ensureDir(this.baseDir);
     ensureDir(this.logsDir);
     ensureDir(this.stateDir);
+    this.pruneGatewayLogsIfNeeded();
 
     const runtime = this.resolveRuntimeMetadata();
     this.desiredVersion = runtime.version || DEFAULT_OPENCLAW_VERSION;
@@ -254,7 +271,18 @@ export class OpenClawEngineManager extends EventEmitter {
   }
 
   getGatewayLogPath(): string {
-    return this.gatewayLogPath;
+    return getGatewayLogPath(this.logsDir);
+  }
+
+  getRecentGatewayLogEntries(): GatewayLogEntry[] {
+    return getRecentGatewayLogEntries(this.logsDir);
+  }
+
+  private pruneGatewayLogsIfNeeded(now = new Date()): void {
+    const dateKey = formatGatewayLogDateKey(now);
+    if (this.gatewayLogPrunedDateKey === dateKey) return;
+    pruneGatewayLogs(this.logsDir, now);
+    this.gatewayLogPrunedDateKey = dateKey;
   }
 
   /**
@@ -351,11 +379,12 @@ export class OpenClawEngineManager extends EventEmitter {
     return this.getStatus();
   }
 
-  async startGateway(): Promise<OpenClawEngineStatus> {
+  async startGateway(reason = 'unknown'): Promise<OpenClawEngineStatus> {
     if (this.startGatewayPromise) {
-      console.log('[OpenClaw] startGateway: already in progress, reusing existing promise');
+      console.log(`${gwDiagTs()} startGateway: already in progress, reusing existing promise (new reason=${reason})`);
       return this.startGatewayPromise;
     }
+    console.log(`${gwDiagTs()} startGateway: reason=${reason}, currentPhase=${this.status.phase}, port=${this.gatewayPort ?? 'none'}`);
     this.startGatewayPromise = this.doStartGateway().finally(() => {
       this.startGatewayPromise = null;
     });
@@ -389,6 +418,9 @@ export class OpenClawEngineManager extends EventEmitter {
           }
           return this.getStatus();
         }
+        console.warn(`${gwDiagTs()} startGateway: existing process unhealthy on port=${port}, stopping it (${elapsed()})`);
+      } else {
+        console.warn(`${gwDiagTs()} startGateway: existing process alive but port unknown, stopping it (${elapsed()})`);
       }
 
       await this.stopGatewayProcess(this.gatewayProcess);
@@ -451,6 +483,10 @@ export class OpenClawEngineManager extends EventEmitter {
       OPENCLAW_HOME: this.baseDir,
       OPENCLAW_STATE_DIR: this.stateDir,
       OPENCLAW_CONFIG_PATH: this.configPath,
+      // Point the OpenAI provider's ChatGPT/Codex auth lookup at our app-managed
+      // directory so it doesn't fight with a system Codex CLI install
+      // (~/.codex/auth.json).  See src/main/libs/openaiCodexAuth.ts.
+      CODEX_HOME: getCodexHomeDir(),
       OPENCLAW_GATEWAY_TOKEN: token,
       OPENCLAW_GATEWAY_PORT: String(port),
       OPENCLAW_NO_RESPAWN: '1',
@@ -516,13 +552,13 @@ export class OpenClawEngineManager extends EventEmitter {
     }
 
     if (isSystemProxyEnabled()) {
-      const proxyUrl = await resolveSystemProxyUrl('https://openrouter.ai');
+      const { proxyUrl, targetUrl } = await resolveSystemProxyUrlForTargets();
       if (proxyUrl) {
         env.http_proxy = proxyUrl;
         env.https_proxy = proxyUrl;
         env.HTTP_PROXY = proxyUrl;
         env.HTTPS_PROXY = proxyUrl;
-        console.log('[OpenClaw] Injected system proxy for gateway:', proxyUrl);
+        console.log(`[OpenClaw] Injected system proxy for gateway via ${targetUrl}:`, proxyUrl);
       }
     }
 
@@ -621,13 +657,15 @@ export class OpenClawEngineManager extends EventEmitter {
     });
   }
 
-  async restartGateway(): Promise<OpenClawEngineStatus> {
-    console.log('[OpenClaw] restartGateway: stopping existing gateway...');
+  async restartGateway(reason = 'unknown'): Promise<OpenClawEngineStatus> {
+    const pid = this.gatewayProcess && 'pid' in this.gatewayProcess ? this.gatewayProcess.pid : 'none';
+    console.log(`${gwDiagTs()} restartGateway: reason=${reason}, pid=${pid}, port=${this.gatewayPort ?? 'none'}`);
+    console.log(`${gwDiagTs()} restartGateway: stopping existing gateway...`);
     await this.stopGateway();
     // Reset restart counter on manual restart so user can always retry
     this.gatewayRestartAttempt = 0;
-    console.log('[OpenClaw] restartGateway: starting gateway with new env...');
-    return this.startGateway();
+    console.log(`${gwDiagTs()} restartGateway: starting gateway with new env...`);
+    return this.startGateway(`restart:${reason}`);
   }
 
   private resolveRuntimeMetadata(): RuntimeMetadata {
@@ -1283,6 +1321,8 @@ export class OpenClawEngineManager extends EventEmitter {
   }
 
   private stopGatewayProcess(child: GatewayProcess): Promise<void> {
+    const pid = 'pid' in child ? child.pid : undefined;
+    console.log(`${gwDiagTs()} stopGatewayProcess: sending graceful kill to pid=${pid}`);
     this.expectedGatewayExits.add(child);
 
     return new Promise<void>((resolve) => {
@@ -1314,6 +1354,7 @@ export class OpenClawEngineManager extends EventEmitter {
 
       // Fallback: force-kill after 1.2s if still alive, then hard-timeout at 5s.
       const forceTimer = setTimeout(() => {
+        console.log(`${gwDiagTs()} stopGatewayProcess: graceful kill timed out after 1.2s, force-killing pid=${pid}`);
         try {
           if ('pid' in child && typeof child.pid === 'number') {
             child.kill();
@@ -1349,11 +1390,13 @@ export class OpenClawEngineManager extends EventEmitter {
   }
 
   private attachGatewayProcessLogs(child: GatewayProcess): void {
-    ensureDir(path.dirname(this.gatewayLogPath));
+    ensureDir(this.logsDir);
+    this.pruneGatewayLogsIfNeeded();
     const appendLog = (chunk: Buffer | string, stream: 'stdout' | 'stderr') => {
+      this.pruneGatewayLogsIfNeeded();
       const text = typeof chunk === 'string' ? chunk : chunk.toString();
       const line = `[${new Date().toISOString()}] [${stream}] ${text}`;
-      fs.appendFile(this.gatewayLogPath, line, () => {
+      fs.appendFile(this.getGatewayLogPath(), line, () => {
         // best-effort log append
       });
     };
@@ -1390,7 +1433,7 @@ export class OpenClawEngineManager extends EventEmitter {
       const errorMsg = args[0] instanceof Error
         ? args[0].message
         : `${args[0]}${args[1] ? ` (${args[1]})` : ''}`;
-      console.error(`[OpenClaw] gateway process error event: ${errorMsg}`);
+      console.error(`${gwDiagTs()} gateway process error event: ${errorMsg}`);
       // Don't delete from expectedGatewayExits here — the 'exit' event always
       // follows and handles cleanup. Deleting here would cause 'exit' to miss
       // the expected-exit guard, triggering a spurious restart.
@@ -1404,8 +1447,8 @@ export class OpenClawEngineManager extends EventEmitter {
       });
     });
 
-    child.once('exit', (code) => {
-      console.log(`[OpenClaw] gateway process exited with code=${code}`);
+    (child as NodeJS.EventEmitter).once('exit', (code: number | null, signal?: string) => {
+      console.log(`${gwDiagTs()} gateway process exited with code=${code}, signal=${signal ?? 'none'}`);
       if (this.gatewayProcess === child) {
         this.gatewayProcess = null;
       }
@@ -1414,6 +1457,11 @@ export class OpenClawEngineManager extends EventEmitter {
         return;
       }
       if (this.shutdownRequested) return;
+
+      try {
+        const tail = fs.readFileSync(this.getGatewayLogPath(), 'utf8').split('\n').slice(-30).join('\n');
+        console.error(`${gwDiagTs()} gateway log tail (last 30 lines before crash):\n${tail}`);
+      } catch { /* log file may not exist */ }
 
       this.setStatus({
         phase: 'error',
@@ -1430,7 +1478,7 @@ export class OpenClawEngineManager extends EventEmitter {
     if (this.gatewayRestartTimer) return;
 
     if (this.gatewayRestartAttempt >= GATEWAY_MAX_RESTART_ATTEMPTS) {
-      console.error(`[OpenClaw] gateway auto-restart limit reached (${GATEWAY_MAX_RESTART_ATTEMPTS} attempts), giving up`);
+      console.error(`${gwDiagTs()} gateway auto-restart limit reached (${GATEWAY_MAX_RESTART_ATTEMPTS} attempts), giving up`);
       this.setStatus({
         phase: 'error',
         version: this.status.version,
@@ -1442,12 +1490,13 @@ export class OpenClawEngineManager extends EventEmitter {
 
     const delay = GATEWAY_RESTART_DELAYS[Math.min(this.gatewayRestartAttempt, GATEWAY_RESTART_DELAYS.length - 1)];
     this.gatewayRestartAttempt++;
-    console.log(`[OpenClaw] scheduling gateway restart attempt ${this.gatewayRestartAttempt}/${GATEWAY_MAX_RESTART_ATTEMPTS} in ${delay}ms`);
+    console.log(`${gwDiagTs()} scheduling gateway restart attempt ${this.gatewayRestartAttempt}/${GATEWAY_MAX_RESTART_ATTEMPTS} in ${delay}ms`);
+    console.log(`${gwDiagTs()} restart context: port=${this.gatewayPort ?? 'none'}, configPath=${this.configPath}, stateDir=${this.stateDir}`);
 
     this.gatewayRestartTimer = setTimeout(() => {
       this.gatewayRestartTimer = null;
       if (this.shutdownRequested) return;
-      void this.startGateway();
+      void this.startGateway('auto-restart-after-crash');
     }, delay);
   }
 

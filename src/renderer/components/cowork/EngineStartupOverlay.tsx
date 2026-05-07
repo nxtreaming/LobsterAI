@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { useSelector } from 'react-redux';
-import { selectIsOpenClawEngine } from '../../store/selectors/coworkSelectors';
+import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
+import React, { useEffect,useState } from 'react';
+
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
-import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import type { OpenClawEngineStatus } from '../../types/cowork';
 
 const resolveEngineStatusText = (status: OpenClawEngineStatus): string => {
@@ -29,12 +28,9 @@ const resolveEngineStatusText = (status: OpenClawEngineStatus): string => {
  * Renders on top of all views (cowork, skills, scheduled tasks, mcp).
  */
 const EngineStartupOverlay: React.FC = () => {
-  const isOpenClawEngine = useSelector(selectIsOpenClawEngine);
   const [status, setStatus] = useState<OpenClawEngineStatus | null>(null);
 
   useEffect(() => {
-    if (!isOpenClawEngine) return;
-
     coworkService.getOpenClawEngineStatus().then((s) => {
       if (s) setStatus(s);
     });
@@ -44,9 +40,9 @@ const EngineStartupOverlay: React.FC = () => {
     });
 
     return unsubscribe;
-  }, [isOpenClawEngine]);
+  }, []);
 
-  if (!isOpenClawEngine || !status || status.phase !== 'starting') {
+  if (!status || status.phase !== 'starting') {
     return null;
   }
 
@@ -55,7 +51,7 @@ const EngineStartupOverlay: React.FC = () => {
     : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90 backdrop-blur-sm">
       <div className="w-full max-w-lg rounded-2xl border border-border bg-surface p-6 shadow-card">
         <div className="flex flex-col items-center text-center gap-3">
           <div className="h-10 w-10 rounded-full bg-primary/15 text-primary flex items-center justify-center animate-pulse">

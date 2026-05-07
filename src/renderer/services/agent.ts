@@ -8,6 +8,7 @@ import {
   updateAgent as updateAgentAction,
 } from '../store/slices/agentSlice';
 import { clearCurrentSession } from '../store/slices/coworkSlice';
+import { clearAgentSelectedModel } from '../store/slices/modelSlice';
 import { clearActiveSkills,setActiveSkillIds } from '../store/slices/skillSlice';
 import type { Agent, PresetAgent } from '../types/agent';
 
@@ -23,6 +24,7 @@ class AgentService {
           description: a.description,
           icon: a.icon,
           model: a.model ?? '',
+          workingDirectory: a.workingDirectory ?? '',
           enabled: a.enabled,
           isDefault: a.isDefault,
           source: a.source,
@@ -43,6 +45,7 @@ class AgentService {
     systemPrompt?: string;
     identity?: string;
     model?: string;
+    workingDirectory?: string;
     icon?: string;
     skillIds?: string[];
   }): Promise<Agent | null> {
@@ -55,6 +58,7 @@ class AgentService {
           description: agent.description,
           icon: agent.icon,
           model: agent.model ?? '',
+          workingDirectory: agent.workingDirectory ?? '',
           enabled: agent.enabled,
           isDefault: agent.isDefault,
           source: agent.source,
@@ -75,6 +79,7 @@ class AgentService {
     systemPrompt?: string;
     identity?: string;
     model?: string;
+    workingDirectory?: string;
     icon?: string;
     skillIds?: string[];
     enabled?: boolean;
@@ -89,6 +94,7 @@ class AgentService {
             description: agent.description,
             icon: agent.icon,
             model: agent.model ?? '',
+            workingDirectory: agent.workingDirectory ?? '',
             enabled: agent.enabled,
             skillIds: agent.skillIds ?? [],
           },
@@ -107,6 +113,7 @@ class AgentService {
       const wasCurrentAgent = store.getState().agent.currentAgentId === id;
       await window.electron?.agents?.delete(id);
       store.dispatch(removeAgent(id));
+      store.dispatch(clearAgentSelectedModel(id));
       if (wasCurrentAgent) {
         this.switchAgent('main');
         const { coworkService } = await import('./cowork');
@@ -139,6 +146,7 @@ class AgentService {
           description: agent.description,
           icon: agent.icon,
           model: agent.model ?? '',
+          workingDirectory: agent.workingDirectory ?? '',
           enabled: agent.enabled,
           isDefault: agent.isDefault,
           source: agent.source,

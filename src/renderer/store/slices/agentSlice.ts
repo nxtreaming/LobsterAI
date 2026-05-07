@@ -6,6 +6,7 @@ interface AgentSummary {
   description: string;
   icon: string;
   model: string;
+  workingDirectory: string;
   enabled: boolean;
   isDefault: boolean;
   source: 'custom' | 'preset';

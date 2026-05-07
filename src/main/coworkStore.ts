@@ -36,6 +36,14 @@ const MEMORY_NEAR_DUPLICATE_MIN_SCORE = 0.82;
 const MEMORY_PROCEDURAL_TEXT_RE = /(执行以下命令|run\s+(?:the\s+)?following\s+command|\b(?:cd|npm|pnpm|yarn|node|python|bash|sh|git|curl|wget)\b|\$[A-Z_][A-Z0-9_]*|&&|--[a-z0-9-]+|\/tmp\/|\.sh\b|\.bat\b|\.ps1\b)/i;
 const MEMORY_ASSISTANT_STYLE_TEXT_RE = /^(?:使用|use)\s+[A-Za-z0-9._-]+\s*(?:技能|skill)/i;
 
+const DEFAULT_EMBEDDING_ENABLED = false;
+const DEFAULT_EMBEDDING_PROVIDER = 'openai';
+const DEFAULT_EMBEDDING_MODEL = '';
+const DEFAULT_EMBEDDING_LOCAL_MODEL_PATH = '';
+const DEFAULT_EMBEDDING_VECTOR_WEIGHT = 0.7;
+const DEFAULT_EMBEDDING_REMOTE_BASE_URL = '';
+const DEFAULT_EMBEDDING_REMOTE_API_KEY = '';
+
 // Regexes and helper inlined from the removed coworkMemoryExtractor module.
 // Used only by shouldAutoDeleteMemoryText() during startup memory cleanup.
 const CHINESE_QUESTION_PREFIX_RE = /^(?:请问|问下|问一下|是否|能否|可否|为什么|为何|怎么|如何|谁|什么|哪(?:里|儿|个)?|几|多少|要不要|会不会|是不是|能不能|可不可以|行不行|对不对|好不好)/u;
@@ -75,6 +83,13 @@ function clampMemoryUserMemoriesMaxItems(value: number): number {
     MIN_MEMORY_USER_MEMORIES_MAX_ITEMS,
     Math.min(MAX_MEMORY_USER_MEMORIES_MAX_ITEMS, Math.floor(value))
   );
+}
+
+function parseEmbeddingVectorWeight(value: string | undefined): number {
+  if (!value) return DEFAULT_EMBEDDING_VECTOR_WEIGHT;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_EMBEDDING_VECTOR_WEIGHT;
+  return Math.max(0, Math.min(1, parsed));
 }
 
 function normalizeMemoryText(value: string): string {
@@ -247,42 +262,6 @@ function choosePreferredMemoryText(currentText: string, incomingText: string): s
   return normalizedIncoming.length >= normalizedCurrent.length ? normalizedIncoming : normalizedCurrent;
 }
 
-function isMeaningfulDeleteFragment(value: string): boolean {
-  if (!value) return false;
-  const tokens = value.split(/\s+/g).filter(Boolean);
-  if (tokens.length >= 2) return true;
-  if (/[\u3400-\u9fff]/u.test(value)) return value.length >= 4;
-  return value.length >= 6;
-}
-
-function includesAsBoundedPhrase(target: string, fragment: string): boolean {
-  if (!target || !fragment) return false;
-  const paddedTarget = ` ${target} `;
-  const paddedFragment = ` ${fragment} `;
-  if (paddedTarget.includes(paddedFragment)) {
-    return true;
-  }
-  // CJK phrases are often unsegmented, so token boundaries are unreliable.
-  if (/[\u3400-\u9fff]/u.test(fragment) && !fragment.includes(' ')) {
-    return target.includes(fragment);
-  }
-  return false;
-}
-
-function scoreDeleteMatch(targetKey: string, queryKey: string): number {
-  if (!targetKey || !queryKey) return 0;
-  if (targetKey === queryKey) {
-    return 1000 + queryKey.length;
-  }
-  if (!isMeaningfulDeleteFragment(queryKey)) {
-    return 0;
-  }
-  if (!includesAsBoundedPhrase(targetKey, queryKey)) {
-    return 0;
-  }
-  return 100 + Math.min(targetKey.length, queryKey.length);
-}
-
 function buildMemoryFingerprint(text: string): string {
   const key = normalizeMemoryMatchKey(text);
   return crypto.createHash('sha1').update(key).digest('hex');
@@ -323,6 +302,7 @@ export interface Agent {
   systemPrompt: string;
   identity: string;
   model: string;
+  workingDirectory: string;
   icon: string;
   skillIds: string[];
   enabled: boolean;
@@ -340,6 +320,7 @@ export interface CreateAgentRequest {
   systemPrompt?: string;
   identity?: string;
   model?: string;
+  workingDirectory?: string;
   icon?: string;
   skillIds?: string[];
   source?: AgentSource;
@@ -352,16 +333,12 @@ export interface UpdateAgentRequest {
   systemPrompt?: string;
   identity?: string;
   model?: string;
+  workingDirectory?: string;
   icon?: string;
   skillIds?: string[];
   enabled?: boolean;
 }
 
-const COWORK_AGENT_ENGINE = 'openclaw';
-
-function normalizeCoworkAgentEngineValue(_value?: string | null): CoworkAgentEngine {
-  return COWORK_AGENT_ENGINE;
-}
 
 export interface CoworkMessageMetadata {
   toolName?: string;
@@ -469,6 +446,13 @@ export interface CoworkConfig {
   memoryGuardLevel: CoworkMemoryGuardLevel;
   memoryUserMemoriesMaxItems: number;
   skipMissedJobs: boolean;
+  embeddingEnabled: boolean;
+  embeddingProvider: string;
+  embeddingModel: string;
+  embeddingLocalModelPath: string;
+  embeddingVectorWeight: number;
+  embeddingRemoteBaseUrl: string;
+  embeddingRemoteApiKey: string;
 }
 
 export type CoworkConfigUpdate = Partial<Pick<
@@ -482,6 +466,13 @@ CoworkConfig,
   | 'memoryGuardLevel'
   | 'memoryUserMemoriesMaxItems'
   | 'skipMissedJobs'
+  | 'embeddingEnabled'
+  | 'embeddingProvider'
+  | 'embeddingModel'
+  | 'embeddingLocalModelPath'
+  | 'embeddingVectorWeight'
+  | 'embeddingRemoteBaseUrl'
+  | 'embeddingRemoteApiKey'
 >>;
 
 
@@ -536,13 +527,26 @@ export class CoworkStore {
     return this.db.prepare(sql).all(...params) as T[];
   }
 
+  private upsertConfig(key: string, value: string, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO cowork_config (key, value, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET
+           value = excluded.value,
+           updated_at = excluded.updated_at`,
+      )
+      .run(key, value, now);
+  }
+
   createSession(
     title: string,
     cwd: string,
     systemPrompt: string = '',
     executionMode: CoworkExecutionMode = 'local',
     activeSkillIds: string[] = [],
-    agentId: string = 'main'
+    agentId: string = 'main',
+    modelOverride: string = ''
   ): CoworkSession {
     const id = uuidv4();
     const now = Date.now();
@@ -551,7 +555,7 @@ export class CoworkStore {
       .prepare(
         `
       INSERT INTO cowork_sessions (id, title, claude_session_id, status, cwd, system_prompt, model_override, execution_mode, active_skill_ids, agent_id, pinned, created_at, updated_at)
-      VALUES (?, ?, NULL, 'idle', ?, ?, '', ?, ?, ?, 0, ?, ?)
+      VALUES (?, ?, NULL, 'idle', ?, ?, ?, ?, ?, ?, 0, ?, ?)
     `,
       )
       .run(
@@ -559,6 +563,7 @@ export class CoworkStore {
         title,
         cwd,
         systemPrompt,
+        modelOverride,
         executionMode,
         JSON.stringify(activeSkillIds),
         agentId,
@@ -574,7 +579,7 @@ export class CoworkStore {
       pinned: false,
       cwd,
       systemPrompt,
-      modelOverride: '',
+      modelOverride,
       executionMode,
       activeSkillIds,
       agentId,
@@ -1047,6 +1052,13 @@ export class CoworkStore {
       'memoryGuardLevel',
       'memoryUserMemoriesMaxItems',
       'skipMissedJobs',
+      'embeddingEnabled',
+      'embeddingProvider',
+      'embeddingModel',
+      'embeddingLocalModelPath',
+      'embeddingVectorWeight',
+      'embeddingRemoteBaseUrl',
+      'embeddingRemoteApiKey',
     ] as const;
     const configRows = this.getAll<{ key: string; value: string }>(
       `SELECT key, value FROM cowork_config WHERE key IN (${configKeys.map(() => '?').join(', ')})`,
@@ -1058,7 +1070,7 @@ export class CoworkStore {
       workingDirectory: cfg.get('workingDirectory') || getDefaultWorkingDirectory(),
       systemPrompt: getDefaultSystemPrompt(),
       executionMode: 'local' as CoworkExecutionMode,
-      agentEngine: normalizeCoworkAgentEngineValue(cfg.get('agentEngine')),
+      agentEngine: 'openclaw' as CoworkAgentEngine,
       memoryEnabled: parseBooleanConfig(cfg.get('memoryEnabled'), DEFAULT_MEMORY_ENABLED),
       memoryImplicitUpdateEnabled: parseBooleanConfig(
         cfg.get('memoryImplicitUpdateEnabled'),
@@ -1073,6 +1085,13 @@ export class CoworkStore {
         Number(cfg.get('memoryUserMemoriesMaxItems')),
       ),
       skipMissedJobs: parseBooleanConfig(cfg.get('skipMissedJobs'), true),
+      embeddingEnabled: parseBooleanConfig(cfg.get('embeddingEnabled'), DEFAULT_EMBEDDING_ENABLED),
+      embeddingProvider: cfg.get('embeddingProvider') || DEFAULT_EMBEDDING_PROVIDER,
+      embeddingModel: cfg.get('embeddingModel') || DEFAULT_EMBEDDING_MODEL,
+      embeddingLocalModelPath: cfg.get('embeddingLocalModelPath') || DEFAULT_EMBEDDING_LOCAL_MODEL_PATH,
+      embeddingVectorWeight: parseEmbeddingVectorWeight(cfg.get('embeddingVectorWeight')),
+      embeddingRemoteBaseUrl: cfg.get('embeddingRemoteBaseUrl') || DEFAULT_EMBEDDING_REMOTE_BASE_URL,
+      embeddingRemoteApiKey: cfg.get('embeddingRemoteApiKey') || DEFAULT_EMBEDDING_REMOTE_API_KEY,
     };
   }
 
@@ -1080,130 +1099,52 @@ export class CoworkStore {
     const now = Date.now();
 
     if (config.workingDirectory !== undefined) {
-      this.db
-        .prepare(
-          `
-        INSERT INTO cowork_config (key, value, updated_at)
-        VALUES ('workingDirectory', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(config.workingDirectory, now);
+      this.upsertConfig('workingDirectory', config.workingDirectory, now);
     }
-
     if (config.executionMode !== undefined) {
-      this.db
-        .prepare(
-          `
-        INSERT INTO cowork_config (key, value, updated_at)
-        VALUES ('executionMode', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(config.executionMode, now);
+      this.upsertConfig('executionMode', config.executionMode, now);
     }
-
     if (config.agentEngine !== undefined) {
-      const normalizedAgentEngine = normalizeCoworkAgentEngineValue(config.agentEngine);
-      this.db
-        .prepare(
-          `
-        INSERT INTO cowork_config (key, value, updated_at)
-        VALUES ('agentEngine', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(normalizedAgentEngine, now);
+      this.upsertConfig('agentEngine', 'openclaw', now);
     }
-
     if (config.memoryEnabled !== undefined) {
-      this.db
-        .prepare(
-          `
-        INSERT INTO cowork_config (key, value, updated_at)
-        VALUES ('memoryEnabled', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(config.memoryEnabled ? '1' : '0', now);
+      this.upsertConfig('memoryEnabled', config.memoryEnabled ? '1' : '0', now);
     }
-
     if (config.memoryImplicitUpdateEnabled !== undefined) {
-      this.db
-        .prepare(
-          `
-        INSERT INTO cowork_config (key, value, updated_at)
-        VALUES ('memoryImplicitUpdateEnabled', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(config.memoryImplicitUpdateEnabled ? '1' : '0', now);
+      this.upsertConfig('memoryImplicitUpdateEnabled', config.memoryImplicitUpdateEnabled ? '1' : '0', now);
     }
-
     if (config.memoryLlmJudgeEnabled !== undefined) {
-      this.db
-        .prepare(
-          `
-        INSERT INTO cowork_config (key, value, updated_at)
-        VALUES ('memoryLlmJudgeEnabled', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(config.memoryLlmJudgeEnabled ? '1' : '0', now);
+      this.upsertConfig('memoryLlmJudgeEnabled', config.memoryLlmJudgeEnabled ? '1' : '0', now);
     }
-
     if (config.memoryGuardLevel !== undefined) {
-      this.db
-        .prepare(
-          `
-        INSERT INTO cowork_config (key, value, updated_at)
-        VALUES ('memoryGuardLevel', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(normalizeMemoryGuardLevel(config.memoryGuardLevel), now);
+      this.upsertConfig('memoryGuardLevel', normalizeMemoryGuardLevel(config.memoryGuardLevel), now);
     }
-
     if (config.memoryUserMemoriesMaxItems !== undefined) {
-      this.db
-        .prepare(
-          `
-        INSERT INTO cowork_config (key, value, updated_at)
-        VALUES ('memoryUserMemoriesMaxItems', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(String(clampMemoryUserMemoriesMaxItems(config.memoryUserMemoriesMaxItems)), now);
+      this.upsertConfig('memoryUserMemoriesMaxItems', String(clampMemoryUserMemoriesMaxItems(config.memoryUserMemoriesMaxItems)), now);
     }
-
     if (config.skipMissedJobs !== undefined) {
-      this.db
-        .prepare(
-          `
-        INSERT INTO cowork_config (key, value, updated_at)
-        VALUES ('skipMissedJobs', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(config.skipMissedJobs ? '1' : '0', now);
+      this.upsertConfig('skipMissedJobs', config.skipMissedJobs ? '1' : '0', now);
+    }
+    if (config.embeddingEnabled !== undefined) {
+      this.upsertConfig('embeddingEnabled', config.embeddingEnabled ? '1' : '0', now);
+    }
+    if (config.embeddingProvider !== undefined) {
+      this.upsertConfig('embeddingProvider', String(config.embeddingProvider), now);
+    }
+    if (config.embeddingModel !== undefined) {
+      this.upsertConfig('embeddingModel', String(config.embeddingModel), now);
+    }
+    if (config.embeddingLocalModelPath !== undefined) {
+      this.upsertConfig('embeddingLocalModelPath', String(config.embeddingLocalModelPath), now);
+    }
+    if (config.embeddingVectorWeight !== undefined) {
+      this.upsertConfig('embeddingVectorWeight', String(Math.max(0, Math.min(1, config.embeddingVectorWeight))), now);
+    }
+    if (config.embeddingRemoteBaseUrl !== undefined) {
+      this.upsertConfig('embeddingRemoteBaseUrl', String(config.embeddingRemoteBaseUrl), now);
+    }
+    if (config.embeddingRemoteApiKey !== undefined) {
+      this.upsertConfig('embeddingRemoteApiKey', String(config.embeddingRemoteApiKey), now);
     }
   }
 
@@ -1784,6 +1725,7 @@ export class CoworkStore {
       system_prompt: string;
       identity: string;
       model: string;
+      working_directory?: string | null;
       icon: string;
       skill_ids: string;
       enabled: number;
@@ -1809,6 +1751,7 @@ export class CoworkStore {
       system_prompt: string;
       identity: string;
       model: string;
+      working_directory?: string | null;
       icon: string;
       skill_ids: string;
       enabled: number;
@@ -1844,8 +1787,8 @@ export class CoworkStore {
     this.db
       .prepare(
         `
-      INSERT INTO agents (id, name, description, system_prompt, identity, model, icon, skill_ids, enabled, is_default, source, preset_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
+      INSERT INTO agents (id, name, description, system_prompt, identity, model, working_directory, icon, skill_ids, enabled, is_default, source, preset_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
     `,
       )
       .run(
@@ -1855,6 +1798,7 @@ export class CoworkStore {
         request.systemPrompt || '',
         request.identity || '',
         request.model || '',
+        request.workingDirectory || '',
         request.icon || '',
         JSON.stringify(request.skillIds || []),
         request.source || 'custom',
@@ -1905,6 +1849,10 @@ export class CoworkStore {
       setClauses.push('model = ?');
       values.push(updates.model);
     }
+    if (updates.workingDirectory !== undefined) {
+      setClauses.push('working_directory = ?');
+      values.push(updates.workingDirectory);
+    }
     if (updates.icon !== undefined) {
       setClauses.push('icon = ?');
       values.push(updates.icon);
@@ -1936,6 +1884,7 @@ export class CoworkStore {
     system_prompt: string;
     identity: string;
     model: string;
+    working_directory?: string | null;
     icon: string;
     skill_ids: string;
     enabled: number;
@@ -1958,6 +1907,7 @@ export class CoworkStore {
       systemPrompt: row.system_prompt,
       identity: row.identity,
       model: row.model,
+      workingDirectory: row.working_directory || '',
       icon: row.icon,
       skillIds,
       enabled: Boolean(row.enabled),

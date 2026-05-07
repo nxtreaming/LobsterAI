@@ -1,8 +1,10 @@
 import { app } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import type { SqliteStore } from '../sqliteStore';
+
 import type { IMStore } from '../im/imStore';
+import type { PopoInstanceConfig } from '../im/types';
+import type { SqliteStore } from '../sqliteStore';
 
 export type EnterpriseUIAction = 'hide' | 'disable' | 'readonly';
 
@@ -19,6 +21,20 @@ export type EnterpriseManifest = {
     plugins?: boolean | 'merge' | 'overwrite';
   };
   autoAcceptPrivacy?: boolean;
+};
+
+export type EnterpriseAgentConfig = {
+  id: string;
+  name: string;
+  description?: string;
+  systemPrompt?: string;
+  identity?: string;
+  model: string;
+  workingDirectory?: string;
+  icon: string;
+  skillIds: string[];
+  enabled: boolean;
+  isDefault: boolean;
 };
 
 const SANDBOX_MODE_MAP: Record<string, string> = {
@@ -91,8 +107,10 @@ const ACCOUNT_COMPAT_CHANNEL_TOP_LEVEL_MAP: Record<AccountCompatChannelKey, Reco
   },
   wecom: {
     enabled: 'enabled',
+    connectionMode: 'connectionMode',
     botId: 'botId',
     secret: 'secret',
+    websocketUrl: 'websocketUrl',
     dmPolicy: 'dmPolicy',
     allowFrom: 'allowFrom',
     groupPolicy: 'groupPolicy',
@@ -118,6 +136,24 @@ const ACCOUNT_COMPAT_CHANNEL_TOP_LEVEL_MAP: Record<AccountCompatChannelKey, Reco
   },
 };
 
+const ACCOUNT_COMPAT_CHANNEL_TOP_LEVEL_CREDENTIAL_KEYS: Record<AccountCompatChannelKey, string[]> = {
+  feishu: ['appId', 'appSecret'],
+  dingtalk: ['clientId', 'clientSecret'],
+  'dingtalk-connector': ['clientId', 'clientSecret'],
+  qqbot: ['appId', 'appSecret', 'clientSecret', 'clientSecretFile'],
+  wecom: ['botId', 'secret'],
+  'moltbot-popo': ['appKey', 'appSecret', 'token', 'aesKey'],
+};
+
+const ACCOUNT_COMPAT_CHANNEL_ACCOUNT_CREDENTIAL_KEYS: Record<AccountCompatChannelKey, string[]> = {
+  feishu: ['appId', 'appSecret'],
+  dingtalk: ['clientId', 'clientSecret'],
+  'dingtalk-connector': ['clientId', 'clientSecret'],
+  qqbot: ['appId', 'clientSecret', 'appSecret', 'clientSecretFile'],
+  wecom: ['botId', 'secret'],
+  'moltbot-popo': ['appKey', 'appSecret', 'token', 'aesKey'],
+};
+
 function resolveMergeMode(value: boolean | 'merge' | 'overwrite' | undefined): 'merge' | 'overwrite' | null {
   if (!value) return null;
   return value === 'overwrite' ? 'overwrite' : 'merge';
@@ -130,6 +166,10 @@ function resolveEnterprisePluginsSourceDir(configPath: string): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function readAccountsFromChannelConfig(cfg: unknown): Record<string, Record<string, unknown>> | null {
@@ -158,6 +198,12 @@ function buildTopLevelAccountOverlay(
   return overlay;
 }
 
+function hasAccountCredentialFields(channelKey: AccountCompatChannelKey, cfg: Record<string, unknown>): boolean {
+  return ACCOUNT_COMPAT_CHANNEL_ACCOUNT_CREDENTIAL_KEYS[channelKey].some((key) => (
+    Object.prototype.hasOwnProperty.call(cfg, key) && cfg[key] !== undefined && cfg[key] !== null && cfg[key] !== ''
+  ));
+}
+
 function normalizeMultiAccountChannelConfig(
   channelKey: AccountCompatChannelKey,
   cfg: unknown,
@@ -176,6 +222,9 @@ function normalizeMultiAccountChannelConfig(
 
   const normalizedAccounts: Record<string, Record<string, unknown>> = {};
   for (const [accountId, accountCfg] of Object.entries(currentAccounts)) {
+    if (accountId === 'default' && !hasAccountCredentialFields(channelKey, accountCfg)) {
+      continue;
+    }
     normalizedAccounts[accountId] = { ...accountCfg, ...overlay };
   }
 
@@ -183,6 +232,50 @@ function normalizeMultiAccountChannelConfig(
     ...cfg,
     accounts: normalizedAccounts,
   };
+}
+
+function stripTopLevelAccountCredentialFields(
+  channelKey: AccountCompatChannelKey,
+  cfg: unknown,
+): Record<string, unknown> | unknown {
+  const accounts = readAccountsFromChannelConfig(cfg);
+  if (!isRecord(cfg) || !accounts) {
+    return cfg;
+  }
+
+  const sanitized = { ...cfg };
+  if (accounts.default && !hasAccountCredentialFields(channelKey, accounts.default)) {
+    const sanitizedAccounts = { ...accounts };
+    delete sanitizedAccounts.default;
+    sanitized.accounts = sanitizedAccounts;
+  }
+  const stripKeys = channelKey === 'wecom'
+    ? Object.values(ACCOUNT_COMPAT_CHANNEL_TOP_LEVEL_MAP.wecom)
+    : ACCOUNT_COMPAT_CHANNEL_TOP_LEVEL_CREDENTIAL_KEYS[channelKey];
+  for (const key of stripKeys) {
+    delete sanitized[key];
+  }
+  return sanitized;
+}
+
+function stripMergedChannelTopLevelAccountCredentialFields(config: Record<string, unknown>): Record<string, unknown> {
+  const channels = isRecord(config.channels) ? config.channels : null;
+  if (!channels) return config;
+
+  let changed = false;
+  const sanitizedChannels: Record<string, unknown> = { ...channels };
+  for (const channelKey of ACCOUNT_COMPAT_CHANNEL_KEYS) {
+    const channelCfg = channels[channelKey];
+    const sanitizedCfg = stripTopLevelAccountCredentialFields(channelKey, channelCfg);
+    if (sanitizedCfg !== channelCfg) {
+      changed = true;
+      sanitizedChannels[channelKey] = sanitizedCfg;
+    }
+  }
+
+  return changed
+    ? { ...config, channels: sanitizedChannels }
+    : config;
 }
 
 /**
@@ -210,6 +303,7 @@ export function syncEnterpriseConfig(
   mcpClearAll: () => void,
   coworkSetConfig: (config: Record<string, string>) => void,
   getWorkingDirectory: () => string | undefined,
+  syncAgent?: (agent: EnterpriseAgentConfig) => void,
 ): EnterpriseManifest | null {
   const manifestPath = path.join(configPath, MANIFEST_FILE);
   let manifest: EnterpriseManifest;
@@ -242,6 +336,7 @@ export function syncEnterpriseConfig(
     syncModelConfig(configPath, store);
     syncIMChannels(configPath, imStore);
     syncCoworkConfig(configPath, coworkSetConfig);
+    syncOpenClawAgentList(configPath, syncAgent);
   }
 
   const agentsForce = manifest.sync.agents === 'force';
@@ -600,13 +695,22 @@ function syncIMChannels(configPath: string, imStore: IMStore): void {
         const normalizedCfg = normalizeMultiAccountChannelConfig('moltbot-popo', cfg);
         const accounts = readAccountsFromChannelConfig(normalizedCfg);
         if (accounts) {
-          const firstAccount = Object.values(accounts)[0];
-          if (firstAccount) {
-            imStore.setPopoConfig(firstAccount);
-            return;
-          }
+          const instances = Object.entries(accounts).map(([accountId, accountCfg], idx) => ({
+            ...accountCfg,
+            instanceId: accountId,
+            instanceName: (accountCfg as Record<string, unknown>).name as string || `POPO Bot ${idx + 1}`,
+          })) as PopoInstanceConfig[];
+          imStore.setPopoMultiInstanceConfig({ instances });
+          return;
         }
-        imStore.setPopoConfig(cfg);
+        // Legacy single-account format: wrap as first instance
+        const { randomUUID } = require('crypto') as typeof import('crypto');
+        const instanceId = randomUUID();
+        imStore.setPopoInstanceConfig(instanceId, {
+          ...cfg,
+          instanceId,
+          instanceName: 'POPO Bot 1',
+        });
       },
       'nim': (cfg) => {
         if (cfg && typeof cfg.accounts === 'object' && !Array.isArray(cfg.accounts)) {
@@ -649,7 +753,7 @@ function syncCoworkConfig(
   try {
     const raw = fs.readFileSync(openclawPath, 'utf-8');
     const config = JSON.parse(raw) as Record<string, unknown>;
-    const agents = config.agents as { defaults?: { sandbox?: { mode?: string }; workspace?: string } } | undefined;
+    const agents = config.agents as { defaults?: { sandbox?: { mode?: string }; workspace?: string; cwd?: string } } | undefined;
     const updates: Record<string, string> = {};
 
     updates.agentEngine = 'openclaw';
@@ -661,14 +765,70 @@ function syncCoworkConfig(
       }
     }
 
-    if (agents?.defaults?.workspace) {
-      updates.workingDirectory = agents.defaults.workspace;
+    if (agents?.defaults?.cwd) {
+      updates.workingDirectory = agents.defaults.cwd;
     }
 
     setConfig(updates);
     console.log(`[Enterprise] synced cowork config: ${JSON.stringify(updates)}`);
   } catch (error) {
     console.error('[Enterprise] failed to sync cowork config:', error);
+  }
+}
+
+function readEnterpriseAgentConfig(entry: unknown): EnterpriseAgentConfig | null {
+  if (!isRecord(entry)) return null;
+  const id = normalizeOptionalString(entry.id);
+  if (!id) return null;
+
+  const identity = isRecord(entry.identity) ? entry.identity : {};
+  const model = isRecord(entry.model) ? entry.model : {};
+  const skills = Array.isArray(entry.skills)
+    ? entry.skills.filter((skill): skill is string => typeof skill === 'string' && skill.trim().length > 0)
+    : [];
+
+  return {
+    id,
+    name: normalizeOptionalString(identity.name) ?? id,
+    description: normalizeOptionalString(entry.description),
+    systemPrompt: normalizeOptionalString(entry.systemPrompt),
+    identity: normalizeOptionalString(entry.instructions) ?? normalizeOptionalString(entry.identityText),
+    model: normalizeOptionalString(model.primary) ?? '',
+    icon: normalizeOptionalString(identity.emoji) ?? '',
+    skillIds: skills,
+    enabled: entry.enabled !== false,
+    isDefault: entry.default === true || id === 'main',
+  };
+}
+
+function syncOpenClawAgentList(
+  configPath: string,
+  syncAgent?: (agent: EnterpriseAgentConfig) => void,
+): void {
+  if (!syncAgent) return;
+
+  const openclawPath = path.join(configPath, 'openclaw.json');
+  if (!fs.existsSync(openclawPath)) return;
+
+  try {
+    const raw = fs.readFileSync(openclawPath, 'utf-8');
+    const config = JSON.parse(raw) as Record<string, unknown>;
+    const agents = isRecord(config.agents) ? config.agents : null;
+    const list = Array.isArray(agents?.list) ? agents.list : [];
+    let syncedCount = 0;
+
+    for (const entry of list) {
+      const agent = readEnterpriseAgentConfig(entry);
+      if (!agent) continue;
+      syncAgent(agent);
+      syncedCount++;
+    }
+
+    if (syncedCount > 0) {
+      console.log(`[Enterprise] synced ${syncedCount} agent config(s) to Lobster agents`);
+    }
+  } catch (error) {
+    console.error('[Enterprise] failed to sync OpenClaw agents:', error);
   }
 }
 
@@ -919,7 +1079,9 @@ export function mergeOpenClawConfigs(
     normalizedEnterpriseConfig.channels = normalizedChannels;
   }
 
-  const merged = deepMerge(runtimeConfig, normalizedEnterpriseConfig);
+  const merged = stripMergedChannelTopLevelAccountCredentialFields(
+    deepMerge(runtimeConfig, normalizedEnterpriseConfig),
+  );
 
   const mergedPluginLoadPaths = Array.from(new Set([
     ...readPluginLoadPaths(runtimeConfig),

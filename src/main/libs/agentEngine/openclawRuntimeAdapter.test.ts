@@ -10,7 +10,354 @@ vi.mock('electron', () => ({
   },
 }));
 
-import { OpenClawRuntimeAdapter } from './openclawRuntimeAdapter';
+import { OpenClawRuntimeAdapter, pickPersistedAssistantSegment } from './openclawRuntimeAdapter';
+
+test('pickPersistedAssistantSegment: stream authority keeps previous when same length or longer', () => {
+  expect(pickPersistedAssistantSegment('aa', 'a', true)).toEqual({
+    content: 'aa',
+    reason: 'stream_authority_same_or_longer',
+  });
+  expect(pickPersistedAssistantSegment('same', 'same', true)).toEqual({
+    content: 'same',
+    reason: 'stream_authority_same_or_longer',
+  });
+});
+
+test('pickPersistedAssistantSegment: stream shorter prefers chat.final payload', () => {
+  expect(pickPersistedAssistantSegment('a', 'final-longer', true)).toEqual({
+    content: 'final-longer',
+    reason: 'stream_shorter_prefer_chat_final',
+  });
+});
+
+test('pickPersistedAssistantSegment: chat-only path prefers chat.final extraction', () => {
+  expect(pickPersistedAssistantSegment('fromDelta', 'fromFinal', false)).toEqual({
+    content: 'fromFinal',
+    reason: 'chat_path_prefer_final',
+  });
+});
+
+test('pickPersistedAssistantSegment: empty branches', () => {
+  expect(pickPersistedAssistantSegment('', '', false)).toEqual({
+    content: '',
+    reason: 'both_empty',
+  });
+  expect(pickPersistedAssistantSegment('', 'fin', false)).toEqual({
+    content: 'fin',
+    reason: 'final_only',
+  });
+  expect(pickPersistedAssistantSegment('prev', '', false)).toEqual({
+    content: 'prev',
+    reason: 'previous_only',
+  });
+});
+
+// ==================== Session patch tests ====================
+
+function createPatchAdapter(options?: {
+  isChannelSession?: boolean;
+  persistedSessionKey?: string | null;
+}) {
+  const session = {
+    id: 'session-1',
+    title: 'Test Session',
+    claudeSessionId: null,
+    status: 'completed',
+    pinned: false,
+    cwd: '',
+    systemPrompt: '',
+    modelOverride: '',
+    executionMode: 'local',
+    activeSkillIds: [],
+    agentId: 'main',
+    messages: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const store = {
+    getSession: (sessionId: string) => (sessionId === session.id ? session : null),
+    updateSession: () => {},
+  };
+  const engineManager = {
+    startGateway: async () => ({ phase: 'running', message: '' }),
+    getGatewayConnectionInfo: () => ({
+      url: 'ws://127.0.0.1:9999',
+      token: 'token',
+      version: 'test-version',
+      clientEntryPath: '/tmp/openclaw-gateway-client.js',
+    }),
+  };
+  const adapter = new OpenClawRuntimeAdapter(store as never, engineManager as never);
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async (method: string, params?: unknown) => {
+      requests.push({ method, params: params as Record<string, unknown> });
+      return {};
+    },
+  };
+  adapter.gatewayClientVersion = 'test-version';
+  adapter.gatewayClientEntryPath = '/tmp/openclaw-gateway-client.js';
+  adapter.gatewayReadyPromise = Promise.resolve();
+  if (options?.isChannelSession !== undefined) {
+    adapter.channelSessionSync = {
+      getOpenClawSessionKeyForCoworkSession: () => ({
+        isChannelSession: !!options.isChannelSession,
+        sessionKey: options.persistedSessionKey ?? null,
+      }),
+    };
+  }
+  return { adapter, requests };
+}
+
+test('patchSession uses the persisted IM channel session key after runtime cache is empty', async () => {
+  const { adapter, requests } = createPatchAdapter({
+    isChannelSession: true,
+    persistedSessionKey: 'agent:main:feishu:dm:ou_123',
+  });
+
+  await adapter.patchSession('session-1', { model: 'lobsterai-server/qwen3.6-plus-YoudaoInner' });
+
+  expect(requests).toEqual([
+    {
+      method: 'sessions.patch',
+      params: {
+        key: 'agent:main:feishu:dm:ou_123',
+        model: 'lobsterai-server/qwen3.6-plus-YoudaoInner',
+      },
+    },
+  ]);
+});
+
+test('patchSession rejects IM channel sessions when the real OpenClaw key is missing', async () => {
+  const { adapter, requests } = createPatchAdapter({
+    isChannelSession: true,
+    persistedSessionKey: null,
+  });
+
+  await expect(adapter.patchSession('session-1', { model: 'lobsterai-server/qwen3.6-plus-YoudaoInner' }))
+    .rejects.toThrow('Cannot patch IM channel session because the OpenClaw session key is missing.');
+
+  expect(requests).toHaveLength(0);
+});
+
+test('patchSession keeps managed-key fallback for normal Cowork sessions', async () => {
+  const { adapter, requests } = createPatchAdapter({
+    isChannelSession: false,
+    persistedSessionKey: null,
+  });
+
+  await adapter.patchSession('session-1', { model: 'moonshot/kimi-k2.6' });
+
+  expect(requests[0]).toEqual({
+    method: 'sessions.patch',
+    params: {
+      key: 'agent:main:lobsterai:session-1',
+      model: 'moonshot/kimi-k2.6',
+    },
+  });
+});
+
+function createRunTurnAdapter(options: {
+  sessionModelOverride?: string;
+  agentModel?: string;
+  cachedModel?: string;
+  holdFirstModelPatch?: boolean;
+  sessionCwd?: string;
+} = {}) {
+  const session = {
+    id: 'session-1',
+    title: 'Test Session',
+    claudeSessionId: null,
+    status: 'completed',
+    pinned: false,
+    cwd: options.sessionCwd ?? '',
+    systemPrompt: '',
+    modelOverride: options.sessionModelOverride ?? '',
+    executionMode: 'local',
+    activeSkillIds: [],
+    agentId: 'main',
+    messages: [] as Array<Record<string, unknown>>,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  let nextMessageId = 1;
+  let firstModelPatchStartedResolve: (() => void) | null = null;
+  let firstModelPatchRelease: (() => void) | null = null;
+  let modelPatchCount = 0;
+  const firstModelPatchStarted = new Promise<void>((resolve) => {
+    firstModelPatchStartedResolve = resolve;
+  });
+  const firstModelPatchBlocked = new Promise<void>((resolve) => {
+    firstModelPatchRelease = resolve;
+  });
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const store = {
+    getSession: (sessionId: string) => (sessionId === session.id ? session : null),
+    updateSession: (sessionId: string, patch: Record<string, unknown>) => {
+      expect(sessionId).toBe(session.id);
+      Object.assign(session, patch);
+    },
+    addMessage: (sessionId: string, message: Record<string, unknown>) => {
+      expect(sessionId).toBe(session.id);
+      const created = {
+        id: `msg-${nextMessageId++}`,
+        timestamp: nextMessageId,
+        metadata: {},
+        ...message,
+      };
+      session.messages.push(created);
+      return created;
+    },
+    updateMessage: (sessionId: string, messageId: string, patch: Record<string, unknown>) => {
+      expect(sessionId).toBe(session.id);
+      const message = session.messages.find((entry) => entry.id === messageId);
+      if (message) {
+        Object.assign(message, patch);
+      }
+    },
+    deleteMessage: () => true,
+    getAgent: (agentId: string) => (agentId === 'main'
+      ? {
+        id: 'main',
+        name: 'Main',
+        model: options.agentModel ?? 'lobsterai-server/qwen3.5-plus-YoudaoInner',
+      }
+      : null),
+    updateAgent: () => {},
+  };
+  const engineManager = {
+    startGateway: async () => ({ phase: 'running', message: '' }),
+    getGatewayConnectionInfo: () => ({
+      url: 'ws://127.0.0.1:9999',
+      token: 'token',
+      version: 'test-version',
+      clientEntryPath: '/tmp/openclaw-gateway-client.js',
+    }),
+  };
+  const adapter = new OpenClawRuntimeAdapter(store as never, engineManager as never);
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async (method: string, params?: unknown) => {
+      const requestParams = (params ?? {}) as Record<string, unknown>;
+      requests.push({ method, params: requestParams });
+      if (method === 'sessions.patch') {
+        modelPatchCount++;
+        if (options.holdFirstModelPatch && modelPatchCount === 1) {
+          firstModelPatchStartedResolve?.();
+          await firstModelPatchBlocked;
+        }
+        return {};
+      }
+      if (method === 'chat.history') {
+        return { messages: [] };
+      }
+      if (method === 'chat.send') {
+        const runId = typeof requestParams.idempotencyKey === 'string'
+          ? requestParams.idempotencyKey
+          : 'run-1';
+        const sessionKey = typeof requestParams.sessionKey === 'string'
+          ? requestParams.sessionKey
+          : 'agent:main:lobsterai:session-1';
+        queueMicrotask(() => {
+          (adapter as unknown as {
+            handleChatEvent: (payload: unknown, seq?: number) => void;
+          }).handleChatEvent({
+            state: 'final',
+            runId,
+            sessionKey,
+            message: { role: 'assistant', content: 'Done' },
+          }, 1);
+        });
+        return { runId };
+      }
+      return {};
+    },
+  };
+  adapter.gatewayClientVersion = 'test-version';
+  adapter.gatewayClientEntryPath = '/tmp/openclaw-gateway-client.js';
+  adapter.gatewayReadyPromise = Promise.resolve();
+  adapter.reconcileWithHistory = async () => {};
+
+  if (options.cachedModel) {
+    adapter.lastPatchedModelBySession.set(session.id, options.cachedModel);
+  }
+
+  return {
+    adapter,
+    requests,
+    releaseFirstModelPatch: () => firstModelPatchRelease?.(),
+    firstModelPatchStarted,
+  };
+}
+
+test('continueSession patches a session override before chat.send even when the model cache matches', async () => {
+  const model = 'lobsterai-server/qwen3.6-plus-YoudaoInner';
+  const { adapter, requests } = createRunTurnAdapter({
+    sessionModelOverride: model,
+    cachedModel: model,
+  });
+
+  await adapter.continueSession('session-1', 'hello');
+
+  expect(requests.map((request) => request.method).slice(0, 3)).toEqual([
+    'sessions.patch',
+    'chat.history',
+    'chat.send',
+  ]);
+  expect(requests[0].params).toEqual({
+    key: 'agent:main:lobsterai:session-1',
+    model,
+  });
+});
+
+test('continueSession waits for an in-flight model patch before chat.send', async () => {
+  const model = 'lobsterai-server/qwen3.6-plus-YoudaoInner';
+  const {
+    adapter,
+    requests,
+    firstModelPatchStarted,
+    releaseFirstModelPatch,
+  } = createRunTurnAdapter({
+    sessionModelOverride: model,
+    holdFirstModelPatch: true,
+  });
+
+  const patchPromise = adapter.patchSession('session-1', { model });
+  await firstModelPatchStarted;
+
+  const continuePromise = adapter.continueSession('session-1', 'hello');
+  await Promise.resolve();
+  await Promise.resolve();
+
+  expect(requests.map((request) => request.method)).toEqual(['sessions.patch']);
+
+  releaseFirstModelPatch();
+  await patchPromise;
+  await continuePromise;
+
+  expect(requests.map((request) => request.method).slice(0, 4)).toEqual([
+    'sessions.patch',
+    'sessions.patch',
+    'chat.history',
+    'chat.send',
+  ]);
+});
+
+test('continueSession sends the session cwd to OpenClaw chat.send', async () => {
+  const { adapter, requests } = createRunTurnAdapter({
+    sessionCwd: '/tmp/lobsterai-selected-project',
+  });
+
+  await adapter.continueSession('session-1', 'hello');
+
+  const chatSend = requests.find((request) => request.method === 'chat.send');
+  expect(chatSend?.params).toMatchObject({
+    cwd: '/tmp/lobsterai-selected-project',
+  });
+});
 
 // ==================== Reconcile tests ====================
 
@@ -51,7 +398,17 @@ function createReconcileStore(messages: Array<Record<string, unknown>>) {
         session.messages.push(created);
         return created;
       },
-      updateSession: () => {},
+      updateSession: (sessionId: string, patch: Record<string, unknown>) => {
+        expect(sessionId).toBe(session.id);
+        Object.assign(session, patch);
+      },
+      updateMessage: (sessionId: string, messageId: string, patch: Record<string, unknown>) => {
+        expect(sessionId).toBe(session.id);
+        const message = session.messages.find((m) => m.id === messageId);
+        if (!message) return false;
+        Object.assign(message, patch);
+        return true;
+      },
       replaceConversationMessages: (sessionId: string, authoritative: Array<{ role: string; text: string }>) => {
         replaceCallCount++;
         lastReplaceArgs = { sessionId, authoritative };
@@ -213,6 +570,133 @@ test('reconcileWithHistory: content mismatch — triggers replace', async () => 
   expect((args.authoritative[1] as Record<string, unknown>).text).toBe('Full complete response from the model.');
 });
 
+test('lifecycle fallback repairs managed session assistant text from history', async () => {
+  const brokenTable = [
+    'OpenClaw 优缺点总结',
+    '',
+    '| 维度 | 优点 ✅ | 缺点 ❌ |',
+    '|---------|',
+    '| 架构设计 | 单 Gateway | 单点风险 |',
+  ].join('\n');
+  const finalTable = [
+    'OpenClaw 优缺点总结',
+    '',
+    '| 维度 | 优点 ✅ | 缺点 ❌ |',
+    '|------|---------|---------|',
+    '| 架构设计 | 单 Gateway | 单点风险 |',
+  ].join('\n');
+  const { session, store, getReplaceCallCount } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: '以表格总结 OpenClaw', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: brokenTable, timestamp: 2, metadata: { isStreaming: true } },
+  ]);
+
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'user', content: '以表格总结 OpenClaw' },
+        { role: 'assistant', content: finalTable },
+      ],
+    }),
+  };
+
+  const turn = {
+    sessionId: session.id,
+    sessionKey: `agent:main:lobsterai:${session.id}`,
+    runId: 'run-1',
+    turnToken: 1,
+    startedAtMs: 1,
+    knownRunIds: new Set(['run-1']),
+    assistantMessageId: 'msg-2',
+    committedAssistantText: '',
+    currentAssistantSegmentText: brokenTable,
+    currentText: brokenTable,
+    agentAssistantTextLength: brokenTable.length,
+    currentContentText: brokenTable,
+    currentContentBlocks: [brokenTable],
+    sawNonTextContentBlocks: false,
+    textStreamMode: 'snapshot',
+    toolUseMessageIdByToolCallId: new Map(),
+    toolResultMessageIdByToolCallId: new Map(),
+    toolResultTextByToolCallId: new Map(),
+    stopRequested: false,
+    pendingUserSync: false,
+    bufferedChatPayloads: [],
+    bufferedAgentPayloads: [],
+  };
+
+  adapter.activeTurns.set(session.id, turn);
+  adapter.latestTurnTokenBySession.set(session.id, turn.turnToken);
+
+  await adapter.completeChannelTurnFallback(session.id, turn);
+
+  expect(getReplaceCallCount()).toBe(0);
+  expect(session.messages.find((message) => message.id === 'msg-2')?.content).toBe(finalTable);
+  expect(session.status).toBe('completed');
+});
+
+test('late lifecycle fallback event does not reopen a completed managed session', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: '你是哪个模型', timestamp: 1, metadata: {} },
+    {
+      id: 'msg-2',
+      type: 'assistant',
+      content: '当前会话使用的是 qwen-portal/qwen3.6-plus 模型。',
+      timestamp: 2,
+      metadata: { isStreaming: false, isFinal: true },
+    },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:lobsterai:${session.id}`;
+
+  adapter.rememberSessionKey(session.id, sessionKey);
+  adapter.handleGatewayEvent({
+    event: 'agent',
+    seq: 1,
+    payload: {
+      runId: 'late-run',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'fallback' },
+    },
+  });
+
+  expect(session.status).toBe('completed');
+  expect(adapter.activeTurns.has(session.id)).toBe(false);
+  expect(adapter.sessionIdByRunId.has('late-run')).toBe(false);
+});
+
+test('late event for a closed run does not recreate a managed session turn', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'done', timestamp: 2, metadata: { isStreaming: false, isFinal: true } },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:lobsterai:${session.id}`;
+
+  adapter.rememberSessionKey(session.id, sessionKey);
+  adapter.ensureActiveTurn(session.id, sessionKey, 'closed-run');
+  session.status = 'completed';
+  adapter.cleanupSessionTurn(session.id);
+
+  adapter.handleGatewayEvent({
+    event: 'agent',
+    seq: 2,
+    payload: {
+      runId: 'closed-run',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'start' },
+    },
+  });
+
+  expect(session.status).toBe('completed');
+  expect(adapter.activeTurns.has(session.id)).toBe(false);
+  expect(adapter.sessionIdByRunId.has('closed-run')).toBe(false);
+});
+
 test('reconcileWithHistory: preserves tool messages', async () => {
   const { session, store, getReplaceCallCount } = createReconcileStore([
     { id: 'msg-1', type: 'user', content: 'Run a command', timestamp: 1, metadata: {} },
@@ -262,6 +746,98 @@ test('reconcileWithHistory: gateway returns tail subset — preserves older loca
 
   expect(getReplaceCallCount()).toBe(0);
   expect(session.messages.length).toBe(4);
+});
+
+test('reconcileWithHistory: tail window starting with assistant does not rewrite when already synced', async () => {
+  const { session, store, getReplaceCallCount } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'First question', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'First answer', timestamp: 2, metadata: {} },
+    { id: 'msg-3', type: 'user', content: 'Second question', timestamp: 3, metadata: {} },
+    { id: 'msg-4', type: 'assistant', content: 'Second answer', timestamp: 4, metadata: {} },
+  ]);
+
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'assistant', content: 'First answer' },
+        { role: 'user', content: 'Second question' },
+        { role: 'assistant', content: 'Second answer' },
+      ],
+    }),
+  };
+
+  await adapter.reconcileWithHistory(session.id, 'managed:session-1');
+
+  expect(getReplaceCallCount()).toBe(0);
+  expect(session.messages.length).toBe(4);
+});
+
+test('reconcileWithHistory: tail window starting with assistant updates anchored tail without duplication', async () => {
+  const { session, store, getReplaceCallCount, getLastReplaceArgs } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'First question', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'First answer', timestamp: 2, metadata: {} },
+    { id: 'msg-3', type: 'user', content: 'Second question', timestamp: 3, metadata: {} },
+    { id: 'msg-4', type: 'assistant', content: 'Streaming partial...', timestamp: 4, metadata: {} },
+  ]);
+
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'assistant', content: 'First answer' },
+        { role: 'user', content: 'Second question' },
+        { role: 'assistant', content: 'Full complete answer from gateway.' },
+      ],
+    }),
+  };
+
+  await adapter.reconcileWithHistory(session.id, 'managed:session-1');
+  await adapter.reconcileWithHistory(session.id, 'managed:session-1');
+
+  expect(getReplaceCallCount()).toBe(1);
+  expect(getLastReplaceArgs()!.authoritative).toEqual([
+    { role: 'user', text: 'First question' },
+    { role: 'assistant', text: 'First answer' },
+    { role: 'user', text: 'Second question' },
+    { role: 'assistant', text: 'Full complete answer from gateway.' },
+  ]);
+});
+
+test('reconcileWithHistory: tail window repairs stale leading assistant before anchor', async () => {
+  const { session, store, getReplaceCallCount, getLastReplaceArgs } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'First question', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'Stale previous answer', timestamp: 2, metadata: {} },
+    { id: 'msg-3', type: 'user', content: 'Second question', timestamp: 3, metadata: {} },
+    { id: 'msg-4', type: 'assistant', content: 'Streaming partial...', timestamp: 4, metadata: {} },
+  ]);
+
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'assistant', content: 'Correct previous answer' },
+        { role: 'user', content: 'Second question' },
+        { role: 'assistant', content: 'Full complete answer from gateway.' },
+      ],
+    }),
+  };
+
+  await adapter.reconcileWithHistory(session.id, 'managed:session-1');
+
+  expect(getReplaceCallCount()).toBe(1);
+  expect(getLastReplaceArgs()!.authoritative).toEqual([
+    { role: 'user', text: 'First question' },
+    { role: 'assistant', text: 'Correct previous answer' },
+    { role: 'user', text: 'Second question' },
+    { role: 'assistant', text: 'Full complete answer from gateway.' },
+  ]);
 });
 
 test('reconcileWithHistory: empty history — sets cursor to 0', async () => {

@@ -1,9 +1,10 @@
-import { test, expect } from 'vitest';
+import { expect, test, vi } from 'vitest';
+
 import {
-  DEFAULT_MANAGED_AGENT_ID,
-  OpenClawChannelSessionSync,
   buildManagedSessionKey,
+  DEFAULT_MANAGED_AGENT_ID,
   isManagedSessionKey,
+  OpenClawChannelSessionSync,
   parseChannelSessionKey,
   parseManagedSessionKey,
 } from './openclawChannelSessionSync';
@@ -71,4 +72,114 @@ test('channel sync still recognizes real channel session keys', () => {
     conversationId: 'dm:ou_123',
   });
   expect(sync.isChannelSessionKey('agent:main:main')).toBe(true);
+});
+
+test('channel sync stores the real OpenClaw session key when creating a mapping', () => {
+  const createSessionMapping = vi.fn();
+  const getDefaultCwd = vi.fn((agentId?: string) => `/tmp/${agentId || 'fallback'}`);
+  const createSession = vi.fn((
+    title: string,
+    cwd: string,
+    systemPrompt: string,
+    executionMode: 'local',
+    activeSkillIds: string[],
+    agentId: string,
+  ) => ({
+    id: 'cowork-1',
+    title,
+    claudeSessionId: null,
+    status: 'idle' as const,
+    pinned: false,
+    cwd,
+    systemPrompt,
+    modelOverride: '',
+    executionMode,
+    activeSkillIds,
+    agentId,
+    messages: [],
+    createdAt: 1,
+    updatedAt: 1,
+  }));
+  const sync = new OpenClawChannelSessionSync({
+    coworkStore: {
+      getSession: () => null,
+      createSession,
+    },
+    imStore: {
+      getIMSettings: () => ({ skillsEnabled: true }),
+      getSessionMapping: () => null,
+      updateSessionLastActive: () => {},
+      deleteSessionMapping: () => {},
+      createSessionMapping,
+    },
+    getDefaultCwd,
+  });
+
+  const sessionKey = 'agent:main:feishu:dm:ou_123';
+
+  expect(sync.resolveOrCreateSession(sessionKey)).toBe('cowork-1');
+  expect(getDefaultCwd).toHaveBeenCalledWith('main');
+  expect(createSession).toHaveBeenCalledWith(
+    expect.any(String),
+    '/tmp/main',
+    '',
+    'local',
+    [],
+    'main',
+  );
+  expect(createSessionMapping).toHaveBeenCalledWith(
+    'dm:ou_123',
+    'feishu',
+    'cowork-1',
+    'main',
+    sessionKey,
+  );
+});
+
+test('channel sync backfills the real OpenClaw session key for existing mappings', () => {
+  const updateSessionOpenClawSessionKey = vi.fn();
+  const sync = new OpenClawChannelSessionSync({
+    coworkStore: {
+      getSession: () => ({
+        id: 'cowork-1',
+        title: '[Feishu] ou_123',
+        claudeSessionId: null,
+        status: 'idle',
+        pinned: false,
+        cwd: '/tmp',
+        systemPrompt: '',
+        modelOverride: '',
+        executionMode: 'local',
+        activeSkillIds: [],
+        agentId: 'main',
+        messages: [],
+        createdAt: 1,
+        updatedAt: 1,
+      }),
+      createSession: () => {
+        throw new Error('createSession should not be called');
+      },
+    },
+    imStore: {
+      getIMSettings: () => ({ skillsEnabled: true }),
+      getSessionMapping: () => ({
+        imConversationId: 'dm:ou_123',
+        platform: 'feishu',
+        coworkSessionId: 'cowork-1',
+        agentId: 'main',
+        createdAt: 1,
+        lastActiveAt: 1,
+      }),
+      updateSessionOpenClawSessionKey,
+      updateSessionLastActive: () => {},
+      deleteSessionMapping: () => {},
+      createSessionMapping: () => {},
+    },
+    getDefaultCwd: () => '/tmp',
+  });
+
+  const sessionKey = 'agent:main:feishu:dm:ou_123';
+
+  expect(sync.resolveOrCreateSession(sessionKey)).toBe('cowork-1');
+  expect(updateSessionOpenClawSessionKey).toHaveBeenCalledWith('dm:ou_123', 'feishu', sessionKey);
 });

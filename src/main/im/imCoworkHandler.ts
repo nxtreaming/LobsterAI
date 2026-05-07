@@ -316,7 +316,15 @@ export class IMCoworkHandler extends EventEmitter {
     const title = this.buildSessionTitle(platform, imConversationId, senderId, message);
     const systemPrompt = await this.buildSystemPromptWithSkills();
 
-    const selectedWorkspaceRoot = (config.workingDirectory || '').trim();
+    // Resolve the agent bound to this platform (single-instance platforms only;
+    // multi-instance platforms route through OpenClaw channel session sync)
+    const imSettings = this.imStore.getIMSettings();
+    const agentId = imSettings.platformAgentBindings?.[platform] || 'main';
+    const selectedWorkspaceRoot = (
+      this.coworkStore.getAgent(agentId)?.workingDirectory?.trim()
+      || config.workingDirectory
+      || ''
+    ).trim();
     if (!selectedWorkspaceRoot) {
       throw new Error('IM 工作目录未配置，请先在应用中选择任务目录。');
     }
@@ -324,11 +332,6 @@ export class IMCoworkHandler extends EventEmitter {
     if (!fs.existsSync(resolvedWorkspaceRoot) || !fs.statSync(resolvedWorkspaceRoot).isDirectory()) {
       throw new Error(`IM 工作目录不存在或无效: ${resolvedWorkspaceRoot}`);
     }
-
-    // Resolve the agent bound to this platform (single-instance platforms only;
-    // multi-instance platforms route through OpenClaw channel session sync)
-    const imSettings = this.imStore.getIMSettings();
-    const agentId = imSettings.platformAgentBindings?.[platform] || 'main';
 
     const session = this.coworkStore.createSession(
       title,
@@ -382,7 +385,7 @@ export class IMCoworkHandler extends EventEmitter {
     const config = this.coworkStore.getConfig();
     const imSettings = this.imStore.getIMSettings();
     const systemPrompt = config.systemPrompt || '';
-    const scheduledTaskPrompt = buildScheduledTaskEnginePrompt(config.agentEngine);
+    const scheduledTaskPrompt = buildScheduledTaskEnginePrompt();
 
     // Build media instruction for IM media sending capability
     const mediaInstruction = buildIMMediaInstruction(imSettings);

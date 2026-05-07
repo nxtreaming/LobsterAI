@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { contextBridge, ipcRenderer } from 'electron';
 
 import { IpcChannel as ScheduledTaskIpc } from '../scheduledTask/constants';
@@ -183,11 +182,11 @@ contextBridge.exposeInMainWorld('electron', {
       const result = await ipcRenderer.invoke('agents:get', id);
       return result?.success ? result.agent : null;
     },
-    create: async (request: { id?: string; name: string; description?: string; systemPrompt?: string; identity?: string; model?: string; icon?: string; skillIds?: string[]; source?: string; presetId?: string }) => {
+    create: async (request: { id?: string; name: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; source?: string; presetId?: string }) => {
       const result = await ipcRenderer.invoke('agents:create', request);
       return result?.success ? result.agent : null;
     },
-    update: async (id: string, updates: { name?: string; description?: string; systemPrompt?: string; identity?: string; model?: string; icon?: string; skillIds?: string[]; enabled?: boolean }) => {
+    update: async (id: string, updates: { name?: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; enabled?: boolean }) => {
       const result = await ipcRenderer.invoke('agents:update', id, updates);
       return result?.success ? result.agent : null;
     },
@@ -206,7 +205,7 @@ contextBridge.exposeInMainWorld('electron', {
   },
   cowork: {
     // Session management
-    startSession: (options: { prompt: string; cwd?: string; systemPrompt?: string; activeSkillIds?: string[]; agentId?: string; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
+    startSession: (options: { prompt: string; cwd?: string; systemPrompt?: string; title?: string; activeSkillIds?: string[]; agentId?: string; modelOverride?: string; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
       ipcRenderer.invoke('cowork:session:start', options),
     continueSession: (options: { sessionId: string; prompt: string; systemPrompt?: string; activeSkillIds?: string[]; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
       ipcRenderer.invoke('cowork:session:continue', options),
@@ -252,6 +251,13 @@ contextBridge.exposeInMainWorld('electron', {
       memoryGuardLevel?: 'strict' | 'standard' | 'relaxed';
       memoryUserMemoriesMaxItems?: number;
       skipMissedJobs?: boolean;
+      embeddingEnabled?: boolean;
+      embeddingProvider?: string;
+      embeddingModel?: string;
+      embeddingLocalModelPath?: string;
+      embeddingVectorWeight?: number;
+      embeddingRemoteBaseUrl?: string;
+      embeddingRemoteApiKey?: string;
     }) =>
       ipcRenderer.invoke('cowork:config:set', config),
     listMemoryEntries: (input: {
@@ -370,6 +376,8 @@ contextBridge.exposeInMainWorld('electron', {
     getPath: () => ipcRenderer.invoke('log:getPath'),
     openFolder: () => ipcRenderer.invoke('log:openFolder'),
     exportZip: () => ipcRenderer.invoke('log:exportZip'),
+    fromRenderer: (level: string, tag: string, message: string) =>
+      ipcRenderer.send('log:fromRenderer', level, tag, message),
   },
   im: {
     // Configuration
@@ -399,6 +407,12 @@ contextBridge.exposeInMainWorld('electron', {
     // POPO QR login
     popoQrLoginStart: () => ipcRenderer.invoke('im:popo:qr-login-start'),
     popoQrLoginPoll: (taskToken: string) => ipcRenderer.invoke('im:popo:qr-login-poll', taskToken),
+
+    // POPO Multi-Instance
+    addPopoInstance: (name: string) => ipcRenderer.invoke('im:popo:instance:add', name),
+    deletePopoInstance: (instanceId: string) => ipcRenderer.invoke('im:popo:instance:delete', instanceId),
+    setPopoInstanceConfig: (instanceId: string, config: Record<string, unknown>, options?: { syncGateway?: boolean }) =>
+      ipcRenderer.invoke('im:popo:instance:config:set', instanceId, config, options),
 
     // Pairing
     listPairingRequests: (platform: string) => ipcRenderer.invoke('im:pairing:list', platform),
@@ -617,5 +631,19 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('github-copilot:token-updated', handler);
       return () => ipcRenderer.removeListener('github-copilot:token-updated', handler);
     },
+  },
+  openaiCodexOAuth: {
+    start: () =>
+      ipcRenderer.invoke('openai-codex-oauth:start') as Promise<
+        | { success: true; email: string | null; accountId: string | null; expiresAt: number }
+        | { success: false; error: string }
+      >,
+    cancel: () => ipcRenderer.invoke('openai-codex-oauth:cancel') as Promise<void>,
+    logout: () => ipcRenderer.invoke('openai-codex-oauth:logout') as Promise<void>,
+    status: () =>
+      ipcRenderer.invoke('openai-codex-oauth:status') as Promise<
+        | { loggedIn: true; email: string | null; accountId: string | null; expiresAt: number }
+        | { loggedIn: false }
+      >,
   },
 });

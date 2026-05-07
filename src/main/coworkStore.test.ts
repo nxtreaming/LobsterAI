@@ -79,6 +79,7 @@ function setupDb(): void {
       system_prompt TEXT NOT NULL DEFAULT '',
       identity TEXT NOT NULL DEFAULT '',
       model TEXT NOT NULL DEFAULT '',
+      working_directory TEXT NOT NULL DEFAULT '',
       icon TEXT NOT NULL DEFAULT '',
       skill_ids TEXT NOT NULL DEFAULT '[]',
       enabled INTEGER NOT NULL DEFAULT 1,
@@ -221,6 +222,23 @@ test('no console.warn when all metadata is valid or null', () => {
   expect(warnSpy).not.toHaveBeenCalled();
 
   warnSpy.mockRestore();
+});
+
+test('agent CRUD stores working directory independently', () => {
+  const agent = store.createAgent({
+    name: 'Docs Agent',
+    model: 'openai/gpt-4o',
+    workingDirectory: '/tmp/docs-project',
+  });
+
+  expect(agent.workingDirectory).toBe('/tmp/docs-project');
+
+  const updated = store.updateAgent(agent.id, {
+    workingDirectory: '/tmp/docs-next',
+  });
+
+  expect(updated?.workingDirectory).toBe('/tmp/docs-next');
+  expect(store.getAgent(agent.id)?.workingDirectory).toBe('/tmp/docs-next');
 });
 
 test('getConfig defaults skipMissedJobs to true when config is missing', () => {

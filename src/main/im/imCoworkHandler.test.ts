@@ -1,5 +1,7 @@
-import { test, expect } from 'vitest';
 import EventEmitter from 'node:events';
+
+import { expect, test } from 'vitest';
+
 import { IMCoworkHandler } from './imCoworkHandler';
 
 class FakeRuntime extends EventEmitter {
@@ -34,6 +36,10 @@ class FakeCoworkStore {
 
   getConfig() {
     return this.config;
+  }
+
+  getAgent() {
+    return null;
   }
 
   createSession(title: string, cwd: string, systemPrompt: string, executionMode: string) {

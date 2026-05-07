@@ -29,11 +29,17 @@ export class AgentManager {
     return this.store.createAgent({
       ...request,
       model: request.model?.trim() || defaultModel?.trim() || '',
+      workingDirectory: request.workingDirectory?.trim() || '',
     });
   }
 
   updateAgent(agentId: string, updates: UpdateAgentRequest): Agent | null {
-    return this.store.updateAgent(agentId, updates);
+    return this.store.updateAgent(agentId, {
+      ...updates,
+      ...(updates.workingDirectory !== undefined
+        ? { workingDirectory: updates.workingDirectory.trim() }
+        : {}),
+    });
   }
 
   deleteAgent(agentId: string): boolean {
@@ -66,6 +72,7 @@ export class AgentManager {
     return this.store.createAgent({
       ...presetToCreateRequest(preset),
       model: defaultModel?.trim() || '',
+      workingDirectory: '',
     });
   }
 }

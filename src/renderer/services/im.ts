@@ -13,6 +13,7 @@ import {
   addEmailInstance,
   addFeishuInstance,
   addNimInstance,
+  addPopoInstance,
   addQQInstance,
   addTelegramInstance,
   addWecomInstance,
@@ -21,6 +22,7 @@ import {
   removeEmailInstance,
   removeFeishuInstance,
   removeNimInstance,
+  removePopoInstance,
   removeQQInstance,
   removeTelegramInstance,
   removeWecomInstance,
@@ -32,6 +34,7 @@ import {
   setFeishuInstanceConfig,
   setLoading,
   setNimInstanceConfig,
+  setPopoInstanceConfig,
   setQQInstanceConfig,
   setStatus,
   setTelegramInstanceConfig,
@@ -54,6 +57,8 @@ import type {
   IMStatusResult,
   NimInstanceConfig,
   NimOpenClawConfig,
+  PopoInstanceConfig,
+  PopoOpenClawConfig,
   QQInstanceConfig,
   QQOpenClawConfig,
   TelegramInstanceConfig,
@@ -877,6 +882,73 @@ class IMService {
       return false;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update Discord instance config';
+      store.dispatch(setError(message));
+      return false;
+    } finally {
+      store.dispatch(setLoading(false));
+    }
+  }
+
+  // ==================== POPO Multi-Instance ====================
+
+  async addPopoInstance(name: string): Promise<PopoInstanceConfig | null> {
+    try {
+      const result = await window.electron.im.addPopoInstance(name);
+      if (result.success && result.instance) {
+        store.dispatch(addPopoInstance(result.instance));
+        return result.instance;
+      }
+      console.error('[IM Service] Failed to add POPO instance:', result.error);
+      return null;
+    } catch (error) {
+      console.error('[IM Service] Failed to add POPO instance:', error);
+      return null;
+    }
+  }
+
+  async deletePopoInstance(instanceId: string): Promise<boolean> {
+    try {
+      const result = await window.electron.im.deletePopoInstance(instanceId);
+      if (result.success) {
+        store.dispatch(removePopoInstance(instanceId));
+        return true;
+      }
+      console.error('[IM Service] Failed to delete POPO instance:', result.error);
+      return false;
+    } catch (error) {
+      console.error('[IM Service] Failed to delete POPO instance:', error);
+      return false;
+    }
+  }
+
+  async persistPopoInstanceConfig(instanceId: string, config: Partial<PopoOpenClawConfig>): Promise<boolean> {
+    try {
+      const result = await window.electron.im.setPopoInstanceConfig(instanceId, config, { syncGateway: false });
+      if (result.success) {
+        store.dispatch(setPopoInstanceConfig({ instanceId, config }));
+        return true;
+      }
+      console.error('[IM Service] Failed to persist POPO instance config:', result.error);
+      return false;
+    } catch (error) {
+      console.error('[IM Service] Failed to persist POPO instance config:', error);
+      return false;
+    }
+  }
+
+  async updatePopoInstanceConfig(instanceId: string, config: Partial<PopoOpenClawConfig>): Promise<boolean> {
+    try {
+      store.dispatch(setLoading(true));
+      const result = await window.electron.im.setPopoInstanceConfig(instanceId, config, { syncGateway: true });
+      if (result.success) {
+        await this.loadConfig();
+        await this.loadStatus();
+        return true;
+      }
+      store.dispatch(setError(result.error || 'Failed to update POPO instance config'));
+      return false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update POPO instance config';
       store.dispatch(setError(message));
       return false;
     } finally {
