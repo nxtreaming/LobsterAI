@@ -51,6 +51,44 @@ const GATEWAY_READY_TIMEOUT_MS = 60_000;
 const FINAL_HISTORY_SYNC_LIMIT = 50;
 const CHANNEL_SESSION_DISCOVERY_LIMIT = 200;
 
+/** How we chose assistant text to persist at chat.final (for tests and logs). */
+export type PersistedSegmentPickReason =
+  | 'both_empty'
+  | 'previous_only'
+  | 'final_only'
+  | 'stream_authority_same_or_longer'
+  | 'stream_shorter_prefer_chat_final'
+  | 'chat_path_prefer_final';
+
+/**
+ * Prefer agent-stream segment text when it is authoritative (longer or equal vs chat.final).
+ * When only the chat path updated the UI, prefer chat.final extraction.
+ */
+export function pickPersistedAssistantSegment(
+  previousSegmentText: string,
+  finalSegmentText: string,
+  hasSeenAgentAssistantStream: boolean,
+): { content: string; reason: PersistedSegmentPickReason } {
+  const prev = previousSegmentText;
+  const fin = finalSegmentText;
+  if (!prev.trim() && !fin.trim()) {
+    return { content: '', reason: 'both_empty' };
+  }
+  if (!prev.trim()) {
+    return { content: fin, reason: 'final_only' };
+  }
+  if (!fin.trim()) {
+    return { content: prev, reason: 'previous_only' };
+  }
+  if (hasSeenAgentAssistantStream) {
+    if (prev.length >= fin.length) {
+      return { content: prev, reason: 'stream_authority_same_or_longer' };
+    }
+    return { content: fin, reason: 'stream_shorter_prefer_chat_final' };
+  }
+  return { content: fin, reason: 'chat_path_prefer_final' };
+}
+
 type GatewayEventFrame = {
   event: string;
   seq?: number;
@@ -126,6 +164,13 @@ type ActiveTurn = {
   currentText: string;
   /** Highest text length from agent assistant events (immune to chat delta noise). */
   agentAssistantTextLength: number;
+  /**
+   * Once true for the current assistant segment, chat.delta must not overwrite
+   * `currentAssistantSegmentText` (even if agentAssistantTextLength is reset).
+   */
+  hasSeenAgentAssistantStream: boolean;
+  /** Dedup debug log when chat.delta tries to overwrite an agent-owned segment. */
+  chatDeltaOverwriteSkipLogged?: boolean;
   currentContentText: string;
   currentContentBlocks: string[];
   sawNonTextContentBlocks: boolean;
@@ -1449,6 +1494,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       currentAssistantSegmentText: '',
       currentText: '',
       agentAssistantTextLength: 0,
+      hasSeenAgentAssistantStream: false,
       currentContentText: '',
       currentContentBlocks: [],
       sawNonTextContentBlocks: false,
@@ -2936,6 +2982,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // Track high-water mark.
     turn.agentAssistantTextLength = Math.max(turn.agentAssistantTextLength, text.length);
 
+    if (text.trim().length > 0) {
+      turn.hasSeenAgentAssistantStream = true;
+    }
+
     // Update turn text state and push to store.
     turn.currentText = text;
     turn.currentAssistantSegmentText = this.resolveAssistantSegmentText(turn, text);
@@ -2984,6 +3034,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     turn.assistantMessageId = null;
     turn.currentAssistantSegmentText = '';
+    turn.hasSeenAgentAssistantStream = false;
+    turn.chatDeltaOverwriteSkipLogged = false;
   }
 
   private handleChatDelta(sessionId: string, turn: ActiveTurn, payload: ChatEventPayload): void {
@@ -3043,14 +3095,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     if (turn.assistantMessageId && segmentText !== previousSegmentText) {
-      // Only update segment text from chat delta if the agent stream path has NOT
-      // been active. When agent events are present, processAgentAssistantText is the
-      // authority — it uses the raw text field which preserves formatting faithfully.
-      // The chat delta path uses extractGatewayMessageText which trims each content
-      // block and joins with \n. When the gateway splits content at a boundary inside
-      // a GFM table row, the join corrupts the table structure.
-      if (turn.agentAssistantTextLength === 0) {
+      // Only update segment text from chat delta if this segment has NOT yet received
+      // agent assistant stream text. Agent stream preserves formatting; chat delta uses
+      // extractGatewayMessageText (multi-block trim/join), which can break GFM tables.
+      // hasSeenAgentAssistantStream stays true across agentAssistantTextLength resets
+      // (e.g. split before tool) until a new assistant segment begins.
+      if (!turn.hasSeenAgentAssistantStream) {
         turn.currentAssistantSegmentText = segmentText;
+      } else if (!turn.chatDeltaOverwriteSkipLogged) {
+        turn.chatDeltaOverwriteSkipLogged = true;
+        console.debug('[OpenClawRuntime] skipping further chat.delta segment overwrite; agent stream owns this assistant segment until split');
       }
     }
   }
@@ -3094,11 +3148,22 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       this.flushPendingStoreUpdate(sessionId, turn.assistantMessageId);
       this.clearPendingMessageUpdate(turn.assistantMessageId);
 
-      // Prefer previousSegmentText (from agent stream, preserves formatting) over
-      // finalSegmentText (from extractGatewayMessageText which may corrupt tables).
-      // Fall back to finalSegmentText only when agent stream text is unavailable.
-      const persistedSegmentText = previousSegmentText || finalSegmentText;
+      const { content: persistedSegmentText, reason: persistPickReason } = pickPersistedAssistantSegment(
+        previousSegmentText,
+        finalSegmentText,
+        turn.hasSeenAgentAssistantStream,
+      );
       if (persistedSegmentText) {
+        console.debug(
+          '[OpenClawRuntime] persisting assistant segment at chat.final',
+          `sessionId=${sessionId}`,
+          `messageId=${turn.assistantMessageId}`,
+          `reason=${persistPickReason}`,
+          `previousLen=${previousSegmentText.length}`,
+          `finalLen=${finalSegmentText.length}`,
+          `persistedLen=${persistedSegmentText.length}`,
+          `hadAgentStreamAuthority=${turn.hasSeenAgentAssistantStream}`,
+        );
         this.store.updateMessage(sessionId, turn.assistantMessageId, {
           content: persistedSegmentText,
           metadata: {
@@ -4293,6 +4358,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       currentAssistantSegmentText: '',
       currentText: '',
       agentAssistantTextLength: 0,
+      hasSeenAgentAssistantStream: false,
       currentContentText: '',
       currentContentBlocks: [],
       sawNonTextContentBlocks: false,

@@ -10,7 +10,47 @@ vi.mock('electron', () => ({
   },
 }));
 
-import { OpenClawRuntimeAdapter } from './openclawRuntimeAdapter';
+import { OpenClawRuntimeAdapter, pickPersistedAssistantSegment } from './openclawRuntimeAdapter';
+
+test('pickPersistedAssistantSegment: stream authority keeps previous when same length or longer', () => {
+  expect(pickPersistedAssistantSegment('aa', 'a', true)).toEqual({
+    content: 'aa',
+    reason: 'stream_authority_same_or_longer',
+  });
+  expect(pickPersistedAssistantSegment('same', 'same', true)).toEqual({
+    content: 'same',
+    reason: 'stream_authority_same_or_longer',
+  });
+});
+
+test('pickPersistedAssistantSegment: stream shorter prefers chat.final payload', () => {
+  expect(pickPersistedAssistantSegment('a', 'final-longer', true)).toEqual({
+    content: 'final-longer',
+    reason: 'stream_shorter_prefer_chat_final',
+  });
+});
+
+test('pickPersistedAssistantSegment: chat-only path prefers chat.final extraction', () => {
+  expect(pickPersistedAssistantSegment('fromDelta', 'fromFinal', false)).toEqual({
+    content: 'fromFinal',
+    reason: 'chat_path_prefer_final',
+  });
+});
+
+test('pickPersistedAssistantSegment: empty branches', () => {
+  expect(pickPersistedAssistantSegment('', '', false)).toEqual({
+    content: '',
+    reason: 'both_empty',
+  });
+  expect(pickPersistedAssistantSegment('', 'fin', false)).toEqual({
+    content: 'fin',
+    reason: 'final_only',
+  });
+  expect(pickPersistedAssistantSegment('prev', '', false)).toEqual({
+    content: 'prev',
+    reason: 'previous_only',
+  });
+});
 
 // ==================== Reconcile tests ====================
 
