@@ -497,9 +497,87 @@ npm test -- tokenFormat
 
 ---
 
-## 10. 后续工作
+## 10. IM 渠道消息 metadata 支持（补充设计）
 
-1. **Cache tokens 展示** — 展示 R（cacheRead）/ W（cacheWrite）统计
-2. **费用展示** — 展示 `$0.0012` 格式的请求费用
-3. **会话级汇总** — 在会话顶部展示整个会话的累计 token/费用
-4. **sessions.preview 补查** — 对新创建 session 在首次 chat.final 时补查 contextTokens
+### 10.1 问题描述
+
+IM/channel 会话在 `handleChatFinal` 后会走 `reconcileWithHistory` 路径，该方法调用 `replaceConversationMessages` 全量重建消息（生成新 UUID）。原来由 `syncUsageMetadata` 用旧 `assistantMessageId` 更新 metadata 的方式，在消息 ID 被替换后失效。
+
+### 10.2 方案
+
+在 `reconcileWithHistory` 内部直接从 `chat.history` 返回数据中提取 usage/model，重建消息时一并写入 metadata。managed 会话继续使用现有 `syncUsageMetadata` 路径（managed 不走 reconcile）。
+
+### 10.3 改动文件
+
+| 文件 | 变更 |
+|------|------|
+| `src/main/libs/openclawHistory.ts` | `GatewayHistoryEntry` 接口新增 `usage?`、`model?`；`extractGatewayHistoryEntries` 提取这些字段 |
+| `src/main/coworkStore.ts` | `replaceConversationMessages` 入参 entry 新增可选 `metadata`；插入时 merge 到基础 metadata |
+| `src/main/libs/agentEngine/openclawRuntimeAdapter.ts` | `reconcileWithHistory` 构造 entries 时携带 usage/model metadata |
+
+### 10.4 实现细节
+
+**Step 1: 扩展 `GatewayHistoryEntry`**
+
+```typescript
+// src/main/libs/openclawHistory.ts
+export interface GatewayHistoryEntry {
+  role: string;
+  text: string;
+  usage?: { input?: number; output?: number };
+  model?: string;
+}
+```
+
+`extractGatewayHistoryEntries` 遍历时从原始 message 对象提取 `.usage` 和 `.model`。
+
+**Step 2: 扩展 `replaceConversationMessages`**
+
+```typescript
+// src/main/coworkStore.ts
+replaceConversationMessages(
+  sessionId: string,
+  authoritative: Array<{ role: 'user' | 'assistant'; text: string; metadata?: Record<string, unknown> }>,
+): void {
+  // ...
+  const baseMetadata = { isStreaming: false, isFinal: true };
+  const finalMetadata = entry.metadata
+    ? { ...baseMetadata, ...entry.metadata }
+    : baseMetadata;
+  // INSERT ... VALUES (id, sessionId, entry.role, entry.text, JSON.stringify(finalMetadata), now, seq)
+}
+```
+
+**Step 3: reconcileWithHistory 传递 metadata**
+
+在构造 `authoritativeEntries` 时，从 `extractGatewayHistoryEntries` 结果中获取 usage/model，转换为 metadata 格式：
+
+```typescript
+for (const entry of extractGatewayHistoryEntries(history.messages)) {
+  // ... 现有 role/text 处理 ...
+  const entryMetadata: Record<string, unknown> | undefined =
+    (entry.usage || entry.model) ? {
+      ...(entry.usage && { usage: { inputTokens: entry.usage.input, outputTokens: entry.usage.output } }),
+      ...(entry.model && { model: entry.model }),
+    } : undefined;
+  authoritativeEntries.push({ role, text, metadata: entryMetadata });
+}
+```
+
+contextPercent 可选获取：如果 reconcile 内方便拿到 `sessions.preview` 数据则计算，否则留空。
+
+### 10.5 风险与缓解
+
+| 风险 | 严重度 | 缓解 |
+|------|--------|------|
+| fast path (isInSync/tailInSync) 跳过时老消息无 metadata | 低 | 可接受：与 managed 行为一致，只影响已同步的老消息 |
+| sync 比较逻辑误判 | 无 | 比较只看 role+text，metadata 不参与 |
+| `replaceConversationMessages` 签名变更 | 低 | 仅 1 处调用 + 测试文件 |
+| sessions.preview 额外 RPC | 低 | 可选：contextPercent 留空不影响基础展示 |
+
+### 10.6 验证
+
+1. `npm run electron:dev:openclaw` → IM 渠道发消息 → LobsterAI 查看该会话 → assistant 消息展示 token 统计
+2. managed 会话（主窗口）功能不受影响
+3. 重启应用 → 历史 IM 消息仍展示 metadata
+4. TypeScript 编译 + ESLint 通过

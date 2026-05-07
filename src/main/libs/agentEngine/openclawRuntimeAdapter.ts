@@ -2745,6 +2745,27 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // Re-check after async final sync — handleChatFinal may have run in the meantime
     if (!this.activeTurns.has(sessionId)) return;
 
+    // Sync usage metadata (same logic as handleChatFinal)
+    if (turn.sessionKey) {
+      let targetMessageId: string | undefined;
+      if (isManagedSessionKey(turn.sessionKey)) {
+        targetMessageId = turn.assistantMessageId;
+      } else {
+        const reconciledSession = this.store.getSession(sessionId);
+        if (reconciledSession) {
+          for (let i = reconciledSession.messages.length - 1; i >= 0; i--) {
+            if (reconciledSession.messages[i].type === 'assistant') {
+              targetMessageId = reconciledSession.messages[i].id;
+              break;
+            }
+          }
+        }
+      }
+      if (targetMessageId) {
+        void this.syncUsageMetadata(sessionId, turn.sessionKey, targetMessageId);
+      }
+    }
+
     this.store.updateSession(sessionId, { status: 'completed' });
     this.emit('complete', sessionId, turn.runId);
     this.cleanupSessionTurn(sessionId);
@@ -3372,6 +3393,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     const messageRecord = isRecord(payload.message) ? payload.message : null;
+
     const stopReason = payload.stopReason
       ?? (messageRecord && typeof messageRecord.stopReason === 'string' ? messageRecord.stopReason : undefined);
     const errorMessageFromMessage = messageRecord && typeof messageRecord.errorMessage === 'string'
@@ -3420,9 +3442,58 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
     }
 
-    // Fetch usage metadata from chat.history (fire-and-forget for managed sessions)
-    if (turn.assistantMessageId && turn.sessionKey && isManagedSessionKey(turn.sessionKey)) {
-      void this.syncUsageMetadata(sessionId, turn.sessionKey, turn.assistantMessageId);
+    // Sync usage metadata to the latest assistant message.
+    // For managed sessions, use turn.assistantMessageId directly.
+    // For IM/channel sessions, reconcileWithHistory replaced all messages with new IDs,
+    // so we find the latest assistant message's new ID from the store.
+    if (turn.sessionKey) {
+      let targetMessageId: string | undefined;
+      if (isManagedSessionKey(turn.sessionKey)) {
+        targetMessageId = turn.assistantMessageId;
+      } else {
+        const reconciledSession = this.store.getSession(sessionId);
+        if (reconciledSession) {
+          for (let i = reconciledSession.messages.length - 1; i >= 0; i--) {
+            if (reconciledSession.messages[i].type === 'assistant') {
+              targetMessageId = reconciledSession.messages[i].id;
+              break;
+            }
+          }
+        }
+      }
+      if (targetMessageId) {
+        // Extract usage/model directly from the chat.final payload to avoid race condition
+        // (chat.history may not yet have usage for the just-completed message).
+        const finalUsageRecord = messageRecord && isRecord(messageRecord.usage)
+          ? messageRecord.usage as Record<string, unknown> : null;
+        const finalModel = messageRecord && typeof messageRecord.model === 'string'
+          ? messageRecord.model : undefined;
+        const finalInputTokens = finalUsageRecord
+          ? (typeof finalUsageRecord.input === 'number' ? finalUsageRecord.input
+            : typeof finalUsageRecord.inputTokens === 'number' ? finalUsageRecord.inputTokens
+            : undefined)
+          : undefined;
+        const finalOutputTokens = finalUsageRecord
+          ? (typeof finalUsageRecord.output === 'number' ? finalUsageRecord.output
+            : typeof finalUsageRecord.outputTokens === 'number' ? finalUsageRecord.outputTokens
+            : undefined)
+          : undefined;
+
+        if (finalInputTokens != null || finalOutputTokens != null || finalModel) {
+          void this.applyUsageMetadataFromFinal(
+            sessionId, turn.sessionKey, targetMessageId,
+            finalInputTokens, finalOutputTokens, finalModel,
+          );
+        } else {
+          // Fallback: fetch from chat.history after a delay to give gateway time
+          // to commit usage data for the just-completed message.
+          const sk = turn.sessionKey;
+          const mid = targetMessageId;
+          setTimeout(() => {
+            void this.syncUsageMetadata(sessionId, sk, mid);
+          }, 2000);
+        }
+      }
     }
 
     this.store.updateSession(sessionId, { status: 'completed' });
@@ -3478,12 +3549,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
       if (!Array.isArray(history?.messages) || history.messages.length === 0) return;
 
-      // Find the last assistant message with usage data (search backwards)
+      // Find the LAST assistant message (must be the most recent one).
+      // Only use its usage if present — never fall back to an earlier message's usage,
+      // which would cause metadata to appear on the wrong message.
       let usageMsg: Record<string, unknown> | null = null;
       for (let i = history.messages.length - 1; i >= 0; i--) {
         const msg = history.messages[i];
-        if (isRecord(msg) && msg.role === 'assistant' && isRecord(msg.usage)) {
-          usageMsg = msg as Record<string, unknown>;
+        if (isRecord(msg) && msg.role === 'assistant') {
+          if (isRecord(msg.usage)) {
+            usageMsg = msg as Record<string, unknown>;
+          }
           break;
         }
       }
@@ -3544,6 +3619,63 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
     } catch (error) {
       console.debug('[OpenClawRuntime] syncUsageMetadata failed:', error);
+    }
+  }
+
+  private async applyUsageMetadataFromFinal(
+    sessionId: string,
+    sessionKey: string,
+    assistantMessageId: string,
+    inputTokens: number | undefined,
+    outputTokens: number | undefined,
+    model: string | undefined,
+  ): Promise<void> {
+    let contextPercent: number | undefined;
+    try {
+      const client = this.gatewayClient;
+      if (client && typeof inputTokens === 'number') {
+        const previewResult = await client.request<{ sessions?: unknown[] }>('sessions.preview', {
+          keys: [sessionKey],
+        }, { timeoutMs: 5_000 });
+        const sessions = (previewResult as Record<string, unknown>)?.sessions;
+        if (Array.isArray(sessions) && sessions.length > 0) {
+          const sessionRow = sessions[0] as Record<string, unknown>;
+          const contextTokens = typeof sessionRow?.contextTokens === 'number'
+            ? sessionRow.contextTokens : undefined;
+          if (contextTokens && contextTokens > 0) {
+            contextPercent = Math.min(Math.round((inputTokens / contextTokens) * 100), 100);
+          }
+        }
+      }
+    } catch {
+      // contextPercent unavailable is acceptable
+    }
+
+    const usageMetadata: Record<string, unknown> = {
+      isStreaming: false,
+      isFinal: true,
+      ...(inputTokens != null || outputTokens != null ? {
+        usage: {
+          ...(inputTokens != null && { inputTokens }),
+          ...(outputTokens != null && { outputTokens }),
+        },
+      } : {}),
+      ...(contextPercent != null && { contextPercent }),
+      ...(model && { model }),
+    };
+
+    this.store.updateMessage(sessionId, assistantMessageId, {
+      metadata: usageMetadata as CoworkMessageMetadata,
+    });
+
+    console.debug('[OpenClawRuntime] applyUsageMetadataFromFinal:', sessionId, model ?? 'unknown-model', `in=${inputTokens ?? '-'} out=${outputTokens ?? '-'} ctx=${contextPercent ?? '-'}%`);
+
+    const session = this.store.getSession(sessionId);
+    if (session) {
+      const msg = session.messages.find(m => m.id === assistantMessageId);
+      if (msg) {
+        this.emit('messageUpdate', sessionId, assistantMessageId, msg.content, usageMetadata);
+      }
     }
   }
 
@@ -3830,13 +3962,27 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       const platformFlags: PlatformFlags = { isDiscord, isQQ, isPopo, isFeishu };
 
       // Extract authoritative user/assistant entries from gateway history
-      const authoritativeEntries: Array<{ role: 'user' | 'assistant'; text: string }> = [];
+      const authoritativeEntries: Array<{ role: 'user' | 'assistant'; text: string; metadata?: Record<string, unknown> }> = [];
       for (const entry of extractGatewayHistoryEntries(history.messages)) {
         const role = entry.role;
         if (role !== 'user' && role !== 'assistant') continue;
         const text = normalizeEntryText(role, entry.text, platformFlags);
         if (!text || shouldSuppressHeartbeatText(role, text)) continue;
-        authoritativeEntries.push({ role: role as 'user' | 'assistant', text });
+        // Carry usage/model metadata for assistant messages
+        let metadata: Record<string, unknown> | undefined;
+        if (role === 'assistant' && (entry.usage || entry.model)) {
+          metadata = {};
+          if (entry.usage) {
+            metadata.usage = {
+              ...(entry.usage.input != null && { inputTokens: entry.usage.input }),
+              ...(entry.usage.output != null && { outputTokens: entry.usage.output }),
+            };
+          }
+          if (entry.model) {
+            metadata.model = entry.model;
+          }
+        }
+        authoritativeEntries.push({ role: role as 'user' | 'assistant', text, ...(metadata && { metadata }) });
       }
 
       // For channel sessions, append file paths from "message" tool calls
@@ -3892,7 +4038,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       // Tail-alignment: find where the gateway window overlaps local history.
       const alignment = findTailAlignment(localEntries, authoritativeEntries);
 
-      let entriesToStore: Array<{ role: 'user' | 'assistant'; text: string }>;
+      let entriesToStore: Array<{ role: 'user' | 'assistant'; text: string; metadata?: Record<string, unknown> }>;
 
       if (alignment && (alignment.localIdx > 0 || alignment.authIdx > 0)) {
         // Gateway covers only the tail — preserve older local messages

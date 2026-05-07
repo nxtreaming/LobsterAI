@@ -970,7 +970,7 @@ export class CoworkStore {
    */
   replaceConversationMessages(
     sessionId: string,
-    authoritative: Array<{ role: 'user' | 'assistant'; text: string }>,
+    authoritative: Array<{ role: 'user' | 'assistant'; text: string; metadata?: Record<string, unknown> }>,
   ): void {
     const now = Date.now();
 
@@ -991,6 +991,10 @@ export class CoworkStore {
 
       for (const entry of authoritative) {
         const id = uuidv4();
+        const baseMetadata = { isStreaming: false, isFinal: true };
+        const finalMetadata = entry.metadata
+          ? { ...baseMetadata, ...entry.metadata }
+          : baseMetadata;
         this.db
           .prepare(
             `
@@ -1003,7 +1007,7 @@ export class CoworkStore {
             sessionId,
             entry.role,
             entry.text,
-            JSON.stringify({ isStreaming: false, isFinal: true }),
+            JSON.stringify(finalMetadata),
             now,
             nextSeq++,
           );
