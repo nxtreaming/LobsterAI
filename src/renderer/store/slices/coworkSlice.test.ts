@@ -52,6 +52,8 @@ test('updateCurrentSessionModelOverride only patches the active session', () => 
     activeSkillIds: [],
     agentId: 'main',
     messages: [],
+    messagesOffset: 0,
+    totalMessages: 0,
     createdAt: 1,
     updatedAt: 1,
   };
