@@ -37,6 +37,7 @@ import { PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import type { Skill } from '../../types/skill';
 import { getCompactFolderName } from '../../utils/path';
+import { formatMessageTime, formatTokenCount } from '../../utils/tokenFormat';
 import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
 import { ArtifactPanel, ArtifactPreviewCard } from '../artifacts';
 import Modal from '../common/Modal';
@@ -53,7 +54,6 @@ import WindowTitleBar from '../window/WindowTitleBar';
 import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInput';
 import DiffView, { extractDiffFromToolInput } from './DiffView';
 import LazyRenderTurn, { clearHeightCache } from './LazyRenderTurn';
-
 interface CoworkSessionDetailProps {
   onManageSkills?: () => void;
   onContinue: (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[]) => boolean | void | Promise<boolean | void>;
@@ -1313,6 +1313,9 @@ export const UserMessageItem: React.FC<{
                     ))}
                   </div>
                 )}
+                <span className="text-[11px] text-zinc-400 dark:text-zinc-500 select-none">
+                  {formatMessageTime(message.timestamp)}
+                </span>
               </div>
             </div>
           </div>
@@ -1341,11 +1344,13 @@ const AssistantMessageItem: React.FC<{
   resolveLocalFilePath?: (href: string, text: string) => string | null;
   mapDisplayText?: (value: string) => string;
   showCopyButton?: boolean;
+  turnMetadata?: CoworkMessageMetadata | null;
 }> = ({
   message,
   resolveLocalFilePath,
   mapDisplayText,
   showCopyButton = false,
+  turnMetadata,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
@@ -1374,7 +1379,28 @@ const AssistantMessageItem: React.FC<{
         />
       </div>
       {showCopyButton && (
-        <div className="flex items-center gap-1.5 mt-1">
+        <div className="flex items-center gap-2 mt-1 text-[11px] text-zinc-400 dark:text-zinc-500 select-none">
+          {turnMetadata?.agentName && (
+            <span>{turnMetadata.agentName}</span>
+          )}
+          <span>{formatMessageTime(message.timestamp)}</span>
+          {turnMetadata?.usage?.inputTokens != null && (
+            <span>{`↑${formatTokenCount(turnMetadata.usage.inputTokens)}`}</span>
+          )}
+          {turnMetadata?.usage?.outputTokens != null && (
+            <span>{`↓${formatTokenCount(turnMetadata.usage.outputTokens)}`}</span>
+          )}
+          {turnMetadata?.usage?.cacheReadTokens != null && (
+            <span>{`R${formatTokenCount(turnMetadata.usage.cacheReadTokens)}`}</span>
+          )}
+          {turnMetadata?.contextPercent != null && (
+            <span className={turnMetadata.contextPercent >= 90 ? 'text-red-400' : turnMetadata.contextPercent >= 75 ? 'text-amber-400' : ''}>
+              {`${turnMetadata.contextPercent}% ctx`}
+            </span>
+          )}
+          {turnMetadata?.model && (
+            <span>{turnMetadata.model.includes('/') ? turnMetadata.model.split('/').pop() : turnMetadata.model}</span>
+          )}
           <CopyButton
             content={displayContent}
             visible={isHovered}
@@ -1608,6 +1634,7 @@ export const AssistantTurnBlock: React.FC<{
                 const hasToolGroupAfter = visibleAssistantItems
                   .slice(index + 1)
                   .some(laterItem => laterItem.type === 'tool_group');
+                const isLastAssistant = showCopyButtons && !hasToolGroupAfter;
 
                 return (
                   <AssistantMessageItem
@@ -1615,7 +1642,8 @@ export const AssistantTurnBlock: React.FC<{
                     message={item.message}
                     resolveLocalFilePath={resolveLocalFilePath}
                     mapDisplayText={mapDisplayText}
-                    showCopyButton={showCopyButtons && !hasToolGroupAfter}
+                    showCopyButton={isLastAssistant}
+                    turnMetadata={isLastAssistant ? (item.message.metadata as CoworkMessageMetadata) : undefined}
                   />
                 );
               }
@@ -2710,7 +2738,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 resolveLocalFilePath={resolveLocalFilePath}
                 mapDisplayText={mapDisplayText}
                 showTypingIndicator={showTypingIndicator}
-                showCopyButtons={!isStreaming}
+                showCopyButtons={!isStreaming || !isLastTurn}
               />
             </div>
           )}

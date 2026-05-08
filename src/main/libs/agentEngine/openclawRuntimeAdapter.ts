@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { OpenClawSessionPatch } from '../../../common/openclawSession';
-import type { CoworkExecutionMode, CoworkMessage, CoworkSession, CoworkSessionStatus, CoworkStore } from '../../coworkStore';
+import type { CoworkExecutionMode, CoworkMessage, CoworkMessageMetadata, CoworkSession, CoworkSessionStatus, CoworkStore } from '../../coworkStore';
 import { t } from '../../i18n';
 import { getCommandDangerLevel,isDeleteCommand } from '../commandSafety';
 import { setCoworkProxySessionId } from '../coworkOpenAICompatProxy';
@@ -216,6 +216,13 @@ type ChannelHistorySyncEntry = {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+};
+
+const extractAgentNameFromSessionKey = (sessionKey: string | undefined | null): string | undefined => {
+  const parsed = parseManagedSessionKey(sessionKey);
+  if (parsed?.agentId) return parsed.agentId;
+  if (sessionKey && !parsed) return 'main';
+  return undefined;
 };
 
 const isSameChannelHistoryEntry = (
@@ -870,6 +877,77 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   agentTimeoutSeconds = OPENCLAW_AGENT_TIMEOUT_SECONDS;
   private static readonly CLIENT_TIMEOUT_GRACE_MS = 30_000;
 
+  private contextWindowCache: Map<string, number> = new Map();
+  private contextWindowCacheLoaded = false;
+
+  // Authoritative contextTokens from sessions.list (per sessionKey).
+  // Updated by pollChannelSessions and refreshSessionContextTokens.
+  private sessionContextTokensCache: Map<string, number> = new Map();
+
+  private getContextWindowForModel(modelId: string): number | undefined {
+    if (!this.contextWindowCacheLoaded) {
+      this.contextWindowCacheLoaded = true;
+      try {
+        const stateDir = this.engineManager.getStateDir();
+        for (const agentDir of ['main', 'a']) {
+          const modelsPath = path.join(stateDir, 'agents', agentDir, 'agent', 'models.json');
+          if (!fs.existsSync(modelsPath)) continue;
+          const config = JSON.parse(fs.readFileSync(modelsPath, 'utf-8'));
+          if (config?.providers && typeof config.providers === 'object') {
+            for (const provider of Object.values(config.providers) as any[]) {
+              if (!Array.isArray(provider?.models)) continue;
+              for (const m of provider.models) {
+                if (typeof m?.id === 'string' && typeof m?.contextWindow === 'number') {
+                  this.contextWindowCache.set(m.id, m.contextWindow);
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+    if (this.contextWindowCache.has(modelId)) return this.contextWindowCache.get(modelId);
+    const slashIdx = modelId.indexOf('/');
+    if (slashIdx >= 0) {
+      const bare = modelId.slice(slashIdx + 1);
+      if (this.contextWindowCache.has(bare)) return this.contextWindowCache.get(bare);
+    }
+    return undefined;
+  }
+
+  private async refreshSessionContextTokens(sessionKey: string): Promise<number | undefined> {
+    if (this.sessionContextTokensCache.has(sessionKey)) {
+      return this.sessionContextTokensCache.get(sessionKey);
+    }
+    const client = this.gatewayClient;
+    if (!client) return undefined;
+    try {
+      const result = await client.request<{ sessions?: unknown[] }>('sessions.list', {
+        activeMinutes: 60, limit: 50,
+      }, { timeoutMs: 5_000 });
+      const sessions = result?.sessions;
+      if (Array.isArray(sessions)) {
+        for (const row of sessions) {
+          if (isRecord(row)) {
+            const k = typeof (row as Record<string, unknown>).key === 'string'
+              ? (row as Record<string, unknown>).key as string : '';
+            if (k && typeof (row as Record<string, unknown>).contextTokens === 'number') {
+              this.sessionContextTokensCache.set(k, (row as Record<string, unknown>).contextTokens as number);
+            }
+          }
+        }
+      }
+      const resolved = this.sessionContextTokensCache.get(sessionKey);
+      console.debug('[OpenClawRuntime] refreshSessionContextTokens:', sessionKey, resolved ? `contextTokens=${resolved}` : 'not found in sessions.list');
+      return resolved;
+    } catch (error) {
+      console.debug('[OpenClawRuntime] refreshSessionContextTokens failed:', sessionKey, error);
+      return undefined;
+    }
+  }
+
   constructor(
     store: CoworkStore,
     engineManager: OpenClawEngineManager,
@@ -1168,6 +1246,11 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       for (const row of sessions) {
         const key = typeof row?.key === 'string' ? row.key : '';
         if (!key) continue;
+
+        // Cache contextTokens for all sessions returned by sessions.list
+        if (isRecord(row) && typeof (row as Record<string, unknown>).contextTokens === 'number') {
+          this.sessionContextTokensCache.set(key, (row as Record<string, unknown>).contextTokens as number);
+        }
         // Skip heartbeat-originated sessions (origin.label === 'heartbeat')
         if (isRecord(row)) {
           const rowOrigin = (row as Record<string, unknown>).origin;
@@ -2734,6 +2817,27 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // Re-check after async final sync — handleChatFinal may have run in the meantime
     if (!this.activeTurns.has(sessionId)) return;
 
+    // Sync usage metadata (same logic as handleChatFinal)
+    if (turn.sessionKey) {
+      let targetMessageId: string | undefined;
+      if (isManagedSessionKey(turn.sessionKey)) {
+        targetMessageId = turn.assistantMessageId;
+      } else {
+        const reconciledSession = this.store.getSession(sessionId);
+        if (reconciledSession) {
+          for (let i = reconciledSession.messages.length - 1; i >= 0; i--) {
+            if (reconciledSession.messages[i].type === 'assistant') {
+              targetMessageId = reconciledSession.messages[i].id;
+              break;
+            }
+          }
+        }
+      }
+      if (targetMessageId) {
+        void this.syncUsageMetadata(sessionId, turn.sessionKey, targetMessageId);
+      }
+    }
+
     this.store.updateSession(sessionId, { status: 'completed' });
     this.emit('complete', sessionId, turn.runId);
     this.cleanupSessionTurn(sessionId);
@@ -3152,11 +3256,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     if (!turn.assistantMessageId && turn.currentAssistantSegmentText) {
       // Create a new message for the new text segment (after split).
+      const msgTimestamp = isRecord(payload.message) && typeof (payload.message as Record<string, unknown>).timestamp === 'number'
+        ? (payload.message as Record<string, unknown>).timestamp as number : undefined;
       const assistantMessage = this.store.addMessage(sessionId, {
         type: 'assistant',
         content: turn.currentAssistantSegmentText,
         metadata: { isStreaming: true, isFinal: false },
-      });
+      }, msgTimestamp);
       turn.assistantMessageId = assistantMessage.id;
       this.emit('message', sessionId, assistantMessage);
     } else if (turn.assistantMessageId && turn.currentAssistantSegmentText) {
@@ -3240,6 +3346,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (segmentText === previousSegmentText && streamedText === previousText) return;
 
     if (!turn.assistantMessageId) {
+      const msgTimestamp = isRecord(payload.message) && typeof (payload.message as Record<string, unknown>).timestamp === 'number'
+        ? (payload.message as Record<string, unknown>).timestamp as number : undefined;
       const assistantMessage = this.store.addMessage(sessionId, {
         type: 'assistant',
         content: segmentText,
@@ -3247,7 +3355,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           isStreaming: true,
           isFinal: false,
         },
-      });
+      }, msgTimestamp);
       turn.assistantMessageId = assistantMessage.id;
       turn.currentAssistantSegmentText = segmentText;
       this.emit('message', sessionId, assistantMessage);
@@ -3338,6 +3446,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       if (reusedMessageId) {
         turn.assistantMessageId = reusedMessageId;
       } else {
+        const msgTimestamp = isRecord(payload.message) && typeof (payload.message as Record<string, unknown>).timestamp === 'number'
+          ? (payload.message as Record<string, unknown>).timestamp as number : undefined;
         const assistantMessage = this.store.addMessage(sessionId, {
           type: 'assistant',
           content: finalSegmentText,
@@ -3345,7 +3455,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
             isStreaming: false,
             isFinal: true,
           },
-        });
+        }, msgTimestamp);
         turn.assistantMessageId = assistantMessage.id;
         this.emit('message', sessionId, assistantMessage);
       }
@@ -3361,6 +3471,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     const messageRecord = isRecord(payload.message) ? payload.message : null;
+
     const stopReason = payload.stopReason
       ?? (messageRecord && typeof messageRecord.stopReason === 'string' ? messageRecord.stopReason : undefined);
     const errorMessageFromMessage = messageRecord && typeof messageRecord.errorMessage === 'string'
@@ -3409,6 +3520,68 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
     }
 
+    // Sync usage metadata to the latest assistant message.
+    // For managed sessions, use turn.assistantMessageId directly.
+    // For IM/channel sessions, reconcileWithHistory replaced all messages with new IDs,
+    // so we find the latest assistant message's new ID from the store.
+    if (turn.sessionKey) {
+      let targetMessageId: string | undefined;
+      if (isManagedSessionKey(turn.sessionKey)) {
+        targetMessageId = turn.assistantMessageId;
+      } else {
+        const reconciledSession = this.store.getSession(sessionId);
+        if (reconciledSession) {
+          for (let i = reconciledSession.messages.length - 1; i >= 0; i--) {
+            if (reconciledSession.messages[i].type === 'assistant') {
+              targetMessageId = reconciledSession.messages[i].id;
+              break;
+            }
+          }
+        }
+      }
+      if (targetMessageId) {
+        // Extract usage/model directly from the chat.final payload to avoid race condition
+        // (chat.history may not yet have usage for the just-completed message).
+        const finalUsageRecord = messageRecord && isRecord(messageRecord.usage)
+          ? messageRecord.usage as Record<string, unknown> : null;
+        const finalModel = messageRecord && typeof messageRecord.model === 'string'
+          ? messageRecord.model : undefined;
+        const finalInputTokens = finalUsageRecord
+          ? (typeof finalUsageRecord.input === 'number' ? finalUsageRecord.input
+            : typeof finalUsageRecord.inputTokens === 'number' ? finalUsageRecord.inputTokens
+            : undefined)
+          : undefined;
+        const finalOutputTokens = finalUsageRecord
+          ? (typeof finalUsageRecord.output === 'number' ? finalUsageRecord.output
+            : typeof finalUsageRecord.outputTokens === 'number' ? finalUsageRecord.outputTokens
+            : undefined)
+          : undefined;
+        const finalTotalTokens = finalUsageRecord && typeof finalUsageRecord.totalTokens === 'number'
+          ? finalUsageRecord.totalTokens : undefined;
+        const finalCacheReadTokens = finalUsageRecord
+          ? (typeof finalUsageRecord.cacheRead === 'number' ? finalUsageRecord.cacheRead
+            : typeof finalUsageRecord.cacheReadTokens === 'number' ? finalUsageRecord.cacheReadTokens
+            : undefined)
+          : undefined;
+
+        if (finalInputTokens != null || finalOutputTokens != null || finalModel) {
+          void this.applyUsageMetadataFromFinal(
+            sessionId, turn.sessionKey, targetMessageId,
+            finalInputTokens, finalOutputTokens, finalModel,
+            finalTotalTokens, finalCacheReadTokens,
+          );
+        } else {
+          // Fallback: fetch from chat.history after a delay to give gateway time
+          // to commit usage data for the just-completed message.
+          const sk = turn.sessionKey;
+          const mid = targetMessageId;
+          setTimeout(() => {
+            void this.syncUsageMetadata(sessionId, sk, mid);
+          }, 2000);
+        }
+      }
+    }
+
     this.store.updateSession(sessionId, { status: 'completed' });
     this.emit('complete', sessionId, payload.runId ?? turn.runId);
     this.cleanupSessionTurn(sessionId);
@@ -3440,6 +3613,164 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.cleanupSessionTurn(sessionId);
     this.resolveTurn(sessionId);
     void this.reconcileWithHistory(sessionId, abortedSessionKey);
+  }
+
+  /**
+   * Fetch the last assistant message from chat.history to extract usage metadata
+   * (inputTokens, outputTokens, contextPercent, model) and update the local message.
+   */
+  private async syncUsageMetadata(
+    sessionId: string,
+    sessionKey: string,
+    assistantMessageId: string,
+  ): Promise<void> {
+    const client = this.gatewayClient;
+    if (!client) return;
+
+    try {
+      const history = await client.request<{ messages?: unknown[] }>('chat.history', {
+        sessionKey,
+        limit: 10,
+      }, { timeoutMs: 8_000 });
+
+      if (!Array.isArray(history?.messages) || history.messages.length === 0) return;
+
+      // Find the LAST assistant message (must be the most recent one).
+      // Only use its usage if present — never fall back to an earlier message's usage,
+      // which would cause metadata to appear on the wrong message.
+      let usageMsg: Record<string, unknown> | null = null;
+      for (let i = history.messages.length - 1; i >= 0; i--) {
+        const msg = history.messages[i];
+        if (isRecord(msg) && msg.role === 'assistant') {
+          if (isRecord(msg.usage)) {
+            usageMsg = msg as Record<string, unknown>;
+          }
+          break;
+        }
+      }
+      if (!usageMsg) return;
+
+      const usage = usageMsg.usage as Record<string, unknown>;
+      const inputTokens = (typeof usage.input === 'number' ? usage.input : undefined)
+        ?? (typeof usage.inputTokens === 'number' ? usage.inputTokens : undefined);
+      const outputTokens = (typeof usage.output === 'number' ? usage.output : undefined)
+        ?? (typeof usage.outputTokens === 'number' ? usage.outputTokens : undefined);
+      const totalTokens = typeof usage.totalTokens === 'number' ? usage.totalTokens : undefined;
+      const cacheReadTokens = (typeof usage.cacheRead === 'number' ? usage.cacheRead : undefined)
+        ?? (typeof usage.cacheReadTokens === 'number' ? usage.cacheReadTokens : undefined)
+        ?? (typeof (usage as any).cache_read_input_tokens === 'number' ? (usage as any).cache_read_input_tokens : undefined);
+      const model = typeof usageMsg.model === 'string' ? usageMsg.model : undefined;
+
+      // Compute contextPercent: input / contextTokens (matches OpenClaw web UI)
+      // Primary source: sessions.list contextTokens (authoritative, matches gateway resolution)
+      // Fallback: local models.json contextWindow cache
+      let contextPercent: number | undefined;
+      if (typeof inputTokens === 'number' && inputTokens > 0) {
+        let contextTokens = this.sessionContextTokensCache.get(sessionKey);
+        if (!contextTokens) {
+          contextTokens = await this.refreshSessionContextTokens(sessionKey);
+        }
+        if (!contextTokens) {
+          contextTokens = this.getContextWindowForModel(model ?? '');
+        }
+        if (contextTokens && contextTokens > 0) {
+          contextPercent = Math.min(Math.round((inputTokens / contextTokens) * 100), 100);
+        }
+      }
+
+      // Extract agent name from sessionKey
+      const agentName = extractAgentNameFromSessionKey(sessionKey);
+
+      if (inputTokens == null && outputTokens == null && !model) return;
+
+      const usageMetadata: Record<string, unknown> = {
+        isStreaming: false,
+        isFinal: true,
+        ...(inputTokens != null || outputTokens != null || cacheReadTokens != null ? {
+          usage: {
+            ...(inputTokens != null && { inputTokens }),
+            ...(outputTokens != null && { outputTokens }),
+            ...(cacheReadTokens != null && { cacheReadTokens }),
+          },
+        } : {}),
+        ...(contextPercent != null && { contextPercent }),
+        ...(model && { model }),
+        ...(agentName && { agentName }),
+      };
+
+      this.store.updateMessage(sessionId, assistantMessageId, {
+        metadata: usageMetadata as CoworkMessageMetadata,
+      });
+
+      console.debug('[OpenClawRuntime] syncUsageMetadata success:', sessionId, model ?? 'unknown-model', `in=${inputTokens ?? '-'} out=${outputTokens ?? '-'} ctx=${contextPercent ?? '-'}% cacheRead=${cacheReadTokens ?? '-'} agent=${agentName ?? '-'}`);
+
+      // Notify renderer to re-render the message with usage data
+      const session = this.store.getSession(sessionId);
+      if (session) {
+        const msg = session.messages.find(m => m.id === assistantMessageId);
+        if (msg) {
+          this.emit('messageUpdate', sessionId, assistantMessageId, msg.content, usageMetadata);
+        }
+      }
+    } catch (error) {
+      console.debug('[OpenClawRuntime] syncUsageMetadata failed:', error);
+    }
+  }
+
+  private async applyUsageMetadataFromFinal(
+    sessionId: string,
+    sessionKey: string,
+    assistantMessageId: string,
+    inputTokens: number | undefined,
+    outputTokens: number | undefined,
+    model: string | undefined,
+    totalTokens?: number | undefined,
+    cacheReadTokens?: number | undefined,
+  ): Promise<void> {
+    let contextPercent: number | undefined;
+    if (typeof inputTokens === 'number' && inputTokens > 0) {
+      let contextTokens = this.sessionContextTokensCache.get(sessionKey);
+      if (!contextTokens) {
+        contextTokens = await this.refreshSessionContextTokens(sessionKey);
+      }
+      if (!contextTokens) {
+        contextTokens = this.getContextWindowForModel(model ?? '');
+      }
+      if (contextTokens && contextTokens > 0) {
+        contextPercent = Math.min(Math.round((inputTokens / contextTokens) * 100), 100);
+      }
+    }
+
+    const agentName = extractAgentNameFromSessionKey(sessionKey);
+
+    const usageMetadata: Record<string, unknown> = {
+      isStreaming: false,
+      isFinal: true,
+      ...(inputTokens != null || outputTokens != null || cacheReadTokens != null ? {
+        usage: {
+          ...(inputTokens != null && { inputTokens }),
+          ...(outputTokens != null && { outputTokens }),
+          ...(cacheReadTokens != null && { cacheReadTokens }),
+        },
+      } : {}),
+      ...(contextPercent != null && { contextPercent }),
+      ...(model && { model }),
+      ...(agentName && { agentName }),
+    };
+
+    this.store.updateMessage(sessionId, assistantMessageId, {
+      metadata: usageMetadata as CoworkMessageMetadata,
+    });
+
+    console.debug('[OpenClawRuntime] applyUsageMetadataFromFinal:', sessionId, model ?? 'unknown-model', `in=${inputTokens ?? '-'} out=${outputTokens ?? '-'} ctx=${contextPercent ?? '-'}% cacheRead=${cacheReadTokens ?? '-'} agent=${agentName ?? '-'}`);
+
+    const session = this.store.getSession(sessionId);
+    if (session) {
+      const msg = session.messages.find(m => m.id === assistantMessageId);
+      if (msg) {
+        this.emit('messageUpdate', sessionId, assistantMessageId, msg.content, usageMetadata);
+      }
+    }
   }
 
   private handleChatError(sessionId: string, turn: ActiveTurn, payload: ChatEventPayload): void {
@@ -3725,13 +4056,27 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       const platformFlags: PlatformFlags = { isDiscord, isQQ, isPopo, isFeishu };
 
       // Extract authoritative user/assistant entries from gateway history
-      const authoritativeEntries: Array<{ role: 'user' | 'assistant'; text: string }> = [];
+      const authoritativeEntries: Array<{ role: 'user' | 'assistant'; text: string; metadata?: Record<string, unknown> }> = [];
       for (const entry of extractGatewayHistoryEntries(history.messages)) {
         const role = entry.role;
         if (role !== 'user' && role !== 'assistant') continue;
         const text = normalizeEntryText(role, entry.text, platformFlags);
         if (!text || shouldSuppressHeartbeatText(role, text)) continue;
-        authoritativeEntries.push({ role: role as 'user' | 'assistant', text });
+        // Carry usage/model metadata for assistant messages
+        let metadata: Record<string, unknown> | undefined;
+        if (role === 'assistant' && (entry.usage || entry.model)) {
+          metadata = {};
+          if (entry.usage) {
+            metadata.usage = {
+              ...(entry.usage.input != null && { inputTokens: entry.usage.input }),
+              ...(entry.usage.output != null && { outputTokens: entry.usage.output }),
+            };
+          }
+          if (entry.model) {
+            metadata.model = entry.model;
+          }
+        }
+        authoritativeEntries.push({ role: role as 'user' | 'assistant', text, ...(metadata && { metadata }) });
       }
 
       // For channel sessions, append file paths from "message" tool calls
@@ -3787,7 +4132,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       // Tail-alignment: find where the gateway window overlaps local history.
       const alignment = findTailAlignment(localEntries, authoritativeEntries);
 
-      let entriesToStore: Array<{ role: 'user' | 'assistant'; text: string }>;
+      let entriesToStore: Array<{ role: 'user' | 'assistant'; text: string; metadata?: Record<string, unknown> }>;
 
       if (alignment && (alignment.localIdx > 0 || alignment.authIdx > 0)) {
         // Gateway covers only the tail — preserve older local messages

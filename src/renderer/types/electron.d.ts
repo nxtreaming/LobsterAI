@@ -525,7 +525,7 @@ interface IElectronAPI {
       callback: (data: { sessionId: string; message: CoworkMessage }) => void,
     ) => () => void;
     onStreamMessageUpdate: (
-      callback: (data: { sessionId: string; messageId: string; content: string }) => void,
+      callback: (data: { sessionId: string; messageId: string; content: string; metadata?: Record<string, unknown> }) => void,
     ) => () => void;
     onStreamPermission: (
       callback: (data: { sessionId: string; request: CoworkPermissionRequest }) => void,

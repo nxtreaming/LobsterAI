@@ -1356,13 +1356,13 @@ const bindCoworkRuntimeForwarder = (): void => {
     });
   });
 
-  runtime.on('messageUpdate', (sessionId: string, messageId: string, content: string) => {
+  runtime.on('messageUpdate', (sessionId: string, messageId: string, content: string, metadata?: Record<string, unknown>) => {
     const safeContent = truncateIpcString(content, IPC_UPDATE_CONTENT_MAX_CHARS);
     const windows = BrowserWindow.getAllWindows();
     windows.forEach((win) => {
       if (win.isDestroyed()) return;
       try {
-        win.webContents.send('cowork:stream:messageUpdate', { sessionId, messageId, content: safeContent });
+        win.webContents.send('cowork:stream:messageUpdate', { sessionId, messageId, content: safeContent, metadata });
       } catch (error) {
         console.error('Failed to forward cowork message update:', error);
       }

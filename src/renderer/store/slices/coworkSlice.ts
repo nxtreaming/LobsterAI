@@ -239,13 +239,19 @@ const coworkSlice = createSlice({
       state.currentSession.messagesOffset = newOffset;
     },
 
-    updateMessageContent(state, action: PayloadAction<{ sessionId: string; messageId: string; content: string }>) {
-      const { sessionId, messageId, content } = action.payload;
+    updateMessageContent(state, action: PayloadAction<{ sessionId: string; messageId: string; content: string; metadata?: Record<string, unknown> }>) {
+      const { sessionId, messageId, content, metadata } = action.payload;
 
       if (state.currentSession?.id === sessionId) {
         const messageIndex = state.currentSession.messages.findIndex(m => m.id === messageId);
         if (messageIndex !== -1) {
           state.currentSession.messages[messageIndex].content = content;
+          if (metadata) {
+            state.currentSession.messages[messageIndex].metadata = {
+              ...state.currentSession.messages[messageIndex].metadata,
+              ...metadata,
+            };
+          }
         }
       }
 
