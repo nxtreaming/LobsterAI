@@ -3678,7 +3678,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         ?? (typeof usage.inputTokens === 'number' ? usage.inputTokens : undefined);
       const outputTokens = (typeof usage.output === 'number' ? usage.output : undefined)
         ?? (typeof usage.outputTokens === 'number' ? usage.outputTokens : undefined);
-      const totalTokens = typeof usage.totalTokens === 'number' ? usage.totalTokens : undefined;
+      const _totalTokens = typeof usage.totalTokens === 'number' ? usage.totalTokens : undefined;
       const cacheReadTokens = (typeof usage.cacheRead === 'number' ? usage.cacheRead : undefined)
         ?? (typeof usage.cacheReadTokens === 'number' ? usage.cacheReadTokens : undefined)
         ?? (typeof (usage as any).cache_read_input_tokens === 'number' ? (usage as any).cache_read_input_tokens : undefined);
@@ -3853,6 +3853,23 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const command = typeof request.command === 'string' ? request.command : '';
     const isChannelSession = parseChannelSessionKey(sessionKey) !== null;
 
+    // Suppress ALL approvals (including auto-approvals) for sessions that the
+    // user has already stopped.  Without this early return, non-delete commands
+    // would be auto-approved below before the cooldown check, allowing the
+    // gateway-side run to keep executing new tool calls after the user clicked
+    // Stop (e.g. a crawler task continuing to fetch pages).
+    // The Gateway-side run will time out on its own.
+    if (this.isSessionInStopCooldown(sessionId)) {
+      console.log('[OpenClawRuntime] suppressed approval for stopped session, requestId:', requestId, 'sessionId:', sessionId);
+      return;
+    }
+    // Also suppress for desktop sessions that were manually stopped (persists
+    // beyond the 10s cooldown window until the next runTurn or session deletion).
+    if (this.manuallyStoppedSessions.has(sessionId) && isManagedSessionKey(sessionKey)) {
+      console.log('[OpenClawRuntime] suppressed approval for manually stopped desktop session, requestId:', requestId, 'sessionId:', sessionId);
+      return;
+    }
+
     // Auto-approve: channel sessions always, local sessions for non-delete commands.
     // Intentionally allows non-delete dangerous commands (git push, kill, chmod) without
     // prompting — this is a deliberate trade-off to avoid the approval-pending timing
@@ -3862,12 +3879,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (isChannelSession || !isDeleteCommand(command)) {
       this.pendingApprovals.set(requestId, { requestId, sessionId, allowAlways: true });
       this.respondToPermission(requestId, { behavior: 'allow', updatedInput: {} });
-    }
-    // Suppress approval popups for sessions in stop cooldown — the user
-    // already stopped the session, so showing a new permission dialog
-    // would be confusing.  The Gateway-side run will time out on its own.
-    if (this.isSessionInStopCooldown(sessionId)) {
-      return;
     }
 
     this.pendingApprovals.set(requestId, { requestId, sessionId });
