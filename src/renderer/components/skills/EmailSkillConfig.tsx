@@ -1,13 +1,14 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { EyeIcon, EyeSlashIcon, XCircleIcon as XCircleIconSolid } from '@heroicons/react/20/solid';
 import {
+  CheckCircleIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   SignalIcon,
-  CheckCircleIcon,
-  XCircleIcon,
   SparklesIcon,
+  XCircleIcon,
 } from '@heroicons/react/24/outline';
-import { EyeIcon, EyeSlashIcon, XCircleIcon as XCircleIconSolid } from '@heroicons/react/20/solid';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+
 import { i18nService } from '../../services/i18n';
 import { skillService } from '../../services/skill';
 
