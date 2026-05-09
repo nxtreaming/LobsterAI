@@ -36,7 +36,7 @@ import { PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import type { Skill } from '../../types/skill';
 import { getCompactFolderName } from '../../utils/path';
-import { formatMessageTime, formatTokenCount } from '../../utils/tokenFormat';
+import { formatMessageDateTime } from '../../utils/tokenFormat';
 import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
 import { ArtifactPanel, ArtifactPreviewCard } from '../artifacts';
 import Modal from '../common/Modal';
@@ -1292,7 +1292,7 @@ export const UserMessageItem: React.FC<{
                   </div>
                 )}
                 <span className="text-[11px] text-zinc-400 dark:text-zinc-500 select-none">
-                  {formatMessageTime(message.timestamp)}
+                  {formatMessageDateTime(message.timestamp)}
                 </span>
               </div>
             </div>
@@ -1358,22 +1358,7 @@ const AssistantMessageItem: React.FC<{
       </div>
       {showCopyButton && (
         <div className="flex items-center gap-2 mt-1 text-[11px] text-zinc-400 dark:text-zinc-500 select-none">
-          <span>{formatMessageTime(message.timestamp)}</span>
-          <span>{formatMessageTime(message.timestamp)}</span>
-          {turnMetadata?.usage?.inputTokens != null && (
-            <span>{`↑${formatTokenCount(turnMetadata.usage.inputTokens)}`}</span>
-          )}
-          {turnMetadata?.usage?.outputTokens != null && (
-            <span>{`↓${formatTokenCount(turnMetadata.usage.outputTokens)}`}</span>
-          )}
-          {turnMetadata?.usage?.cacheReadTokens != null && turnMetadata.usage.cacheReadTokens > 0 && (
-            <span>{`R${formatTokenCount(turnMetadata.usage.cacheReadTokens)}`}</span>
-          )}
-          {turnMetadata?.contextPercent != null && (
-            <span className={turnMetadata.contextPercent >= 90 ? 'text-red-400' : turnMetadata.contextPercent >= 75 ? 'text-amber-400' : ''}>
-              {`${turnMetadata.contextPercent}% ctx`}
-            </span>
-          )}
+          <span>{formatMessageDateTime(message.timestamp)}</span>
           {turnMetadata?.model && (
             <span>{turnMetadata.model.includes('/') ? turnMetadata.model.split('/').pop() : turnMetadata.model}</span>
           )}

@@ -1,5 +1,5 @@
 export const AgentAvatarIconFormat = {
-  Designed: 'agent-avatar',
+  Svg: 'agent-avatar-svg',
 } as const;
 
 export type AgentAvatarIconFormat = typeof AgentAvatarIconFormat[keyof typeof AgentAvatarIconFormat];
@@ -8,82 +8,65 @@ export const AgentAvatarIconSeparator = {
   Value: ':',
 } as const;
 
-export const AgentAvatarColor = {
-  Ink: 'ink',
-  Coral: 'coral',
-  Orange: 'orange',
-  Amber: 'amber',
-  Green: 'green',
-  Blue: 'blue',
-  Violet: 'violet',
-  Pink: 'pink',
-} as const;
-
-export type AgentAvatarColor = typeof AgentAvatarColor[keyof typeof AgentAvatarColor];
-
-export const AgentAvatarGlyph = {
-  Folder: 'folder',
-  Finance: 'finance',
-  Book: 'book',
-  Education: 'education',
-  Writing: 'writing',
-  Design: 'design',
+export const AgentAvatarSvg = {
+  Lobster: 'lobster',
   Code: 'code',
-  Terminal: 'terminal',
+  Repair: 'repair',
+  Briefcase: 'briefcase',
+  ShoppingCart: 'shopping-cart',
+  Data: 'data',
+  Document: 'document',
+  Folder: 'folder',
+  Tag: 'tag',
+  Brain: 'brain',
+  GraduationCap: 'graduation-cap',
+  Books: 'books',
+  Experiment: 'experiment',
+  Diagnosis: 'diagnosis',
+  Scales: 'scales',
+  Translation: 'translation',
+  TranslationAlt: 'translation-alt',
+  Creation: 'creation',
+  Artboard: 'artboard',
   Music: 'music',
-  Media: 'media',
-  Art: 'art',
-  Operations: 'operations',
-  Research: 'research',
-  Automation: 'automation',
-  Growth: 'growth',
-  Business: 'business',
-  Analytics: 'analytics',
-  Support: 'support',
-  Training: 'training',
-  Notes: 'notes',
-  Legal: 'legal',
-  Voice: 'voice',
+  Entertainment: 'entertainment',
+  Headphones: 'headphones',
+  Inspiration: 'inspiration',
+  Lightning: 'lightning',
   Travel: 'travel',
-  Global: 'global',
-  Tools: 'tools',
-  Science: 'science',
-  Memory: 'memory',
-  Care: 'care',
-  Gift: 'gift',
-  Launch: 'launch',
+  Fitness: 'fitness',
+  Meditation: 'meditation',
+  Heart: 'heart',
+  PottedPlant: 'potted-plant',
+  Pet: 'pet',
 } as const;
 
-export type AgentAvatarGlyph = typeof AgentAvatarGlyph[keyof typeof AgentAvatarGlyph];
+export type AgentAvatarSvg = typeof AgentAvatarSvg[keyof typeof AgentAvatarSvg];
 
 export interface DesignedAgentAvatar {
-  color: AgentAvatarColor;
-  glyph: AgentAvatarGlyph;
+  svg: AgentAvatarSvg;
 }
 
-const AGENT_AVATAR_PART_COUNT = 3;
+const AGENT_AVATAR_PART_COUNT = 2;
 
-const AGENT_AVATAR_COLORS = new Set<string>(Object.values(AgentAvatarColor));
-const AGENT_AVATAR_GLYPHS = new Set<string>(Object.values(AgentAvatarGlyph));
+const AGENT_AVATAR_SVGS = new Set<string>(Object.values(AgentAvatarSvg));
 
 export const DefaultAgentAvatar = {
-  color: AgentAvatarColor.Ink,
-  glyph: AgentAvatarGlyph.Folder,
+  svg: AgentAvatarSvg.Lobster,
 } as const satisfies DesignedAgentAvatar;
 
-export const isAgentAvatarColor = (value: string): value is AgentAvatarColor => {
-  return AGENT_AVATAR_COLORS.has(value);
+export const isAgentAvatarSvg = (value: string): value is AgentAvatarSvg => {
+  return AGENT_AVATAR_SVGS.has(value);
 };
 
-export const isAgentAvatarGlyph = (value: string): value is AgentAvatarGlyph => {
-  return AGENT_AVATAR_GLYPHS.has(value);
-};
+const LegacyAgentAvatarIconFormat = {
+  Designed: 'agent-avatar',
+} as const;
 
 export const encodeAgentAvatarIcon = (avatar: DesignedAgentAvatar): string => {
   return [
-    AgentAvatarIconFormat.Designed,
-    avatar.color,
-    avatar.glyph,
+    AgentAvatarIconFormat.Svg,
+    avatar.svg,
   ].join(AgentAvatarIconSeparator.Value);
 };
 
@@ -94,13 +77,17 @@ export const parseAgentAvatarIcon = (value: string | null | undefined): Designed
   if (!normalized) return null;
 
   const parts = normalized.split(AgentAvatarIconSeparator.Value);
+  if (parts[0] === LegacyAgentAvatarIconFormat.Designed) {
+    return null;
+  }
+
   if (parts.length !== AGENT_AVATAR_PART_COUNT) return null;
 
-  const [format, color, glyph] = parts;
-  if (format !== AgentAvatarIconFormat.Designed) return null;
-  if (!isAgentAvatarColor(color) || !isAgentAvatarGlyph(glyph)) return null;
+  const [format, svg] = parts;
+  if (format !== AgentAvatarIconFormat.Svg) return null;
+  if (!isAgentAvatarSvg(svg)) return null;
 
-  return { color, glyph };
+  return { svg };
 };
 
 export const isDesignedAgentAvatarIcon = (value: string | null | undefined): boolean => {
@@ -109,6 +96,7 @@ export const isDesignedAgentAvatarIcon = (value: string | null | undefined): boo
 
 export const normalizeAgentAvatarIcon = (value: string | null | undefined): string => {
   const normalized = value?.trim() ?? '';
-  if (isDesignedAgentAvatarIcon(normalized)) return normalized;
+  const avatar = parseAgentAvatarIcon(normalized);
+  if (avatar) return encodeAgentAvatarIcon(avatar);
   return DefaultAgentAvatarIcon;
 };

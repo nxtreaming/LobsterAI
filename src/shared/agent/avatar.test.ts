@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  AgentAvatarColor,
-  AgentAvatarGlyph,
+  AgentAvatarSvg,
   DefaultAgentAvatar,
   DefaultAgentAvatarIcon,
   encodeAgentAvatarIcon,
@@ -12,19 +11,17 @@ import {
 } from './avatar';
 
 describe('agent avatar icon encoding', () => {
-  test('round-trips designed avatar selections', () => {
+  test('round-trips svg avatar selections', () => {
     const value = encodeAgentAvatarIcon({
-      color: AgentAvatarColor.Blue,
-      glyph: AgentAvatarGlyph.Code,
+      svg: AgentAvatarSvg.Code,
     });
 
     expect(parseAgentAvatarIcon(value)).toEqual({
-      color: AgentAvatarColor.Blue,
-      glyph: AgentAvatarGlyph.Code,
+      svg: AgentAvatarSvg.Code,
     });
   });
 
-  test('exposes the default designed avatar icon', () => {
+  test('exposes the default svg avatar icon', () => {
     expect(parseAgentAvatarIcon(DefaultAgentAvatarIcon)).toEqual(DefaultAgentAvatar);
   });
 
@@ -33,23 +30,25 @@ describe('agent avatar icon encoding', () => {
     expect(isDesignedAgentAvatarIcon('🤖')).toBe(false);
   });
 
-  test('normalizes empty and legacy icons to the default designed avatar', () => {
+  test('normalizes empty and legacy icons to the default svg avatar', () => {
     expect(normalizeAgentAvatarIcon('')).toBe(DefaultAgentAvatarIcon);
     expect(normalizeAgentAvatarIcon('legacy-icon')).toBe(DefaultAgentAvatarIcon);
+    expect(normalizeAgentAvatarIcon('agent-avatar:blue:code')).toBe(DefaultAgentAvatarIcon);
     expect(normalizeAgentAvatarIcon('agent-avatar:blue:missing')).toBe(DefaultAgentAvatarIcon);
   });
 
-  test('preserves valid designed avatars when normalizing', () => {
+  test('preserves valid svg avatars when normalizing', () => {
     const value = encodeAgentAvatarIcon({
-      color: AgentAvatarColor.Green,
-      glyph: AgentAvatarGlyph.Research,
+      svg: AgentAvatarSvg.Brain,
     });
 
     expect(normalizeAgentAvatarIcon(` ${value} `)).toBe(value);
   });
 
-  test('rejects malformed designed avatar values', () => {
+  test('rejects malformed avatar values', () => {
+    expect(parseAgentAvatarIcon('agent-avatar:blue:code')).toBeNull();
     expect(parseAgentAvatarIcon('agent-avatar:blue:missing')).toBeNull();
     expect(parseAgentAvatarIcon('agent-avatar:missing:code')).toBeNull();
+    expect(parseAgentAvatarIcon('agent-avatar-svg:missing')).toBeNull();
   });
 });

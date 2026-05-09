@@ -7,10 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
 import AgentAvatarIcon, {
-  AGENT_AVATAR_COLOR_OPTIONS,
-  AGENT_AVATAR_GLYPH_OPTIONS,
-  getAgentAvatarColorStyle,
-  getAgentAvatarGlyphIcon,
+  AGENT_AVATAR_SVG_OPTIONS,
 } from './AgentAvatarIcon';
 
 interface AgentAvatarPickerProps {
@@ -25,7 +22,6 @@ const AgentAvatarPicker: React.FC<AgentAvatarPickerProps> = ({ value, onChange }
   const selectedAvatar = useMemo(() => {
     return parseAgentAvatarIcon(value) ?? DefaultAgentAvatar;
   }, [value]);
-  const selectedColorStyle = getAgentAvatarColorStyle(selectedAvatar.color);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -35,11 +31,11 @@ const AgentAvatarPicker: React.FC<AgentAvatarPickerProps> = ({ value, onChange }
     };
 
     if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('mousedown', handleClickOutside, true);
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('mousedown', handleClickOutside, true);
     };
   }, [isOpen]);
 
@@ -70,42 +66,16 @@ const AgentAvatarPicker: React.FC<AgentAvatarPickerProps> = ({ value, onChange }
         <div
           className="absolute left-0 top-full z-50 mt-2 w-[324px] overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl"
         >
-          <div className="grid grid-cols-6 gap-4 px-6 py-5">
-            {AGENT_AVATAR_COLOR_OPTIONS.map((option) => {
-              const colorStyle = getAgentAvatarColorStyle(option.color);
-              const isSelected = selectedAvatar.color === option.color;
+          <div className="grid max-h-[360px] grid-cols-6 gap-x-4 gap-y-4 overflow-y-auto px-6 py-5">
+            {AGENT_AVATAR_SVG_OPTIONS.map((option) => {
+              const optionValue = encodeAgentAvatarIcon({ svg: option.svg });
+              const isSelected = selectedAvatar.svg === option.svg;
 
               return (
                 <button
-                  key={option.color}
+                  key={option.svg}
                   type="button"
-                  onClick={() => updateAvatar({ ...selectedAvatar, color: option.color })}
-                  title={i18nService.t(option.labelKey)}
-                  aria-label={i18nService.t(option.labelKey)}
-                  className={`h-9 w-9 rounded-full border transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/50 ${
-                    isSelected ? 'ring-2 ring-foreground ring-offset-2 ring-offset-surface' : ''
-                  }`}
-                  style={{
-                    backgroundColor: colorStyle.swatchColor,
-                    borderColor: colorStyle.swatchBorderColor,
-                  }}
-                />
-              );
-            })}
-          </div>
-
-          <div className="border-t border-border" />
-
-          <div className="grid grid-cols-6 gap-x-4 gap-y-4 px-6 py-5">
-            {AGENT_AVATAR_GLYPH_OPTIONS.map((option) => {
-              const Icon = getAgentAvatarGlyphIcon(option.glyph);
-              const isSelected = selectedAvatar.glyph === option.glyph;
-
-              return (
-                <button
-                  key={option.glyph}
-                  type="button"
-                  onClick={() => updateAvatar({ ...selectedAvatar, glyph: option.glyph })}
+                  onClick={() => updateAvatar({ svg: option.svg })}
                   title={i18nService.t(option.labelKey)}
                   aria-label={i18nService.t(option.labelKey)}
                   className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 ${
@@ -113,11 +83,13 @@ const AgentAvatarPicker: React.FC<AgentAvatarPickerProps> = ({ value, onChange }
                       ? 'bg-surface-raised text-foreground shadow-sm ring-1 ring-border'
                       : 'text-foreground hover:bg-secondary/10'
                   }`}
-                  style={{
-                    color: selectedColorStyle.strokeColor,
-                  }}
                 >
-                  <Icon className="h-6 w-6" />
+                  <AgentAvatarIcon
+                    value={optionValue}
+                    className="h-10 w-10"
+                    iconClassName="h-6 w-6"
+                    useDefaultWhenEmpty={false}
+                  />
                 </button>
               );
             })}

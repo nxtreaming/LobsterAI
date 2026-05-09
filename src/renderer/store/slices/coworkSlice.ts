@@ -82,6 +82,17 @@ const markSessionUnread = (state: CoworkState, sessionId: string) => {
   state.unreadSessionIds.push(sessionId);
 };
 
+const toSessionSummary = (session: CoworkSession): CoworkSessionSummary => ({
+  id: session.id,
+  title: session.title,
+  status: session.status,
+  pinned: session.pinned ?? false,
+  pinOrder: session.pinOrder ?? null,
+  agentId: session.agentId,
+  createdAt: session.createdAt,
+  updatedAt: session.updatedAt,
+});
+
 const coworkSlice = createSlice({
   name: 'cowork',
   initialState,
@@ -130,17 +141,8 @@ const coworkSlice = createSlice({
       if (action.payload) {
         state.currentSessionId = action.payload.id;
         if (!action.payload.id.startsWith('temp-')) {
-          const { id, title, status, pinned, pinOrder, createdAt, updatedAt } = action.payload;
-          const summary: CoworkSessionSummary = {
-            id,
-            title,
-            status,
-            pinned: pinned ?? false,
-            pinOrder: pinOrder ?? null,
-            createdAt,
-            updatedAt,
-          };
-          const sessionIndex = state.sessions.findIndex((session) => session.id === id);
+          const summary = toSessionSummary(action.payload);
+          const sessionIndex = state.sessions.findIndex((session) => session.id === summary.id);
           if (sessionIndex !== -1) {
             state.sessions[sessionIndex] = {
               ...state.sessions[sessionIndex],
@@ -164,15 +166,7 @@ const coworkSlice = createSlice({
     },
 
     addSession(state, action: PayloadAction<CoworkSession>) {
-      const summary: CoworkSessionSummary = {
-        id: action.payload.id,
-        title: action.payload.title,
-        status: action.payload.status,
-        pinned: action.payload.pinned ?? false,
-        pinOrder: action.payload.pinOrder ?? null,
-        createdAt: action.payload.createdAt,
-        updatedAt: action.payload.updatedAt,
-      };
+      const summary = toSessionSummary(action.payload);
       state.sessions.unshift(summary);
       state.currentSession = {
         ...action.payload,
@@ -310,7 +304,6 @@ const coworkSlice = createSlice({
       const { sessionId, modelOverride } = action.payload;
       if (state.currentSession?.id !== sessionId) return;
       state.currentSession.modelOverride = modelOverride;
-      state.currentSession.updatedAt = Date.now();
     },
 
     enqueuePendingPermission(state, action: PayloadAction<CoworkPermissionRequest>) {

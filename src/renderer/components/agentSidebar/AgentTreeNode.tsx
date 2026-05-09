@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
 import { getAgentDisplayName, isDefaultAgentId, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
@@ -34,6 +34,10 @@ interface AgentTreeNodeProps {
   onToggleSelection: (sessionId: string) => void;
   onEnterBatchMode: (task: AgentSidebarTaskNode) => void;
 }
+
+const ACTION_MENU_VIEWPORT_PADDING = 8;
+const ACTION_MENU_VERTICAL_GAP = 4;
+const ACTION_MENU_HEIGHT = 104;
 
 const AgentAvatar: React.FC<{ agent: AgentSidebarAgentNode }> = ({ agent }) => {
   if (shouldUseDefaultAgentIcon(agent)) {
@@ -71,10 +75,11 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
   onToggleSelection,
   onEnterBatchMode,
 }) => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ right: number; top: number } | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const isMenuOpen = menuPosition !== null;
   const isMainAgent = isDefaultAgentId(agent.id);
   const agentName = getAgentDisplayName(agent);
   const menuItemClassName =
@@ -89,17 +94,37 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
     'inline-flex h-5 w-5 items-center justify-center rounded text-foreground opacity-[0.3] transition-opacity hover:opacity-[0.46]';
   const menuIconClassName = 'h-3.5 w-3.5';
 
+  const calculateMenuPosition = useCallback(() => {
+    const rect = menuButtonRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+
+    const right = Math.max(ACTION_MENU_VIEWPORT_PADDING, window.innerWidth - rect.right);
+    const top = Math.max(
+      ACTION_MENU_VIEWPORT_PADDING,
+      Math.min(
+        rect.bottom + ACTION_MENU_VERTICAL_GAP,
+        window.innerHeight - ACTION_MENU_HEIGHT - ACTION_MENU_VIEWPORT_PADDING,
+      ),
+    );
+
+    return { right, top };
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    setMenuPosition(null);
+  }, []);
+
   useEffect(() => {
     if (!isMenuOpen) return;
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (!menuRef.current?.contains(target) && !menuButtonRef.current?.contains(target)) {
-        setIsMenuOpen(false);
+        closeMenu();
       }
     };
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsMenuOpen(false);
+        closeMenu();
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -108,30 +133,48 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [isMenuOpen]);
+  }, [closeMenu, isMenuOpen]);
+
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    const updateMenuPosition = () => {
+      const position = calculateMenuPosition();
+      if (position) {
+        setMenuPosition(position);
+      } else {
+        closeMenu();
+      }
+    };
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [calculateMenuPosition, closeMenu, isMenuOpen]);
 
   const handleEditAgent = (event: React.MouseEvent) => {
     event.stopPropagation();
-    setIsMenuOpen(false);
+    closeMenu();
     onEditAgent(agent);
   };
 
   const handleCreateTask = (event: React.MouseEvent) => {
     event.stopPropagation();
-    setIsMenuOpen(false);
+    closeMenu();
     onCreateTask(agent);
   };
 
   const handleDeleteMenuClick = (event: React.MouseEvent) => {
     event.stopPropagation();
     if (isMainAgent) return;
-    setIsMenuOpen(false);
+    closeMenu();
     setShowConfirmDelete(true);
   };
 
   const handleToggleAgentPin = (event: React.MouseEvent) => {
     event.stopPropagation();
-    setIsMenuOpen(false);
+    closeMenu();
     void onToggleAgentPin(agent, !agent.pinned);
   };
 
@@ -141,7 +184,7 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
         <button
           type="button"
           onClick={() => onToggleExpanded(agent.id)}
-          className="flex h-full w-full items-center gap-2 rounded-md py-0 pl-3.5 pr-12 text-left text-[14px] font-normal text-foreground/80 transition-colors hover:bg-black/[0.03] hover:text-foreground dark:hover:bg-white/[0.04]"
+          className="flex h-full w-full items-center gap-2 rounded-md py-0 pl-3.5 pr-12 text-left text-[14px] font-normal text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
           role="treeitem"
           aria-level={1}
           aria-expanded={agent.isExpanded}
@@ -149,7 +192,7 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
           <span className="flex h-4 w-4 shrink-0 items-center justify-center leading-none text-foreground">
             <AgentAvatar agent={agent} />
           </span>
-          <span className="min-w-0 flex-1 truncate">
+          <span className="min-w-0 flex-1 truncate opacity-[0.76]">
             {agentName}
           </span>
         </button>
@@ -164,7 +207,14 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              setIsMenuOpen((value) => !value);
+              if (isMenuOpen) {
+                closeMenu();
+                return;
+              }
+              const position = calculateMenuPosition();
+              if (position) {
+                setMenuPosition(position);
+              }
             }}
             className={rowActionButtonClassName}
             aria-label={i18nService.t('coworkSessionActions')}
@@ -181,10 +231,11 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
           </button>
         </div>
 
-        {isMenuOpen && (
+        {menuPosition && (
           <div
             ref={menuRef}
-            className="absolute right-1 top-8 z-40 w-max min-w-[104px] overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
+            className="fixed z-[60] w-max min-w-[104px] max-w-[calc(100vw-16px)] overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
+            style={{ top: menuPosition.top, right: menuPosition.right }}
             role="menu"
           >
             <button

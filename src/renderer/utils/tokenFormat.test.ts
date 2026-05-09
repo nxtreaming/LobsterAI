@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
-import { formatMessageTime, formatTokenCount } from './tokenFormat';
+import { formatMessageDateTime, formatMessageTime, formatTokenCount } from './tokenFormat';
 
 test('formatTokenCount: values below 1000 returned as-is', () => {
   expect(formatTokenCount(0)).toBe('0');
@@ -48,5 +48,14 @@ test('formatMessageTime: different year shows YYYY/MM/DD + time', () => {
   const result = formatMessageTime(dec2025);
   expect(result).toMatch(/2025\/12\/25/);
   expect(result).toMatch(/20:00/);
+  vi.useRealTimers();
+});
+
+test('formatMessageDateTime: always shows YYYY/MM/DD + time', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 4, 7, 10, 0));
+  const today = new Date(2026, 4, 7, 17, 2).getTime();
+  const result = formatMessageDateTime(today);
+  expect(result).toBe('2026/05/07 17:02');
   vi.useRealTimers();
 });

@@ -701,10 +701,15 @@ export class CoworkStore {
         'title' | 'claudeSessionId' | 'status' | 'cwd' | 'systemPrompt' | 'modelOverride' | 'executionMode'
       >
     >,
+    options: { touchUpdatedAt?: boolean } = {},
   ): void {
-    const now = Date.now();
-    const setClauses: string[] = ['updated_at = ?'];
-    const values: (string | number | null)[] = [now];
+    const setClauses: string[] = [];
+    const values: (string | number | null)[] = [];
+
+    if (options.touchUpdatedAt ?? true) {
+      setClauses.push('updated_at = ?');
+      values.push(Date.now());
+    }
 
     if (updates.title !== undefined) {
       setClauses.push('title = ?');
@@ -734,6 +739,8 @@ export class CoworkStore {
       setClauses.push('execution_mode = ?');
       values.push(updates.executionMode);
     }
+
+    if (setClauses.length === 0) return;
 
     values.push(id);
     this.db

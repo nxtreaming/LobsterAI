@@ -1,4 +1,4 @@
-import { AgentAvatarColor, AgentAvatarGlyph, encodeAgentAvatarIcon } from '../shared/agent/avatar';
+import { AgentAvatarSvg, encodeAgentAvatarIcon } from '../shared/agent/avatar';
 import type { CreateAgentRequest } from './coworkStore';
 import { getLanguage } from './i18n';
 
@@ -16,28 +16,22 @@ export interface PresetAgent {
 
 const PresetAgentIcon = {
   StockExpert: encodeAgentAvatarIcon({
-    color: AgentAvatarColor.Green,
-    glyph: AgentAvatarGlyph.Finance,
+    svg: AgentAvatarSvg.Data,
   }),
   ContentWriter: encodeAgentAvatarIcon({
-    color: AgentAvatarColor.Coral,
-    glyph: AgentAvatarGlyph.Writing,
+    svg: AgentAvatarSvg.Creation,
   }),
   LessonPlanner: encodeAgentAvatarIcon({
-    color: AgentAvatarColor.Blue,
-    glyph: AgentAvatarGlyph.Education,
+    svg: AgentAvatarSvg.GraduationCap,
   }),
   ContentSummarizer: encodeAgentAvatarIcon({
-    color: AgentAvatarColor.Amber,
-    glyph: AgentAvatarGlyph.Notes,
+    svg: AgentAvatarSvg.Document,
   }),
   HealthInterpreter: encodeAgentAvatarIcon({
-    color: AgentAvatarColor.Green,
-    glyph: AgentAvatarGlyph.Care,
+    svg: AgentAvatarSvg.Diagnosis,
   }),
   PetCare: encodeAgentAvatarIcon({
-    color: AgentAvatarColor.Pink,
-    glyph: AgentAvatarGlyph.Care,
+    svg: AgentAvatarSvg.Pet,
   }),
 } as const;
 

@@ -357,7 +357,7 @@ export class SqliteStore {
       console.warn('[SqliteStore] failed to ensure default agent:', error);
     }
 
-    // Migration: Replace legacy text/emoji agent icons with the latest designed default avatar.
+    // Migration: Replace legacy text/emoji/designed agent icons with the latest SVG avatar format.
     try {
       const rows = this.db
         .prepare('SELECT id, icon FROM agents')

@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, expect, test, vi } from 'vitest';
 
-import { AgentAvatarColor, AgentAvatarGlyph, DefaultAgentAvatarIcon, DefaultAgentProfile, encodeAgentAvatarIcon } from '../shared/agent';
+import { AgentAvatarSvg, DefaultAgentAvatarIcon, DefaultAgentProfile, encodeAgentAvatarIcon } from '../shared/agent';
 
 vi.mock('electron', () => ({
   app: {
@@ -128,13 +128,12 @@ test('upgrades legacy default agent name during migration', async () => {
   store.close();
 });
 
-test('migrates legacy agent icons to the default designed avatar', async () => {
+test('migrates legacy agent icons to the default svg avatar', async () => {
   const userDataPath = createTempUserDataPath();
   createLegacyDatabase(userDataPath);
 
   const designedIcon = encodeAgentAvatarIcon({
-    color: AgentAvatarColor.Blue,
-    glyph: AgentAvatarGlyph.Code,
+    svg: AgentAvatarSvg.Code,
   });
   const db = new Database(path.join(userDataPath, DB_FILENAME));
   const now = Date.now();
@@ -145,6 +144,12 @@ test('migrates legacy agent icons to the default designed avatar', async () => {
       enabled, is_default, source, preset_id, created_at, updated_at
     ) VALUES (?, ?, '', '', '', '', ?, '[]', 1, 0, 'custom', '', ?, ?)`,
   ).run('code', 'Code', designedIcon, now, now);
+  db.prepare(
+    `INSERT INTO agents (
+      id, name, description, system_prompt, identity, model, icon, skill_ids,
+      enabled, is_default, source, preset_id, created_at, updated_at
+    ) VALUES (?, ?, '', '', '', '', ?, '[]', 1, 0, 'custom', '', ?, ?)`,
+  ).run('legacy-designed', 'Legacy Designed', 'agent-avatar:blue:code', now, now);
   db.close();
 
   const store = await SqliteStore.create(userDataPath);
@@ -155,6 +160,7 @@ test('migrates legacy agent icons to the default designed avatar', async () => {
   expect(rows).toEqual([
     { id: 'code', icon: designedIcon },
     { id: 'docs', icon: DefaultAgentAvatarIcon },
+    { id: 'legacy-designed', icon: DefaultAgentAvatarIcon },
     { id: 'main', icon: DefaultAgentAvatarIcon },
   ]);
 

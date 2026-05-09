@@ -1,5 +1,5 @@
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
 import Modal from '../common/Modal';
@@ -25,6 +25,11 @@ interface AgentTaskRowProps {
   onEnterBatchMode: () => void;
 }
 
+const ACTION_MENU_VIEWPORT_PADDING = 8;
+const ACTION_MENU_VERTICAL_GAP = 4;
+const ACTION_MENU_HEIGHT = 132;
+const ACTION_MENU_WITH_BATCH_HEIGHT = 164;
+
 const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
   task,
   isBatchMode,
@@ -37,7 +42,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
   onToggleSelection,
   onEnterBatchMode,
 }) => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ right: number; top: number } | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [suppressPinHover, setSuppressPinHover] = useState(false);
@@ -45,6 +50,41 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const actionButtonRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const isMenuOpen = menuPosition !== null;
+
+  const calculateMenuPosition = useCallback(() => {
+    const rect = actionButtonRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+
+    const menuHeight = showBatchOption ? ACTION_MENU_WITH_BATCH_HEIGHT : ACTION_MENU_HEIGHT;
+    const right = Math.max(ACTION_MENU_VIEWPORT_PADDING, window.innerWidth - rect.right);
+    const top = Math.max(
+      ACTION_MENU_VIEWPORT_PADDING,
+      Math.min(
+        rect.bottom + ACTION_MENU_VERTICAL_GAP,
+        window.innerHeight - menuHeight - ACTION_MENU_VIEWPORT_PADDING,
+      ),
+    );
+
+    return { right, top };
+  }, [showBatchOption]);
+
+  const closeMenu = useCallback(() => {
+    setMenuPosition(null);
+  }, []);
+
+  const toggleMenu = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (isMenuOpen) {
+      closeMenu();
+      return;
+    }
+
+    const position = calculateMenuPosition();
+    if (position) {
+      setMenuPosition(position);
+    }
+  };
 
   useEffect(() => {
     if (!isRenaming) {
@@ -57,12 +97,12 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (!menuRef.current?.contains(target) && !actionButtonRef.current?.contains(target)) {
-        setIsMenuOpen(false);
+        closeMenu();
       }
     };
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsMenuOpen(false);
+        closeMenu();
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -71,7 +111,25 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [isMenuOpen]);
+  }, [closeMenu, isMenuOpen]);
+
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    const updateMenuPosition = () => {
+      const position = calculateMenuPosition();
+      if (position) {
+        setMenuPosition(position);
+      } else {
+        closeMenu();
+      }
+    };
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [calculateMenuPosition, closeMenu, isMenuOpen]);
 
   useEffect(() => {
     if (!isRenaming) return;
@@ -192,7 +250,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
           </span>
           {task.indicator === AgentSidebarIndicator.Running && (
             <span
-              className="inline-flex h-3 w-3 shrink-0 items-center justify-center"
+              className="inline-flex h-3 w-3 shrink-0 items-center justify-center transition-opacity group-hover:opacity-0"
               title={indicatorLabel}
               aria-label={indicatorLabel}
             >
@@ -215,7 +273,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
           )}
           {task.indicator === AgentSidebarIndicator.CompletedUnread && (
             <span
-              className="h-[7px] w-[7px] shrink-0 rounded-full bg-blue-500"
+              className="h-[7px] w-[7px] shrink-0 rounded-full bg-blue-500 transition-opacity group-hover:opacity-0"
               title={indicatorLabel}
               aria-label={indicatorLabel}
             />
@@ -228,9 +286,6 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
               {relativeTime.compact}
             </span>
           )}
-          {!showRelativeTime && !isBatchMode && (
-            <span className="w-6 shrink-0" aria-hidden="true" />
-          )}
         </>
       )}
 
@@ -238,10 +293,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
         <button
           ref={actionButtonRef}
           type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            setIsMenuOpen((value) => !value);
-          }}
+          onClick={toggleMenu}
           className={`absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-foreground transition-opacity hover:opacity-[0.46] ${
             isMenuOpen ? 'opacity-[0.46]' : 'opacity-0 group-hover:opacity-[0.3]'
           }`}
@@ -251,10 +303,11 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
         </button>
       )}
 
-      {isMenuOpen && (
+      {menuPosition && (
         <div
           ref={menuRef}
-          className="absolute right-0 top-7 z-40 w-max min-w-[124px] overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
+          className="fixed z-[60] w-max min-w-[124px] max-w-[calc(100vw-16px)] overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
+          style={{ top: menuPosition.top, right: menuPosition.right }}
           role="menu"
         >
           {showBatchOption && (
@@ -262,7 +315,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                setIsMenuOpen(false);
+                closeMenu();
                 onEnterBatchMode();
               }}
               className={menuItemClassName}
@@ -276,7 +329,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              setIsMenuOpen(false);
+              closeMenu();
               setIsRenaming(true);
             }}
             className={menuItemClassName}
@@ -289,7 +342,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              setIsMenuOpen(false);
+              closeMenu();
               void onTogglePin(!task.pinned);
             }}
             className={menuItemClassName}
@@ -302,7 +355,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              setIsMenuOpen(false);
+              closeMenu();
               setShowConfirmDelete(true);
             }}
             className={dangerMenuItemClassName}

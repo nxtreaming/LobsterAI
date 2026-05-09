@@ -20,7 +20,7 @@ vi.mock('electron', () => ({
 // ---------------------------------------------------------------------------
 import BetterSqlite3 from 'better-sqlite3';
 
-import { AgentAvatarColor, AgentAvatarGlyph, DefaultAgentAvatarIcon, encodeAgentAvatarIcon } from '../shared/agent/avatar';
+import { AgentAvatarSvg, DefaultAgentAvatarIcon, encodeAgentAvatarIcon } from '../shared/agent/avatar';
 import { CoworkStore } from './coworkStore';
 
 // ---------------------------------------------------------------------------
@@ -244,6 +244,36 @@ test('updateMessage refreshes the session updated time', () => {
   expect(session?.messages[0]?.content).toBe('final');
 });
 
+test('updateSession refreshes the session updated time by default', () => {
+  const sid = 'sess-update-session-time';
+  insertSession(sid);
+  db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(1000, sid);
+
+  const beforeUpdate = Date.now();
+
+  store.updateSession(sid, { status: 'completed' });
+
+  const session = store.getSession(sid);
+  expect(session?.status).toBe('completed');
+  expect(session?.updatedAt).toBeGreaterThanOrEqual(beforeUpdate);
+});
+
+test('updateSession can patch model override without refreshing the session updated time', () => {
+  const sid = 'sess-model-only';
+  insertSession(sid);
+  db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(1000, sid);
+
+  store.updateSession(
+    sid,
+    { modelOverride: 'lobsterai-server/qwen3.6-plus-YoudaoInner' },
+    { touchUpdatedAt: false },
+  );
+
+  const session = store.getSession(sid);
+  expect(session?.modelOverride).toBe('lobsterai-server/qwen3.6-plus-YoudaoInner');
+  expect(session?.updatedAt).toBe(1000);
+});
+
 test('agent CRUD stores working directory independently', () => {
   const agent = store.createAgent({
     name: 'Docs Agent',
@@ -261,18 +291,22 @@ test('agent CRUD stores working directory independently', () => {
   expect(store.getAgent(agent.id)?.workingDirectory).toBe('/tmp/docs-next');
 });
 
-test('agent CRUD normalizes legacy icons to the default designed avatar', () => {
+test('agent CRUD normalizes legacy icons to the default svg avatar', () => {
   const designedIcon = encodeAgentAvatarIcon({
-    color: AgentAvatarColor.Violet,
-    glyph: AgentAvatarGlyph.Design,
+    svg: AgentAvatarSvg.Artboard,
   });
 
   const missingIconAgent = store.createAgent({ name: 'Missing Icon Agent' });
   const legacyIconAgent = store.createAgent({ name: 'Legacy Icon Agent', icon: 'legacy-icon' });
+  const legacyDesignedIconAgent = store.createAgent({
+    name: 'Legacy Designed Icon Agent',
+    icon: 'agent-avatar:blue:code',
+  });
   const designedIconAgent = store.createAgent({ name: 'Designed Icon Agent', icon: designedIcon });
 
   expect(missingIconAgent.icon).toBe(DefaultAgentAvatarIcon);
   expect(legacyIconAgent.icon).toBe(DefaultAgentAvatarIcon);
+  expect(legacyDesignedIconAgent.icon).toBe(DefaultAgentAvatarIcon);
   expect(designedIconAgent.icon).toBe(designedIcon);
 
   const updated = store.updateAgent(designedIconAgent.id, { icon: 'legacy-icon' });

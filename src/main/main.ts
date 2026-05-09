@@ -3543,7 +3543,7 @@ if (!gotTheLock) {
       if (patch.model !== undefined) {
         getCoworkStore().updateSession(sessionId, {
           modelOverride: patch.model ?? '',
-        });
+        }, { touchUpdatedAt: false });
       }
 
       const session = getCoworkStore().getSession(sessionId);
