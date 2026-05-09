@@ -1358,9 +1358,7 @@ const AssistantMessageItem: React.FC<{
       </div>
       {showCopyButton && (
         <div className="flex items-center gap-2 mt-1 text-[11px] text-zinc-400 dark:text-zinc-500 select-none">
-          {turnMetadata?.agentName && (
-            <span>{turnMetadata.agentName}</span>
-          )}
+          <span>{formatMessageTime(message.timestamp)}</span>
           <span>{formatMessageTime(message.timestamp)}</span>
           {turnMetadata?.usage?.inputTokens != null && (
             <span>{`↑${formatTokenCount(turnMetadata.usage.inputTokens)}`}</span>
