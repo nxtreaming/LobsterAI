@@ -599,7 +599,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     myAgentSidebarExpandMore: '展开显示',
     myAgentSidebarCollapse: '折叠显示',
     myAgentSidebarNoAgents: '还没有 Agent',
-    myAgentSidebarNoTasks: '还没有任务',
+    myAgentSidebarNoTasks: '暂无任务',
     myAgentSidebarNewTask: '新建任务',
     myAgentSidebarRunning: '运行中',
     myAgentSidebarUnreadResult: '有新结果',
