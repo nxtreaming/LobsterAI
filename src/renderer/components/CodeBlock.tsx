@@ -38,13 +38,16 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  ClipboardDocumentIcon,
   MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import { indentationMarkers } from '@replit/codemirror-indentation-markers';
 import CodeMirror from '@uiw/react-codemirror';
 import React, { useCallback, useEffect, useMemo,useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+
+import { i18nService } from '../services/i18n';
+import CopyIcon from './icons/CopyIcon';
+import Tooltip, { TooltipAlign, TooltipPosition } from './ui/Tooltip';
 
 /** Word-wrap toggle icon: mimics a "wrap text" glyph */
 const WrapTextIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -64,8 +67,6 @@ const WrapTextIcon: React.FC<{ className?: string }> = ({ className }) => (
     <line x1="3" y1="18" x2="5" y2="18" />
   </svg>
 );
-import { i18nService } from '../services/i18n';
-import Tooltip from './ui/Tooltip';
 
 // ---------------------------------------------------------------------------
 // Language alias map
@@ -870,33 +871,41 @@ const CodeFullscreenModal: React.FC<CodeFullscreenModalProps> = ({ code, lang, i
         <div className="bg-surface-raised px-4 py-2 flex items-center justify-between border-b border-border flex-shrink-0">
           <span className="font-mono text-xs text-secondary opacity-70">{lang ?? 'code'}</span>
           <div className="flex items-center gap-0.5">
-            <Tooltip content={searchOpen ? t('codeBlockSearchClose') : t('codeBlockSearch')} position="bottom">
-              <HeaderButton onClick={handleToggleSearch} title="" active={searchOpen}>
+            <CodeBlockTooltip content={searchOpen ? t('codeBlockSearchClose') : t('codeBlockSearch')}>
+              <HeaderButton
+                onClick={handleToggleSearch}
+                ariaLabel={searchOpen ? t('codeBlockSearchClose') : t('codeBlockSearch')}
+                active={searchOpen}
+              >
                 <MagnifyingGlassIcon className="h-4 w-4" />
               </HeaderButton>
-            </Tooltip>
-            <Tooltip content={wrap ? t('codeBlockWordWrapOff') : t('codeBlockWordWrap')} position="bottom">
-              <HeaderButton onClick={() => setWrap(v => !v)} title="" active={wrap}>
+            </CodeBlockTooltip>
+            <CodeBlockTooltip content={wrap ? t('codeBlockWordWrapOff') : t('codeBlockWordWrap')}>
+              <HeaderButton
+                onClick={() => setWrap(v => !v)}
+                ariaLabel={wrap ? t('codeBlockWordWrapOff') : t('codeBlockWordWrap')}
+                active={wrap}
+              >
                 <WrapTextIcon className="h-4 w-4" />
               </HeaderButton>
-            </Tooltip>
-            <Tooltip content={t('copyToClipboard')} position="bottom">
-              <HeaderButton onClick={handleCopy} title="">
+            </CodeBlockTooltip>
+            <CodeBlockTooltip content={t('copyToClipboard')}>
+              <HeaderButton onClick={handleCopy} ariaLabel={t('copyToClipboard')}>
                 {isCopied
                   ? <CheckIcon className="h-4 w-4 text-green-500" />
-                  : <ClipboardDocumentIcon className="h-4 w-4" />}
+                  : <CopyIcon className="h-4 w-4" />}
               </HeaderButton>
-            </Tooltip>
+            </CodeBlockTooltip>
             {/* Divider */}
             <span className="w-px h-4 bg-border mx-1" />
             {/* Close */}
-            <Tooltip content={t('codeBlockFullscreenExit')} position="bottom">
-              <HeaderButton onClick={onClose} title="">
+            <CodeBlockTooltip content={t('codeBlockFullscreenExit')}>
+              <HeaderButton onClick={onClose} ariaLabel={t('codeBlockFullscreenExit')}>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
               </HeaderButton>
-            </Tooltip>
+            </CodeBlockTooltip>
           </div>
         </div>
         {/* Modal body — scrollable editor */}
@@ -916,24 +925,39 @@ const CodeFullscreenModal: React.FC<CodeFullscreenModalProps> = ({ code, lang, i
   );
 };
 
+const CodeBlockTooltip: React.FC<{
+  content: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}> = ({ content, children, className }) => (
+  <Tooltip
+    content={content}
+    className={className}
+    position={TooltipPosition.Bottom}
+    align={TooltipAlign.End}
+    delay={300}
+  >
+    {children}
+  </Tooltip>
+);
+
 /** Thin icon button used in the code block header */
 const HeaderButton: React.FC<{
   onClick: () => void;
-  title: string;
+  ariaLabel: string;
   active?: boolean;
   children: React.ReactNode;
-}> = ({ onClick, title, active = false, children }) => (
+}> = ({ onClick, ariaLabel, active = false, children }) => (
   <button
     type="button"
     onClick={onClick}
     className={[
-      'p-1.5 rounded-md transition-colors transform-gpu',
+      'inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors transform-gpu',
       active
-        ? 'bg-primary/15 text-primary hover:bg-primary/25'
-        : 'hover:bg-surface-hover text-secondary hover:text-foreground',
+        ? 'bg-surface text-foreground'
+        : 'text-secondary hover:bg-surface hover:text-foreground',
     ].join(' ')}
-    title={title}
-    aria-label={title}
+    aria-label={ariaLabel}
   >
     {children}
   </button>
@@ -1349,20 +1373,24 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
   if (!match) {
     return (
       <div className="my-2 relative group">
-        <div className="overflow-x-auto rounded-lg dark:bg-[#282c34] bg-[#f0f2f5] text-[13px] leading-6">
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="absolute top-2 right-2 z-10 p-2 rounded-md bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors opacity-0 group-hover:opacity-100 transform-gpu"
-            title={i18nService.t('copyToClipboard')}
-            aria-label={i18nService.t('copyToClipboard')}
+        <div className="overflow-x-auto rounded-lg border border-border-subtle dark:bg-[#282c34] bg-[#f0f2f5] text-[13px] leading-6">
+          <CodeBlockTooltip
+            content={i18nService.t('copyToClipboard')}
+            className="absolute top-2 right-2 z-10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200"
           >
-            {isCopied ? (
-              <CheckIcon className="h-5 w-5 text-green-500" />
-            ) : (
-              <ClipboardDocumentIcon className="h-5 w-5" />
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-secondary hover:bg-surface-raised hover:text-foreground transition-colors transform-gpu"
+              aria-label={i18nService.t('copyToClipboard')}
+            >
+              {isCopied ? (
+                <CheckIcon className="h-4 w-4 text-green-500" />
+              ) : (
+                <CopyIcon className="h-4 w-4" />
+              )}
+            </button>
+          </CodeBlockTooltip>
           <code className="block px-4 py-3 font-mono dark:text-gray-100 text-gray-800 whitespace-pre">
             {trimmedCodeText}
           </code>
@@ -1381,7 +1409,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
     : match[1];
 
   return (
-    <div className="my-3 rounded-xl overflow-hidden border border-border relative shadow-subtle">
+    <div className="my-3 rounded-lg overflow-hidden border border-border-subtle bg-surface-raised/40 relative">
       {/* Fullscreen modal */}
       {fullscreen && (
         <CodeFullscreenModal
@@ -1392,14 +1420,14 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
         />
       )}
       {/* Header */}
-      <div className="bg-surface-raised px-4 py-1.5 text-xs text-secondary font-medium flex items-center justify-between">
+      <div className="bg-surface-raised/70 border-b border-border-subtle px-3.5 py-1.5 text-xs text-secondary font-medium flex items-center justify-between">
         <span className="font-mono opacity-70">{displayLang}</span>
         <div className="flex items-center gap-0.5">
           {/* Collapse / expand the entire code body */}
-          <Tooltip content={collapsed ? i18nService.t('codeBlockExpand') : i18nService.t('codeBlockCollapse')} position="bottom">
+          <CodeBlockTooltip content={collapsed ? i18nService.t('codeBlockExpand') : i18nService.t('codeBlockCollapse')}>
             <HeaderButton
               onClick={handleToggleCollapse}
-              title=""
+              ariaLabel={collapsed ? i18nService.t('codeBlockExpand') : i18nService.t('codeBlockCollapse')}
               active={collapsed}
             >
               {collapsed ? (
@@ -1408,58 +1436,58 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
                 <ChevronUpIcon className="h-4 w-4" />
               )}
             </HeaderButton>
-          </Tooltip>
+          </CodeBlockTooltip>
           {/* Search toggle - only for regular code blocks (not diff) */}
           {!isDiffBlock && (
-            <Tooltip content={searchOpen ? i18nService.t('codeBlockSearchClose') : i18nService.t('codeBlockSearch')} position="bottom">
+            <CodeBlockTooltip content={searchOpen ? i18nService.t('codeBlockSearchClose') : i18nService.t('codeBlockSearch')}>
               <HeaderButton
                 onClick={handleToggleSearch}
-                title=""
+                ariaLabel={searchOpen ? i18nService.t('codeBlockSearchClose') : i18nService.t('codeBlockSearch')}
                 active={searchOpen}
               >
                 <MagnifyingGlassIcon className="h-4 w-4" />
               </HeaderButton>
-            </Tooltip>
+            </CodeBlockTooltip>
           )}
           {/* Word wrap toggle */}
-          <Tooltip content={wrap ? i18nService.t('codeBlockWordWrapOff') : i18nService.t('codeBlockWordWrap')} position="bottom">
+          <CodeBlockTooltip content={wrap ? i18nService.t('codeBlockWordWrapOff') : i18nService.t('codeBlockWordWrap')}>
             <HeaderButton
               onClick={() => setWrap((v) => !v)}
-              title=""
+              ariaLabel={wrap ? i18nService.t('codeBlockWordWrapOff') : i18nService.t('codeBlockWordWrap')}
               active={wrap}
             >
               <WrapTextIcon className="h-4 w-4" />
             </HeaderButton>
-          </Tooltip>
+          </CodeBlockTooltip>
           {/* Fullscreen expand */}
-          <Tooltip content={i18nService.t('codeBlockFullscreen')} position="bottom">
-            <HeaderButton onClick={() => setFullscreen(true)} title="">
+          <CodeBlockTooltip content={i18nService.t('codeBlockFullscreen')}>
+            <HeaderButton onClick={() => setFullscreen(true)} ariaLabel={i18nService.t('codeBlockFullscreen')}>
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
                 <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
                 <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
               </svg>
             </HeaderButton>
-          </Tooltip>
+          </CodeBlockTooltip>
           {/* Copy */}
-          <Tooltip content={i18nService.t('copyToClipboard')} position="bottom">
-            <HeaderButton onClick={handleCopy} title="">
+          <CodeBlockTooltip content={i18nService.t('copyToClipboard')}>
+            <HeaderButton onClick={handleCopy} ariaLabel={i18nService.t('copyToClipboard')}>
               {isCopied ? (
                 <CheckIcon className="h-4 w-4 text-green-500" />
               ) : (
-                <ClipboardDocumentIcon className="h-4 w-4" />
+                <CopyIcon className="h-4 w-4" />
               )}
             </HeaderButton>
-          </Tooltip>
+          </CodeBlockTooltip>
           {/* Save to file */}
-          <Tooltip content={i18nService.t('saveToFile')} position="bottom">
-            <HeaderButton onClick={handleSave} title="">
+          <CodeBlockTooltip content={i18nService.t('saveToFile')}>
+            <HeaderButton onClick={handleSave} ariaLabel={i18nService.t('saveToFile')}>
               {isSaved ? (
                 <CheckIcon className="h-4 w-4 text-green-500" />
               ) : (
                 <ArrowDownTrayIcon className="h-4 w-4" />
               )}
             </HeaderButton>
-          </Tooltip>
+          </CodeBlockTooltip>
         </div>
       </div>
 

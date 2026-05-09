@@ -5,13 +5,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
 import { agentService } from '../../services/agent';
+import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { imService } from '../../services/im';
 import { RootState } from '../../store';
 import type { Model } from '../../store/slices/modelSlice';
 import type { Agent } from '../../types/agent';
 import type { DingTalkInstanceConfig, DingTalkInstanceStatus, DiscordInstanceConfig, DiscordInstanceStatus, FeishuInstanceConfig, FeishuInstanceStatus, IMGatewayConfig, IMGatewayStatus, NimInstanceConfig, NimInstanceStatus, PopoInstanceConfig, PopoInstanceStatus, QQInstanceConfig, QQInstanceStatus, TelegramInstanceConfig, TelegramInstanceStatus, WecomInstanceConfig, WecomInstanceStatus } from '../../types/im';
-import { getAgentDisplayNameById, isDefaultAgentId } from '../../utils/agentDisplay';
+import { getAgentDisplayName, getAgentDisplayNameById, isDefaultAgentId } from '../../utils/agentDisplay';
 import { resolveOpenClawModelRef, toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 import Modal from '../common/Modal';
@@ -45,10 +46,12 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [identity, setIdentity] = useState('');
+  const [userInfo, setUserInfo] = useState('');
   const [icon, setIcon] = useState('');
   const [model, setModel] = useState<Model | null>(null);
   const [workingDirectory, setWorkingDirectory] = useState('');
   const [skillIds, setSkillIds] = useState<string[]>([]);
+  const [nameTouched, setNameTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
@@ -58,6 +61,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
   const [imConfig, setImConfig] = useState<IMGatewayConfig | null>(null);
   const [boundKeys, setBoundKeys] = useState<Set<string>>(new Set());
   const [initialBoundKeys, setInitialBoundKeys] = useState<Set<string>>(new Set());
+  const isMainAgent = isDefaultAgentId(agentId);
 
   // Snapshot of initial values for dirty detection
   const initialValuesRef = useRef({
@@ -65,6 +69,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
     description: '',
     systemPrompt: '',
     identity: '',
+    userInfo: '',
     icon: '',
     model: '',
     workingDirectory: '',
@@ -73,35 +78,56 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
 
   useEffect(() => {
     if (!agentId) return;
-    setActiveTab(AgentDetailTab.Prompt);
+    let cancelled = false;
+    setActiveTab(AgentDetailTab.Identity);
     setShowDeleteConfirm(false);
     setShowUnsavedConfirm(false);
-    window.electron?.agents?.get(agentId).then((a) => {
-      if (a) {
-        setAgent(a);
-        setName(a.name);
-        setDescription(a.description);
-        setSystemPrompt(a.systemPrompt);
-        setIdentity(a.identity);
-        setIcon(a.icon);
-        setModel(resolveOpenClawModelRef(a.model, availableModels) ?? null);
-        setWorkingDirectory(a.workingDirectory ?? '');
-        setSkillIds(a.skillIds ?? []);
-        initialValuesRef.current = {
-          name: a.name,
-          description: a.description,
-          systemPrompt: a.systemPrompt,
-          identity: a.identity,
-          icon: a.icon,
-          model: a.model ?? '',
-          workingDirectory: a.workingDirectory ?? '',
-          skillIds: a.skillIds ?? [],
-        };
+    setNameTouched(false);
+
+    void (async () => {
+      const a = await window.electron?.agents?.get(agentId);
+      if (!a || cancelled) return;
+
+      let nextSystemPrompt = a.systemPrompt;
+      let nextIdentity = a.identity;
+      const nextUserInfo = await coworkService.readBootstrapFile('USER.md');
+      if (cancelled) return;
+      if (isDefaultAgentId(agentId)) {
+        const [mainIdentity, mainSoul] = await Promise.all([
+          coworkService.readBootstrapFile('IDENTITY.md'),
+          coworkService.readBootstrapFile('SOUL.md'),
+        ]);
+        if (cancelled) return;
+        nextSystemPrompt = mainSoul;
+        nextIdentity = mainIdentity;
       }
-    });
+
+      setAgent(a);
+      setName(a.name);
+      setDescription(a.description);
+      setSystemPrompt(nextSystemPrompt);
+      setIdentity(nextIdentity);
+      setUserInfo(nextUserInfo);
+      setIcon(a.icon);
+      setModel(resolveOpenClawModelRef(a.model, availableModels) ?? null);
+      setWorkingDirectory(a.workingDirectory ?? '');
+      setSkillIds(a.skillIds ?? []);
+      initialValuesRef.current = {
+        name: a.name,
+        description: a.description,
+        systemPrompt: nextSystemPrompt,
+        identity: nextIdentity,
+        userInfo: nextUserInfo,
+        icon: a.icon,
+        model: a.model ?? '',
+        workingDirectory: a.workingDirectory ?? '',
+        skillIds: a.skillIds ?? [],
+      };
+    })();
+
     // Load IM config and status for bindings
     imService.loadConfig().then((cfg) => {
-      if (cfg) {
+      if (cfg && !cancelled) {
         setImConfig(cfg);
         const bindings = cfg.settings?.platformAgentBindings || {};
         const bound = new Set<string>();
@@ -114,7 +140,10 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
         setInitialBoundKeys(new Set(bound));
       }
     });
-    imService.loadStatus();
+    void imService.loadStatus();
+    return () => {
+      cancelled = true;
+    };
   }, [agentId, availableModels]);
 
   const isDirty = useCallback((): boolean => {
@@ -123,13 +152,14 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
     if (description !== init.description) return true;
     if (systemPrompt !== init.systemPrompt) return true;
     if (identity !== init.identity) return true;
+    if (userInfo !== init.userInfo) return true;
     if (icon !== init.icon) return true;
     if ((model ? toOpenClawModelRef(model) : '') !== init.model) return true;
     if (workingDirectory !== init.workingDirectory) return true;
     if (skillIds.length !== init.skillIds.length || skillIds.some((id, i) => id !== init.skillIds[i])) return true;
     if (boundKeys.size !== initialBoundKeys.size || [...boundKeys].some((k) => !initialBoundKeys.has(k))) return true;
     return false;
-  }, [name, description, systemPrompt, identity, icon, model, workingDirectory, skillIds, boundKeys, initialBoundKeys]);
+  }, [name, description, systemPrompt, identity, userInfo, icon, model, workingDirectory, skillIds, boundKeys, initialBoundKeys]);
 
   if (!agentId) return null;
 
@@ -164,6 +194,22 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
         window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentSaveFailed') }));
         return;
       }
+      const bootstrapWrites = isMainAgent
+        ? [
+            coworkService.writeBootstrapFile('IDENTITY.md', identity),
+            coworkService.writeBootstrapFile('SOUL.md', systemPrompt),
+            coworkService.writeBootstrapFile('USER.md', userInfo),
+          ]
+        : [
+            coworkService.writeBootstrapFile('USER.md', userInfo),
+          ];
+      if (bootstrapWrites.length > 0) {
+        const bootstrapSaved = await Promise.all(bootstrapWrites);
+        if (bootstrapSaved.some((saved) => !saved)) {
+          window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentSaveFailed') }));
+          return;
+        }
+      }
       // Persist IM bindings if changed
       const bindingsChanged =
         boundKeys.size !== initialBoundKeys.size ||
@@ -176,9 +222,11 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
             delete currentBindings[key];
           }
         }
-        // Add new bindings
-        for (const key of boundKeys) {
-          currentBindings[key] = agentId;
+        // The main agent is the implicit default, so explicit main bindings are unnecessary.
+        if (!isMainAgent) {
+          for (const key of boundKeys) {
+            currentBindings[key] = agentId;
+          }
         }
         await imService.persistConfig({
           settings: { ...imConfig.settings, platformAgentBindings: currentBindings },
@@ -246,14 +294,40 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
     return getAgentDisplayNameById(aid, agents);
   };
 
-  const isMainAgent = isDefaultAgentId(agentId);
+  const nameInputValue = isMainAgent && !nameTouched
+    ? getAgentDisplayName({ id: agentId, name })
+    : name;
 
   const tabs: { key: AgentDetailTab; label: string }[] = [
-    { key: AgentDetailTab.Prompt, label: i18nService.t('agentTabPrompt') },
-    { key: AgentDetailTab.Identity, label: i18nService.t('agentIdentity') },
+    { key: AgentDetailTab.Identity, label: i18nService.t('coworkBootstrapIdentityTitle') },
+    { key: AgentDetailTab.Prompt, label: i18nService.t('coworkBootstrapSoulTitle') },
+    { key: AgentDetailTab.User, label: i18nService.t('coworkBootstrapUserTitle') },
     { key: AgentDetailTab.Skills, label: i18nService.t('agentTabSkills') },
     { key: AgentDetailTab.Im, label: i18nService.t('agentTabIM') },
   ];
+
+  const renderTextEditor = (
+    value: string,
+    onChange: (value: string) => void,
+    placeholder: string,
+    ariaLabel: string,
+    hint?: string,
+  ) => (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      {hint && (
+        <p className="shrink-0 text-xs leading-5 text-secondary">
+          {hint}
+        </p>
+      )}
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        className="min-h-0 flex-1 w-full resize-none border border-transparent bg-transparent text-sm leading-6 text-foreground placeholder:text-secondary/45 focus:outline-none"
+      />
+    </div>
+  );
 
   const renderToggle = (isOn: boolean) => (
     <div
@@ -315,18 +389,19 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
         {/* Instance list */}
         {connectedInstances.map((inst: MultiInstanceConfig, idx: number) => {
           const bindingKey = `${platform}:${inst.instanceId}`;
-          const isBound = boundKeys.has(bindingKey);
           const otherAgentId = bindings[bindingKey];
-          const boundToOther = otherAgentId && otherAgentId !== agentId;
-          const otherAgentName = boundToOther ? getAgentName(otherAgentId) : null;
+          const boundToOther = Boolean(otherAgentId && otherAgentId !== agentId);
+          const canToggle = !isMainAgent && !boundToOther;
+          const isBound = isMainAgent ? !boundToOther : boundKeys.has(bindingKey);
+          const otherAgentName = boundToOther ? getAgentName(otherAgentId ?? '') : null;
 
           return (
             <div
               key={inst.instanceId}
-              className={`flex items-center justify-between px-3 py-2 pl-14 transition-colors cursor-pointer hover:bg-surface-raised ${
+              className={`flex items-center justify-between px-3 py-2 pl-14 transition-colors ${
                 idx < connectedInstances.length - 1 ? 'border-b border-border-subtle' : ''
-              } ${boundToOther ? 'opacity-55' : ''}`}
-              onClick={() => !boundToOther && handleToggleIMBinding(bindingKey)}
+              } ${canToggle ? 'cursor-pointer hover:bg-surface-raised' : ''} ${boundToOther ? 'opacity-55' : ''}`}
+              onClick={() => canToggle && handleToggleIMBinding(bindingKey)}
             >
               <div className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
@@ -354,21 +429,26 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
   const renderSingleInstancePlatform = (platform: Platform) => {
     const logo = PlatformRegistry.logo(platform);
     const configured = isPlatformConfigured(platform);
-    const isBound = boundKeys.has(platform);
     const bindings = imConfig?.settings?.platformAgentBindings || {};
     const otherAgentId = bindings[platform];
-    const boundToOther = configured && otherAgentId && otherAgentId !== agentId;
-    const otherAgentName = boundToOther ? getAgentName(otherAgentId) : null;
+    const boundToOther = Boolean(configured && otherAgentId && otherAgentId !== agentId);
+    const canToggle = configured && !boundToOther && !isMainAgent;
+    const isBound = isMainAgent ? configured && !boundToOther : boundKeys.has(platform);
+    const otherAgentName = boundToOther ? getAgentName(otherAgentId ?? '') : null;
 
     return (
       <div
         key={platform}
         className={`flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors ${
-          configured && !boundToOther
-            ? 'hover:bg-surface-raised cursor-pointer'
-            : boundToOther ? 'opacity-55' : 'opacity-50'
+          !configured
+            ? 'opacity-50'
+            : boundToOther
+              ? 'opacity-55'
+              : canToggle
+                ? 'hover:bg-surface-raised cursor-pointer'
+                : ''
         }`}
-        onClick={() => configured && !boundToOther && handleToggleIMBinding(platform)}
+        onClick={() => canToggle && handleToggleIMBinding(platform)}
       >
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center">
@@ -416,8 +496,11 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
             <div className="min-w-0 flex-1 pt-0.5">
               <input
                 type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={nameInputValue}
+                onChange={(e) => {
+                  setNameTouched(true);
+                  setName(e.target.value);
+                }}
                 placeholder={i18nService.t('agentNamePlaceholder')}
                 aria-label={i18nService.t('agentName')}
                 className="w-full bg-transparent text-lg font-semibold leading-6 text-foreground placeholder:text-secondary/40 focus:outline-none"
@@ -460,24 +543,28 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
 
         {/* Tab content */}
         <div className="px-7 py-7 overflow-hidden flex-1 min-h-0">
-          {activeTab === AgentDetailTab.Prompt && (
-            <textarea
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              placeholder={i18nService.t('agentSystemPromptPlaceholder')}
-              aria-label={i18nService.t('systemPrompt')}
-              className="h-full min-h-0 w-full resize-none border border-transparent bg-transparent text-sm leading-6 text-foreground placeholder:text-secondary/45 focus:outline-none"
-            />
+          {activeTab === AgentDetailTab.Prompt && renderTextEditor(
+            systemPrompt,
+            setSystemPrompt,
+            i18nService.t('coworkBootstrapPlaceholder'),
+            i18nService.t('coworkBootstrapSoulTitle'),
+            i18nService.t('coworkBootstrapSoulHint'),
           )}
 
-          {activeTab === AgentDetailTab.Identity && (
-            <textarea
-              value={identity}
-              onChange={(e) => setIdentity(e.target.value)}
-              placeholder={i18nService.t('agentIdentityPlaceholder')}
-              aria-label={i18nService.t('agentIdentity')}
-              className="h-full min-h-0 w-full resize-none border border-transparent bg-transparent text-sm leading-6 text-foreground placeholder:text-secondary/45 focus:outline-none"
-            />
+          {activeTab === AgentDetailTab.Identity && renderTextEditor(
+            identity,
+            setIdentity,
+            i18nService.t('coworkBootstrapPlaceholder'),
+            i18nService.t('coworkBootstrapIdentityTitle'),
+            i18nService.t('coworkBootstrapIdentityHint'),
+          )}
+
+          {activeTab === AgentDetailTab.User && renderTextEditor(
+            userInfo,
+            setUserInfo,
+            i18nService.t('coworkBootstrapPlaceholder'),
+            i18nService.t('coworkBootstrapUserTitle'),
+            i18nService.t('coworkBootstrapUserHint'),
           )}
 
           {activeTab === AgentDetailTab.Skills && (

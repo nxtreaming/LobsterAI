@@ -239,12 +239,12 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
   const batchLabel = i18nService.t('batchOperations');
   const menuItems = useMemo(() => {
     const items = [
-      { key: 'rename', label: renameLabel, onClick: handleRenameClick, tone: 'neutral' as const },
-      { key: 'pin', label: pinButtonLabel, onClick: handleTogglePin, tone: 'neutral' as const },
-      { key: 'delete', label: deleteLabel, onClick: handleDeleteClick, tone: 'danger' as const },
+      { key: 'rename', label: renameLabel, onClick: handleRenameClick },
+      { key: 'pin', label: pinButtonLabel, onClick: handleTogglePin },
+      { key: 'delete', label: deleteLabel, onClick: handleDeleteClick },
     ];
     if (showBatchOption) {
-      items.unshift({ key: 'batch', label: batchLabel, onClick: handleBatchClick, tone: 'neutral' as const });
+      items.unshift({ key: 'batch', label: batchLabel, onClick: handleBatchClick });
     }
     return items;
   }, [
@@ -380,11 +380,7 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
               key={item.key}
               type="button"
               onClick={item.onClick}
-              className={`w-full flex items-center gap-2 whitespace-nowrap px-3 py-2 text-left text-sm transition-colors ${
-                item.tone === 'danger'
-                  ? 'text-red-500 hover:bg-red-500/10'
-                  : 'text-foreground hover:bg-surface-raised'
-              }`}
+              className="w-full flex items-center gap-2 whitespace-nowrap px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-surface-raised"
             >
               {item.key === 'batch' && <ListChecksIcon className="h-4 w-4" />}
               {item.key === 'rename' && <PencilSquareIcon className="h-4 w-4" />}

@@ -1,10 +1,24 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
+
+export const TooltipPosition = {
+  Top: 'top',
+  Bottom: 'bottom',
+} as const;
+export type TooltipPosition = typeof TooltipPosition[keyof typeof TooltipPosition];
+
+export const TooltipAlign = {
+  Start: 'start',
+  Center: 'center',
+  End: 'end',
+} as const;
+export type TooltipAlign = typeof TooltipAlign[keyof typeof TooltipAlign];
 
 interface TooltipProps {
   content: React.ReactNode;
   children: React.ReactNode;
   className?: string;
-  position?: 'top' | 'bottom';
+  position?: TooltipPosition;
+  align?: TooltipAlign;
   delay?: number;
   maxWidth?: string;
   disabled?: boolean;
@@ -14,12 +28,23 @@ const Tooltip: React.FC<TooltipProps> = ({
   content,
   children,
   className = '',
-  position = 'bottom',
+  position = TooltipPosition.Bottom,
+  align = TooltipAlign.Center,
   delay = 400,
+  maxWidth = '18rem',
   disabled = false,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const positionClassName = position === TooltipPosition.Top
+    ? 'bottom-full mb-2'
+    : 'top-full mt-2';
+  const alignClassName = align === TooltipAlign.Start
+    ? 'left-0'
+    : align === TooltipAlign.End
+      ? 'right-0'
+      : 'left-1/2 -translate-x-1/2';
 
   const showTooltip = useCallback(() => {
     if (disabled) return;
@@ -45,11 +70,11 @@ const Tooltip: React.FC<TooltipProps> = ({
       {children}
       {isVisible && content && (
         <div
-          className={`absolute z-[100] px-2 py-1 text-xs rounded shadow-lg
-            bg-gray-800 text-white
-            pointer-events-none whitespace-pre-wrap
-            left-0 right-0
-            ${position === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'}`}
+          role="tooltip"
+          style={{ maxWidth }}
+          className={`absolute z-[100] pointer-events-none rounded-md border border-border
+            bg-surface-overlay px-2 py-1 text-[11px] leading-4 text-foreground shadow-lg
+            whitespace-nowrap backdrop-blur-sm ${positionClassName} ${alignClassName}`}
         >
           {content}
         </div>

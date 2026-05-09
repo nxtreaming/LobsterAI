@@ -1,3 +1,4 @@
+import { ShareIcon } from '@heroicons/react/20/solid';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -5,6 +6,7 @@ import { i18nService } from '../../services/i18n';
 import Modal from '../common/Modal';
 import EllipsisHorizontalIcon from '../icons/EllipsisHorizontalIcon';
 import ListChecksIcon from '../icons/ListChecksIcon';
+import LoadingIcon from '../icons/LoadingIcon';
 import PencilSquareIcon from '../icons/PencilSquareIcon';
 import PushPinIcon from '../icons/PushPinIcon';
 import TrashIcon from '../icons/TrashIcon';
@@ -19,6 +21,7 @@ interface AgentTaskRowProps {
   showBatchOption?: boolean;
   onSelect: () => void;
   onDelete: () => Promise<void>;
+  onShare: () => Promise<void>;
   onTogglePin: (pinned: boolean) => Promise<void>;
   onRename: (title: string) => Promise<void>;
   onToggleSelection: () => void;
@@ -27,8 +30,8 @@ interface AgentTaskRowProps {
 
 const ACTION_MENU_VIEWPORT_PADDING = 8;
 const ACTION_MENU_VERTICAL_GAP = 4;
-const ACTION_MENU_HEIGHT = 132;
-const ACTION_MENU_WITH_BATCH_HEIGHT = 164;
+const ACTION_MENU_HEIGHT = 164;
+const ACTION_MENU_WITH_BATCH_HEIGHT = 196;
 
 const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
   task,
@@ -37,6 +40,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
   showBatchOption = false,
   onSelect,
   onDelete,
+  onShare,
   onTogglePin,
   onRename,
   onToggleSelection,
@@ -166,8 +170,6 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
     : i18nService.t('myAgentSidebarUnreadResult');
   const menuItemClassName =
     'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
-  const dangerMenuItemClassName =
-    'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-red-500 transition-colors hover:bg-red-500/10';
   const menuIconClassName = 'h-3.5 w-3.5';
   const relativeTime = formatAgentTaskRelativeTime(task.updatedAt || task.createdAt);
   const showRelativeTime = task.indicator === AgentSidebarIndicator.None;
@@ -254,21 +256,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
               title={indicatorLabel}
               aria-label={indicatorLabel}
             >
-              <svg className="h-3 w-3 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                />
-              </svg>
+              <LoadingIcon className="h-3 w-3 animate-spin text-secondary" aria-hidden="true" />
             </span>
           )}
           {task.indicator === AgentSidebarIndicator.CompletedUnread && (
@@ -356,9 +344,22 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
             onClick={(event) => {
               event.stopPropagation();
               closeMenu();
+              void onShare();
+            }}
+            className={menuItemClassName}
+            role="menuitem"
+          >
+            <ShareIcon className={menuIconClassName} />
+            {i18nService.t('coworkShareSession')}
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              closeMenu();
               setShowConfirmDelete(true);
             }}
-            className={dangerMenuItemClassName}
+            className={menuItemClassName}
             role="menuitem"
           >
             <TrashIcon className={menuIconClassName} />

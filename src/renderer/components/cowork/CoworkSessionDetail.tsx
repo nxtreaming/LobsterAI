@@ -1,4 +1,3 @@
-import { ShareIcon } from '@heroicons/react/20/solid';
 import {
   CheckIcon,
   ChevronRightIcon,
@@ -25,8 +24,11 @@ import {
 import {
   addArtifact,
   closePanel,
+  MAX_PANEL_WIDTH,
+  MIN_PANEL_WIDTH,
   selectArtifact,
   selectIsPanelOpen,
+  selectPanelWidth,
   selectSessionArtifacts,
   togglePanel,
 } from '../../store/slices/artifactSlice';
@@ -39,27 +41,23 @@ import { getCompactFolderName } from '../../utils/path';
 import { formatMessageDateTime } from '../../utils/tokenFormat';
 import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
 import { ArtifactPanel, ArtifactPreviewCard } from '../artifacts';
-import Modal from '../common/Modal';
 import ComposeIcon from '../icons/ComposeIcon';
-import EllipsisHorizontalIcon from '../icons/EllipsisHorizontalIcon';
+import CopyIcon from '../icons/CopyIcon';
 import ExclamationTriangleIcon from '../icons/ExclamationTriangleIcon';
 import InformationCircleIcon from '../icons/InformationCircleIcon';
-import PencilSquareIcon from '../icons/PencilSquareIcon';
-import PushPinIcon from '../icons/PushPinIcon';
 import PuzzleIcon from '../icons/PuzzleIcon';
 import SidebarToggleIcon from '../icons/SidebarToggleIcon';
-import TrashIcon from '../icons/TrashIcon';
 import MarkdownContent from '../MarkdownContent';
 import WindowTitleBar from '../window/WindowTitleBar';
+import { type CoworkOpenShareOptionsEventDetail,CoworkUiEvent } from './constants';
 import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInput';
 import DiffView, { extractDiffFromToolInput } from './DiffView';
+import ImagePreviewModal, { type ImagePreviewSource } from './ImagePreviewModal';
 import LazyRenderTurn, { clearHeightCache } from './LazyRenderTurn';
 interface CoworkSessionDetailProps {
   onManageSkills?: () => void;
   onContinue: (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[]) => boolean | void | Promise<boolean | void>;
   onStop: () => void;
-  onDeleteSession?: (sessionId: string) => Promise<void>;
-  onNavigateHome?: () => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   onNewChat?: () => void;
@@ -69,6 +67,10 @@ interface CoworkSessionDetailProps {
 const AUTO_SCROLL_THRESHOLD = 120;
 const NAV_SCROLL_LOCK_DURATION = 800;
 const NAV_BOTTOM_SNAP_THRESHOLD = 20;
+const ARTIFACT_PANEL_TRANSITION_MS = 200;
+const ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH = 4;
+const COWORK_DETAIL_MIN_WIDTH = 480;
+const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
 const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
 
 const sanitizeExportFileName = (value: string): string => {
@@ -1158,22 +1160,7 @@ const CopyButton: React.FC<{
           <polyline points="20 6 9 17 4 12"></polyline>
         </svg>
       ) : (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="w-4 h-4 text-[var(--icon-secondary)]"
-          aria-hidden="true"
-        >
-          <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
-          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
-        </svg>
+        <CopyIcon className="w-4 h-4 text-[var(--icon-secondary)]" />
       )}
     </button>
   );
@@ -1222,7 +1209,7 @@ export const UserMessageItem: React.FC<{
   onReEdit?: (message: CoworkMessage) => void;
 }> = React.memo(({ message, skills, onReEdit }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
   const modelLabel = getMessageModelLabel(message.metadata);
   const handleBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
@@ -1233,13 +1220,6 @@ export const UserMessageItem: React.FC<{
     if (hasFocusWithin(event.currentTarget)) return;
     setIsHovered(false);
   }, []);
-
-  useEffect(() => {
-    if (!expandedImage) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpandedImage(null); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [expandedImage]);
 
   // Transform content for display: strip IM media metadata, render images inline
   const displayContent = useMemo(
@@ -1286,7 +1266,11 @@ export const UserMessageItem: React.FC<{
                           alt={img.name}
                           className="max-h-48 max-w-[16rem] rounded-lg object-contain cursor-pointer border border-border hover:border-primary transition-colors"
                           title={img.name}
-                          onClick={() => setExpandedImage(`data:${img.mimeType};base64,${img.base64Data}`)}
+                          onClick={() => setExpandedImage({
+                            src: `data:${img.mimeType};base64,${img.base64Data}`,
+                            alt: img.name,
+                            name: img.name,
+                          })}
                         />
                         <div className="absolute bottom-1 left-1 right-1 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/50 text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity truncate pointer-events-none">
                           <PhotoIcon className="h-3 w-3 flex-shrink-0" />
@@ -1331,20 +1315,7 @@ export const UserMessageItem: React.FC<{
           </div>
         </div>
       </div>
-      {/* Image lightbox overlay */}
-      {expandedImage && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 cursor-pointer"
-          onClick={() => setExpandedImage(null)}
-        >
-          <img
-            src={expandedImage}
-            alt="Preview"
-            className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+      <ImagePreviewModal image={expandedImage} onClose={() => setExpandedImage(null)} />
     </div>
   );
 });
@@ -1363,7 +1334,7 @@ const AssistantMessageItem: React.FC<{
   turnMetadata,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
   const displayContent = mapDisplayText ? mapDisplayText(message.content) : message.content;
   const modelLabel = getMessageModelLabel(turnMetadata);
   const handleBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
@@ -1375,13 +1346,6 @@ const AssistantMessageItem: React.FC<{
     if (hasFocusWithin(event.currentTarget)) return;
     setIsHovered(false);
   }, []);
-
-  useEffect(() => {
-    if (!expandedImage) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpandedImage(null); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [expandedImage]);
 
   return (
     <div
@@ -1411,19 +1375,7 @@ const AssistantMessageItem: React.FC<{
           />
         </div>
       )}
-      {expandedImage && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 cursor-pointer"
-          onClick={() => setExpandedImage(null)}
-        >
-          <img
-            src={expandedImage}
-            alt="Preview"
-            className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+      <ImagePreviewModal image={expandedImage} onClose={() => setExpandedImage(null)} />
     </div>
   );
 };
@@ -1702,8 +1654,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   onManageSkills,
   onContinue,
   onStop,
-  onDeleteSession,
-  onNavigateHome,
   isSidebarCollapsed,
   onToggleSidebar,
   onNewChat,
@@ -1746,49 +1696,101 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [isRailHovered, setIsRailHovered] = useState(false);
   const [railTooltip, setRailTooltip] = useState<{ label: string; top: number; right: number; isUser: boolean } | null>(null);
 
-  // Menu and action states
-  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const actionButtonRef = useRef<HTMLButtonElement>(null);
-  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  // Export states
   const [isExportingImage, setIsExportingImage] = useState(false);
   const [showExportOptions, setShowExportOptions] = useState(false);
-
-  // Rename states
-  const [isRenaming, setIsRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState('');
-  const renameInputRef = useRef<HTMLInputElement>(null);
-  const ignoreNextBlurRef = useRef(false);
-
-  // Reset rename value when session changes
-  useEffect(() => {
-    if (!isRenaming && currentSession) {
-      setRenameValue(currentSession.title);
-      ignoreNextBlurRef.current = false;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRenaming, currentSession?.title]);
 
   useEffect(() => {
     setShouldAutoScroll(true);
   }, [currentSession?.id]);
 
-  // Focus rename input when entering rename mode
-  useEffect(() => {
-    if (!isRenaming) return;
-    requestAnimationFrame(() => {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
-    });
-  }, [isRenaming]);
-
   // ─── Artifact detection ─────────────────────────────────────────────
   const isPanelOpen = useSelector(selectIsPanelOpen);
+  const panelWidth = useSelector(selectPanelWidth);
+  const [shouldRenderArtifactPanel, setShouldRenderArtifactPanel] = useState(isPanelOpen);
+  const [isArtifactPanelVisible, setIsArtifactPanelVisible] = useState(isPanelOpen);
+  const [isArtifactPanelTransitioning, setIsArtifactPanelTransitioning] = useState(false);
+  const [artifactPanelMinWidth, setArtifactPanelMinWidth] = useState(MIN_PANEL_WIDTH);
+  const [artifactPanelMaxWidth, setArtifactPanelMaxWidth] = useState(MAX_PANEL_WIDTH);
+  const previousArtifactPanelOpenRef = useRef(isPanelOpen);
+  const contentRowRef = useRef<HTMLDivElement>(null);
   const sessionArtifacts = useSelector((state: RootState) =>
     sessionId ? selectSessionArtifacts(state, sessionId) : []
   );
 
   const loadedFileIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    let animationFrame: number | undefined;
+    let transitionTimeout: number | undefined;
+    const wasOpen = previousArtifactPanelOpenRef.current;
+
+    previousArtifactPanelOpenRef.current = isPanelOpen;
+
+    if (wasOpen === isPanelOpen) {
+      return undefined;
+    }
+
+    if (isPanelOpen) {
+      setShouldRenderArtifactPanel(true);
+      setIsArtifactPanelVisible(false);
+      setIsArtifactPanelTransitioning(true);
+      animationFrame = window.requestAnimationFrame(() => {
+        animationFrame = window.requestAnimationFrame(() => {
+          setIsArtifactPanelVisible(true);
+          transitionTimeout = window.setTimeout(() => {
+            setIsArtifactPanelTransitioning(false);
+          }, ARTIFACT_PANEL_TRANSITION_MS);
+        });
+      });
+    } else {
+      setIsArtifactPanelTransitioning(true);
+      setIsArtifactPanelVisible(false);
+      transitionTimeout = window.setTimeout(() => {
+        setShouldRenderArtifactPanel(false);
+        setIsArtifactPanelTransitioning(false);
+      }, ARTIFACT_PANEL_TRANSITION_MS);
+    }
+
+    return () => {
+      if (animationFrame !== undefined) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+      if (transitionTimeout !== undefined) {
+        window.clearTimeout(transitionTimeout);
+      }
+    };
+  }, [isPanelOpen]);
+
+  const updateArtifactPanelMaxWidth = useCallback(() => {
+    const contentWidth = contentRowRef.current?.clientWidth ?? 0;
+    if (contentWidth <= 0) return;
+    const availablePanelWidth = contentWidth - COWORK_DETAIL_MIN_WIDTH - ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH;
+    const nextMaxWidth = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, availablePanelWidth));
+    const proportionalMinWidth = Math.floor(contentWidth * ARTIFACT_PANEL_MIN_WIDTH_RATIO);
+    const nextMinWidth = Math.min(nextMaxWidth, Math.max(MIN_PANEL_WIDTH, proportionalMinWidth));
+    setArtifactPanelMinWidth(nextMinWidth);
+    setArtifactPanelMaxWidth(nextMaxWidth);
+  }, []);
+
+  useLayoutEffect(() => {
+    updateArtifactPanelMaxWidth();
+    const container = contentRowRef.current;
+    window.addEventListener('resize', updateArtifactPanelMaxWidth);
+
+    if (typeof ResizeObserver === 'undefined' || !container) {
+      return () => {
+        window.removeEventListener('resize', updateArtifactPanelMaxWidth);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(updateArtifactPanelMaxWidth);
+    resizeObserver.observe(container);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateArtifactPanelMaxWidth);
+    };
+  }, [currentSession?.id, updateArtifactPanelMaxWidth]);
 
   useEffect(() => {
     dispatch(selectArtifact(null));
@@ -2003,71 +2005,23 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setHoveredRailIndex(null);
   }, [currentSession?.id]);
 
-  const closeMenu = useCallback(() => {
-    setMenuPosition(null);
-    setShowConfirmDelete(false);
-  }, []);
-
-  // Close menu on outside click
   useEffect(() => {
-    if (!menuPosition) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!menuRef.current?.contains(target) && !actionButtonRef.current?.contains(target)) {
-        closeMenu();
-      }
+    const handleOpenShareOptions = (event: Event) => {
+      const detail = (event as CustomEvent<CoworkOpenShareOptionsEventDetail>).detail;
+      if (!detail?.sessionId || detail.sessionId !== currentSession?.id) return;
+      setShowExportOptions(true);
     };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeMenu();
-      }
-    };
-    const handleScroll = () => closeMenu();
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    window.addEventListener('scroll', handleScroll, true);
-    window.addEventListener('resize', handleScroll);
+
+    window.addEventListener(CoworkUiEvent.OpenShareOptions, handleOpenShareOptions);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-      window.removeEventListener('scroll', handleScroll, true);
-      window.removeEventListener('resize', handleScroll);
+      window.removeEventListener(CoworkUiEvent.OpenShareOptions, handleOpenShareOptions);
     };
-  }, [menuPosition, closeMenu]);
+  }, [currentSession?.id]);
 
   // Helper: truncate path for display
   const truncatePath = (path: string, maxLength = 20): string => {
     if (!path) return i18nService.t('noFolderSelected');
     return getCompactFolderName(path, maxLength) || i18nService.t('noFolderSelected');
-  };
-
-  // Menu position calculator
-  const calculateMenuPosition = (height: number) => {
-    const rect = actionButtonRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    const menuWidth = 180;
-    const padding = 8;
-    const x = Math.min(
-      Math.max(padding, rect.right - menuWidth),
-      window.innerWidth - menuWidth - padding
-    );
-    const y = Math.min(rect.bottom + 8, window.innerHeight - height - padding);
-    return { x, y };
-  };
-
-  const openMenu = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isRenaming) return;
-    if (menuPosition) {
-      closeMenu();
-      return;
-    }
-    const menuHeight = 160;
-    const position = calculateMenuPosition(menuHeight);
-    if (position) {
-      setMenuPosition(position);
-    }
-    setShowConfirmDelete(false);
   };
 
   // Open folder in Finder/Explorer
@@ -2079,60 +2033,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       console.error('Failed to open folder:', error);
     }
   }, [currentSession?.cwd]);
-
-  // Rename handlers
-  const handleRenameClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!currentSession) return;
-    ignoreNextBlurRef.current = false;
-    setIsRenaming(true);
-    setShowConfirmDelete(false);
-    setRenameValue(currentSession.title);
-    setMenuPosition(null);
-  };
-
-  const handleRenameSave = async (e?: React.SyntheticEvent) => {
-    e?.stopPropagation();
-    if (!currentSession) return;
-    ignoreNextBlurRef.current = true;
-    const nextTitle = renameValue.trim();
-    if (nextTitle && nextTitle !== currentSession.title) {
-      await coworkService.renameSession(currentSession.id, nextTitle);
-    }
-    setIsRenaming(false);
-  };
-
-  const handleRenameCancel = (e?: React.MouseEvent | React.KeyboardEvent) => {
-    e?.stopPropagation();
-    ignoreNextBlurRef.current = true;
-    if (currentSession) {
-      setRenameValue(currentSession.title);
-    }
-    setIsRenaming(false);
-  };
-
-  const handleRenameBlur = (event: React.FocusEvent<HTMLInputElement>) => {
-    if (ignoreNextBlurRef.current) {
-      ignoreNextBlurRef.current = false;
-      return;
-    }
-    handleRenameSave(event);
-  };
-
-  // Pin/unpin handler
-  const handleTogglePin = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!currentSession) return;
-    await coworkService.setSessionPinned(currentSession.id, !currentSession.pinned);
-    closeMenu();
-  };
-
-  // Delete handlers
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowConfirmDelete(true);
-    setMenuPosition(null);
-  };
 
   const sessionToMarkdown = useCallback((): string => {
     if (!currentSession) return '';
@@ -2194,7 +2094,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
   const handleExportText = useCallback(async (format: 'md' | 'json') => {
     if (!currentSession) return;
-    closeMenu();
     const content = format === 'md' ? sessionToMarkdown() : sessionToJSON();
     const timestamp = new Date().toISOString().slice(0, 10);
     const fileName = sanitizeExportFileName(`${currentSession.title}-${timestamp}.${format}`);
@@ -2217,12 +2116,11 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         detail: i18nService.t('coworkExportTextFailed'),
       }));
     }
-  }, [currentSession, closeMenu, sessionToMarkdown, sessionToJSON]);
+  }, [currentSession, sessionToMarkdown, sessionToJSON]);
 
   const handleShareClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!currentSession || isExportingImage) return;
-    closeMenu();
     setIsExportingImage(true);
 
     window.requestAnimationFrame(() => {
@@ -2380,24 +2278,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         }
       })();
     });
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!currentSession) return;
-    if (onDeleteSession) {
-      await onDeleteSession(currentSession.id);
-    } else {
-      await coworkService.deleteSession(currentSession.id);
-    }
-    setShowConfirmDelete(false);
-    if (onNavigateHome) {
-      onNavigateHome();
-    }
-  };
-
-  const handleCancelDelete = (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setShowConfirmDelete(false);
   };
 
   const handleMessagesScroll = useCallback(() => {
@@ -2682,6 +2562,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     return null;
   }
 
+  const artifactPanelFrameWidth = isArtifactPanelVisible
+    ? Math.max(artifactPanelMinWidth, Math.min(panelWidth, artifactPanelMaxWidth)) + ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH
+    : 0;
+
   const renderConversationTurns = () => {
     let railCounter = 0;
     if (turns.length === 0) {
@@ -2761,7 +2645,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       {/* Header — spans full width */}
-      <div className="draggable flex h-12 items-center justify-between px-4 border-b border-border bg-surface shrink-0">
+      <div className="draggable flex h-12 items-center justify-between px-4 border-b border-border bg-background shrink-0">
         {/* Left side: Toggle buttons (when collapsed) + Title */}
         <div className="flex h-full items-center gap-2 min-w-0">
           {isSidebarCollapsed && (
@@ -2783,31 +2667,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               {updateBadge}
             </div>
           )}
-          {isRenaming ? (
-            <input
-              ref={renameInputRef}
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleRenameSave(e);
-                }
-                if (e.key === 'Escape') {
-                  handleRenameCancel(e);
-                }
-              }}
-              onBlur={handleRenameBlur}
-              className="non-draggable min-w-0 max-w-[300px] rounded-lg border border-border bg-background px-2 py-1 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          ) : (
-            <h1 className="text-sm leading-none font-medium text-foreground truncate max-w-[360px]">
-              {currentSession.title || i18nService.t('coworkNewSession')}
-            </h1>
-          )}
+          <h1 className="text-sm leading-none font-medium text-foreground truncate max-w-[360px]">
+            {currentSession.title || i18nService.t('coworkNewSession')}
+          </h1>
         </div>
 
-        {/* Right side: Folder + Menu + Artifact toggle */}
+        {/* Right side: Folder + Artifact toggle */}
         <div className="non-draggable flex items-center gap-1">
           {/* Folder button */}
           <button
@@ -2820,17 +2685,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             <span className="max-w-[120px] truncate text-xs">
               {truncatePath(currentSession.cwd)}
             </span>
-          </button>
-
-          {/* Menu button */}
-          <button
-            ref={actionButtonRef}
-            type="button"
-            onClick={openMenu}
-            className="p-1.5 rounded-lg text-secondary hover:bg-surface-raised transition-colors"
-            aria-label={i18nService.t('coworkSessionActions')}
-          >
-            <EllipsisHorizontalIcon className="h-5 w-5" />
           </button>
 
           {/* Artifact panel toggle */}
@@ -2846,53 +2700,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           <WindowTitleBar inline className="ml-1" />
         </div>
       </div>
-
-      {/* Floating Menu */}
-      {menuPosition && (
-        <div
-          ref={menuRef}
-          className="fixed z-50 min-w-[180px] rounded-xl border border-border bg-surface shadow-popover popover-enter overflow-hidden"
-          style={{ top: menuPosition.y, left: menuPosition.x }}
-          role="menu"
-        >
-          <button
-            type="button"
-            onClick={handleRenameClick}
-            className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-surface-raised transition-colors"
-          >
-            <PencilSquareIcon className="h-4 w-4 text-secondary" />
-            {i18nService.t('renameConversation')}
-          </button>
-          <button
-            type="button"
-            onClick={handleTogglePin}
-            className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-surface-raised transition-colors"
-          >
-            <PushPinIcon
-              slashed={currentSession.pinned}
-              className={`h-[18px] w-[18px] text-secondary ${currentSession.pinned ? 'opacity-60' : ''}`}
-            />
-            {currentSession.pinned ? i18nService.t('coworkUnpinSession') : i18nService.t('coworkPinSession')}
-          </button>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); closeMenu(); setShowExportOptions(true); }}
-            disabled={isExportingImage}
-            className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm dark:text-claude-darkText text-claude-text hover:bg-claude-surfaceHover dark:hover:bg-claude-darkSurfaceHover transition-colors"
-          >
-            <ShareIcon className="h-4 w-4 text-secondary" />
-            {i18nService.t('coworkShareSession')}
-          </button>
-          <button
-            type="button"
-            onClick={handleDeleteClick}
-            className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-red-500 hover:bg-red-500/10 transition-colors"
-          >
-            <TrashIcon className="h-4 w-4" />
-            {i18nService.t('deleteSession')}
-          </button>
-        </div>
-      )}
 
       {/* Export Options Modal */}
       {showExportOptions && (
@@ -2949,47 +2756,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showConfirmDelete && (
-        <Modal onClose={handleCancelDelete} overlayClassName="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" className="w-full max-w-sm mx-4 bg-surface rounded-2xl shadow-modal overflow-hidden modal-content">
-            {/* Header */}
-            <div className="flex items-center gap-3 px-5 py-4">
-              <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/30">
-                <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-500" />
-              </div>
-              <h2 className="text-base font-semibold text-foreground">
-                {i18nService.t('deleteTaskConfirmTitle')}
-              </h2>
-            </div>
-
-            {/* Content */}
-            <div className="px-5 pb-4">
-              <p className="text-sm text-secondary">
-                {i18nService.t('deleteTaskConfirmMessage')}
-              </p>
-            </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-border">
-              <button
-                onClick={handleCancelDelete}
-                className="px-4 py-2 text-sm font-medium rounded-lg text-secondary hover:bg-surface-raised transition-colors"
-              >
-                {i18nService.t('cancel')}
-              </button>
-              <button
-                onClick={handleConfirmDelete}
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-red-500 hover:bg-red-600 text-white transition-colors"
-              >
-                {i18nService.t('deleteSession')}
-              </button>
-            </div>
-        </Modal>
-      )}
-
       {/* Content row: chat + artifact panel */}
-      <div className="flex-1 flex overflow-hidden">
-      <div ref={detailRootRef} className="flex-1 flex flex-col bg-background h-full" style={{ minWidth: 480 }}>
+      <div ref={contentRowRef} className="flex-1 flex overflow-hidden">
+      <div ref={detailRootRef} className="flex-1 flex flex-col bg-background h-full" style={{ minWidth: COWORK_DETAIL_MIN_WIDTH }}>
       <div className="relative flex-1 min-h-0">
         <div
           ref={scrollContainerRef}
@@ -3218,7 +2987,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
       {/* Input Area */}
       <div className="p-4 shrink-0">
-        <div className="max-w-5xl min-w-[320px] mx-auto">
+        <div className="max-w-5xl min-w-[320px] mx-auto pl-4">
           <CoworkPromptInput
             ref={promptInputRef}
             onSubmit={onContinue}
@@ -3232,16 +3001,38 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             showModelSelector={true}
             sessionId={currentSession?.id}
           />
+          <p className="text-center text-[11px] text-muted opacity-85 mt-2 mb-[-8px] select-none">
+            {i18nService.t('aiGeneratedDisclaimer')}
+          </p>
         </div>
-        <p className="text-center text-[11px] text-muted opacity-85 mt-2 mb-[-8px] select-none">
-          {i18nService.t('aiGeneratedDisclaimer')}
-        </p>
       </div>
     </div>
-    {isPanelOpen && (
-      <ArtifactPanelErrorBoundary onClose={() => dispatch(closePanel())}>
-        <ArtifactPanel artifacts={sessionArtifacts} />
-      </ArtifactPanelErrorBoundary>
+    {shouldRenderArtifactPanel && (
+      <div
+        className={`h-full shrink-0 overflow-hidden ${
+          isArtifactPanelTransitioning
+            ? 'transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none'
+            : ''
+        } ${isArtifactPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        style={{
+          width: artifactPanelFrameWidth,
+          maxWidth: artifactPanelMaxWidth + ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH,
+        }}
+        aria-hidden={!isPanelOpen}
+      >
+        <div
+          className="flex h-full"
+          style={{ width: artifactPanelFrameWidth }}
+        >
+          <ArtifactPanelErrorBoundary onClose={() => dispatch(closePanel())}>
+            <ArtifactPanel
+              artifacts={sessionArtifacts}
+              minPanelWidth={artifactPanelMinWidth}
+              maxPanelWidth={artifactPanelMaxWidth}
+            />
+          </ArtifactPanelErrorBoundary>
+        </div>
+      </div>
     )}
     </div>
     </div>

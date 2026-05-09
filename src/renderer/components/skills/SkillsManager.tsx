@@ -24,7 +24,7 @@ import PuzzleIcon from '../icons/PuzzleIcon';
 import SearchIcon from '../icons/SearchIcon';
 import TrashIcon from '../icons/TrashIcon';
 import UploadIcon from '../icons/UploadIcon';
-import Tooltip from '../ui/Tooltip';
+import Tooltip, { TooltipPosition } from '../ui/Tooltip';
 import SkillSecurityReport from './SkillSecurityReport';
 
 type SkillTab = 'installed' | 'marketplace';
@@ -772,7 +772,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
 
               <Tooltip
                 content={skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description)}
-                position="bottom"
+                position={TooltipPosition.Bottom}
                 maxWidth="360px"
                 className="block w-full"
               >
@@ -895,7 +895,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
 
                 <Tooltip
                   content={resolveLocalizedText(skill.description)}
-                  position="bottom"
+                  position={TooltipPosition.Bottom}
                   maxWidth="360px"
                   className="block w-full"
                 >

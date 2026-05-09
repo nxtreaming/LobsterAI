@@ -1,6 +1,7 @@
 export const AgentDetailTab = {
   Prompt: 'prompt',
   Identity: 'identity',
+  User: 'user',
   Skills: 'skills',
   Im: 'im',
 } as const;

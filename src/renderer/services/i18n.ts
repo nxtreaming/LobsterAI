@@ -786,7 +786,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     coworkExportTextSuccess: '导出成功',
     coworkExportTextFailed: '导出失败',
     coworkExportCreatedAt: '创建时间',
-    deleteSession: '删除任务',
+    deleteSession: '删除',
     turnIndex: '对话索引',
     deleteTaskConfirmTitle: '确认删除任务',
     deleteTaskConfirmMessage: '此操作无法撤销，任务的所有消息记录将被永久删除。',
@@ -2561,7 +2561,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     coworkExportTextSuccess: 'Exported successfully',
     coworkExportTextFailed: 'Export failed',
     coworkExportCreatedAt: 'Created at',
-    deleteSession: 'Delete Task',
+    deleteSession: 'Delete',
     turnIndex: 'Turn index',
     deleteTaskConfirmTitle: 'Confirm Deletion',
     deleteTaskConfirmMessage:

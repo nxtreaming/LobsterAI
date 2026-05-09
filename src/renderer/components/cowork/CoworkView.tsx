@@ -379,14 +379,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
     await coworkService.stopSession(currentSession.id);
   };
 
-  const handleDeleteSession = async (sessionId: string) => {
-    if (sessionId.startsWith('temp-') && pendingStartRef.current) {
-      pendingStartRef.current.cancelled = true;
-      pendingStartRef.current.cancellationAction = 'delete';
-    }
-    await coworkService.deleteSession(sessionId);
-  };
-
   // Get selected quick action
   const selectedAction = React.useMemo(() => {
     return quickActions.find(action => action.id === selectedActionId);
@@ -550,8 +542,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
           onManageSkills={() => onShowSkills?.()}
           onContinue={handleContinueSession}
           onStop={handleStopSession}
-          onDeleteSession={handleDeleteSession}
-          onNavigateHome={() => dispatch(clearCurrentSession())}
           isSidebarCollapsed={isSidebarCollapsed}
           onToggleSidebar={onToggleSidebar}
           onNewChat={onNewChat}
@@ -572,14 +562,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto min-h-0 relative">
-        {/* Gradient mesh background using theme gradient tokens */}
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(ellipse 60% 50% at 25% 20%, var(--lobster-gradient-1), transparent), radial-gradient(ellipse 50% 40% at 75% 70%, var(--lobster-gradient-2), transparent)',
-          }}
-        />
         <div className="relative max-w-5xl w-full min-w-[320px] mx-auto px-4 pt-[15vh] pb-8 space-y-10">
           {/* Welcome Section - staggered entrance animation */}
           <div className="text-center space-y-5">
@@ -603,7 +585,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
             className="max-w-3xl mx-auto w-full space-y-3 animate-fade-in-up"
             style={{ animationDelay: '200ms', animationFillMode: 'both' }}
           >
-            <div className="shadow-glow-accent rounded-2xl">
+            <div className="rounded-2xl">
               <CoworkPromptInput
                 ref={promptInputRef}
                 onSubmit={handleStartSession}

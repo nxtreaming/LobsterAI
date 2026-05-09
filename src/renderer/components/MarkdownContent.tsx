@@ -276,10 +276,10 @@ const findFallbackPathFromContext = (
 const createMarkdownComponents = (
   resolveLocalFilePath?: (href: string, text: string) => string | null,
   showRevealInFolderAction = false,
-  onImageClick?: (src: string) => void,
+  onImageClick?: (image: { src: string; alt?: string | null }) => void,
 ) => ({
   p: ({ node: _node, className: _className, children, ...props }: any) => (
-    <p className="my-1 first:mt-0 last:mb-0 leading-6 text-foreground" {...props}>
+    <p className="my-1 first:mt-0 last:mb-0 leading-[23px] text-foreground/90" {...props}>
       {children}
     </p>
   ),
@@ -304,24 +304,27 @@ const createMarkdownComponents = (
     </h3>
   ),
   ul: ({ node: _node, className: _className, children, ...props }: any) => (
-    <ul className="list-disc pl-5 my-1.5 text-foreground" {...props}>
+    <ul className="list-disc pl-5 my-1.5 text-foreground/90" {...props}>
       {children}
     </ul>
   ),
   ol: ({ node: _node, className: _className, children, ...props }: any) => (
-    <ol className="list-decimal pl-6 my-1.5 text-foreground" {...props}>
+    <ol className="list-decimal pl-6 my-1.5 text-foreground/90" {...props}>
       {children}
     </ol>
   ),
   li: ({ node: _node, className: _className, children, ...props }: any) => (
-    <li className="my-0.5 leading-6 text-foreground" {...props}>
+    <li className="my-0.5 leading-[23px] text-foreground/90" {...props}>
       {children}
     </li>
   ),
   blockquote: ({ node: _node, className: _className, children, ...props }: any) => (
-    <blockquote className="border-l-4 border-primary pl-4 py-1 my-2 bg-surface-raised/30 rounded-r-lg text-foreground" {...props}>
+    <blockquote className="border-l-4 border-primary pl-4 py-1 my-2 bg-surface-raised/30 rounded-r-lg text-foreground/90" {...props}>
       {children}
     </blockquote>
+  ),
+  pre: ({ node: _node, className: _className, children }: any) => (
+    <>{children}</>
   ),
   code: CodeBlock,
   table: ({ node: _node, className: _className, children, ...props }: any) => (
@@ -352,7 +355,7 @@ const createMarkdownComponents = (
     </th>
   ),
   td: ({ node: _node, className: _className, children, ...props }: any) => (
-    <td className="px-4 py-2 text-foreground" {...props}>
+    <td className="px-4 py-2 text-foreground/90" {...props}>
       {children}
     </td>
   ),
@@ -370,7 +373,7 @@ const createMarkdownComponents = (
         className={`max-w-full max-h-96 object-contain rounded-xl my-4${onImageClick ? ' cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
         src={resolvedSrc}
         alt={alt}
-        onClick={onImageClick && resolvedSrc ? () => onImageClick(resolvedSrc) : undefined}
+        onClick={onImageClick && resolvedSrc ? () => onImageClick({ src: resolvedSrc, alt }) : undefined}
         {...props}
       />
     );
@@ -540,7 +543,7 @@ interface MarkdownContentProps {
   className?: string;
   resolveLocalFilePath?: (href: string, text: string) => string | null;
   showRevealInFolderAction?: boolean;
-  onImageClick?: (src: string) => void;
+  onImageClick?: (image: { src: string; alt?: string | null }) => void;
 }
 
 const MarkdownContent: React.FC<MarkdownContentProps> = ({
@@ -556,7 +559,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
   );
   const normalizedContent = useMemo(() => normalizeDisplayMath(encodeFileUrlsInMarkdown(content)), [content]);
   return (
-    <div className={`markdown-content text-[15px] leading-6 ${className}`}>
+    <div className={`markdown-content text-[15px] leading-[23px] ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}

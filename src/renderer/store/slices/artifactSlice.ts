@@ -5,7 +5,7 @@ import type { Artifact } from '../../types/artifact';
 import type { RootState } from '../index';
 
 const DEFAULT_PANEL_WIDTH = 560;
-const MIN_PANEL_WIDTH = 420;
+const MIN_PANEL_WIDTH = 180;
 const MAX_PANEL_WIDTH = 1000;
 
 export type ArtifactPanelView = 'files' | 'preview';

@@ -29,6 +29,7 @@ interface AgentTreeNodeProps {
   onCollapseTasks: (agentId: string) => void;
   onSelectTask: (task: AgentSidebarTaskNode) => void;
   onDeleteTask: (task: AgentSidebarTaskNode) => Promise<void>;
+  onShareTask: (task: AgentSidebarTaskNode) => Promise<void>;
   onToggleTaskPin: (task: AgentSidebarTaskNode, pinned: boolean) => Promise<void>;
   onRenameTask: (task: AgentSidebarTaskNode, title: string) => Promise<void>;
   onToggleSelection: (sessionId: string) => void;
@@ -71,6 +72,7 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
   onCollapseTasks,
   onSelectTask,
   onDeleteTask,
+  onShareTask,
   onToggleTaskPin,
   onRenameTask,
   onToggleSelection,
@@ -389,6 +391,7 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
                   showBatchOption={showBatchOption}
                   onSelect={() => onSelectTask(task)}
                   onDelete={() => onDeleteTask(task)}
+                  onShare={() => onShareTask(task)}
                   onTogglePin={(pinned) => onToggleTaskPin(task, pinned)}
                   onRename={(title) => onRenameTask(task, title)}
                   onToggleSelection={() => onToggleSelection(task.id)}

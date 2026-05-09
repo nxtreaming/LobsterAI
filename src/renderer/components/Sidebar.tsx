@@ -42,6 +42,7 @@ interface SidebarProps {
 const DEFAULT_SIDEBAR_WIDTH = 244;
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
+const SIDEBAR_COLLAPSE_TRANSITION_MS = 200;
 const sidebarNavItemClassName =
   'w-full inline-flex h-7 items-center gap-2 rounded-md px-1.5 text-left text-[14px] font-normal text-foreground/80 transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
 const activeSidebarNavItemClassName =
@@ -70,9 +71,12 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
+  const [agentScrollEdges, setAgentScrollEdges] = useState({ top: false, bottom: false });
   const isResizingRef = useRef(false);
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
+  const agentScrollContainerRef = useRef<HTMLDivElement>(null);
   const isMac = window.electron.platform === 'darwin';
 
   useEffect(() => {
@@ -115,6 +119,32 @@ const Sidebar: React.FC<SidebarProps> = ({
     setShowBatchDeleteConfirm(false);
   }, []);
 
+  const updateAgentScrollEdges = useCallback((element: HTMLDivElement | null) => {
+    if (!element) {
+      setAgentScrollEdges((previousEdges) => (
+        previousEdges.top || previousEdges.bottom ? { top: false, bottom: false } : previousEdges
+      ));
+      return;
+    }
+
+    const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    const nextEdges = {
+      top: element.scrollTop > 1,
+      bottom: maxScrollTop - element.scrollTop > 1,
+    };
+
+    setAgentScrollEdges((previousEdges) => {
+      if (previousEdges.top === nextEdges.top && previousEdges.bottom === nextEdges.bottom) {
+        return previousEdges;
+      }
+      return nextEdges;
+    });
+  }, []);
+
+  const handleAgentScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    updateAgentScrollEdges(event.currentTarget);
+  }, [updateAgentScrollEdges]);
+
   const handleToggleSelection = useCallback((sessionId: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -152,6 +182,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (isCollapsed) return;
     event.preventDefault();
     isResizingRef.current = true;
+    setIsResizing(true);
     resizeStartXRef.current = event.clientX;
     resizeStartWidthRef.current = sidebarWidth;
     document.body.classList.add('select-none');
@@ -161,6 +192,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       const nextWidth = resizeStartWidthRef.current + moveEvent.clientX - resizeStartXRef.current;
       if (nextWidth < MIN_SIDEBAR_WIDTH) {
         isResizingRef.current = false;
+        setIsResizing(false);
         document.body.classList.remove('select-none');
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
@@ -172,6 +204,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
     const handleMouseUp = () => {
       isResizingRef.current = false;
+      setIsResizing(false);
       document.body.classList.remove('select-none');
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
@@ -187,11 +220,39 @@ const Sidebar: React.FC<SidebarProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    const element = agentScrollContainerRef.current;
+    if (!element) return;
+
+    updateAgentScrollEdges(element);
+
+    const resizeObserver = new ResizeObserver(() => updateAgentScrollEdges(element));
+    resizeObserver.observe(element);
+    if (element.firstElementChild) {
+      resizeObserver.observe(element.firstElementChild);
+    }
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [updateAgentScrollEdges]);
+
   return (
     <aside
-      className="relative shrink-0 bg-surface-raised flex flex-col sidebar-transition overflow-hidden"
+      className={`relative shrink-0 overflow-hidden bg-surface-raised ${
+        isResizing ? '' : 'sidebar-transition'
+      }`}
       style={{ width: isCollapsed ? 0 : sidebarWidth }}
     >
+      <div
+        className={`flex h-full flex-col transition-opacity ease-out ${
+          isCollapsed ? 'pointer-events-none opacity-0' : 'opacity-100'
+        }`}
+        style={{
+          width: sidebarWidth,
+          transitionDuration: `${SIDEBAR_COLLAPSE_TRANSITION_MS}ms`,
+        }}
+      >
       <div className="pt-3 pb-3">
         <div className="draggable sidebar-header-drag h-8 flex items-center justify-between px-3">
           <div className={`${isMac ? 'pl-[68px]' : ''}`}>{updateBadge}</div>
@@ -262,13 +323,34 @@ const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
       </div>
-      <div className="scrollbar-hidden flex-1 overflow-y-auto px-2.5 pb-4">
-        <MyAgentSidebarTree
-          isBatchMode={isBatchMode}
-          selectedIds={selectedIds}
-          onShowCowork={onShowCowork}
-          onToggleSelection={handleToggleSelection}
-          onEnterBatchMode={handleEnterBatchMode}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={agentScrollContainerRef}
+          className="scrollbar-hidden h-full overflow-y-auto px-2.5 pb-10"
+          onScroll={handleAgentScroll}
+        >
+          <MyAgentSidebarTree
+            isBatchMode={isBatchMode}
+            selectedIds={selectedIds}
+            onShowCowork={onShowCowork}
+            onToggleSelection={handleToggleSelection}
+            onEnterBatchMode={handleEnterBatchMode}
+          />
+        </div>
+        <div
+          className={`pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-surface-raised to-transparent transition-opacity duration-150 ${
+            agentScrollEdges.top ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+        <div
+          className={`pointer-events-none absolute inset-x-0 top-[68px] z-10 h-10 bg-gradient-to-b from-surface-raised to-transparent transition-opacity duration-150 ${
+            agentScrollEdges.top ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+        <div
+          className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 h-16 bg-gradient-to-t from-surface-raised to-transparent transition-opacity duration-150 ${
+            agentScrollEdges.bottom ? 'opacity-100' : 'opacity-0'
+          }`}
         />
       </div>
       {!isCollapsed && (
@@ -373,6 +455,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </Modal>
       )}
+      </div>
     </aside>
   );
 };

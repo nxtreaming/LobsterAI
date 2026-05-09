@@ -3228,7 +3228,7 @@ if (!gotTheLock) {
   ipcMain.handle(AgentIpcChannel.Create, async (_event, request: import('./coworkStore').CreateAgentRequest) => {
     try {
       const agent = getAgentManager().createAgent(request, resolveDefaultAgentModelRef());
-      // Sync config so workspace files (SOUL.md, IDENTITY.md) are written
+      // Sync config so workspace files (SOUL.md, IDENTITY.md, USER.md) are written
       // before OpenClaw scaffolds default templates for the new agent.
       syncOpenClawConfig({ reason: 'agent-created' }).catch((err) => {
         console.error('[OpenClaw] config sync after agent-created failed:', err);
@@ -3697,6 +3697,9 @@ if (!gotTheLock) {
     try {
       const mainWorkspace = getMainAgentWorkspacePath(getOpenClawEngineManager().getStateDir());
       writeBootstrapFile(mainWorkspace, filename, content);
+      syncOpenClawConfig({ reason: 'bootstrap-updated' }).catch((err) => {
+        console.error('[OpenClaw] config sync after bootstrap-updated failed:', err);
+      });
       return { success: true };
     } catch (error) {
       return {

@@ -19,6 +19,7 @@ import type { ArtifactType } from '@/types/artifact';
 import type { Artifact } from '@/types/artifact';
 import { PREVIEWABLE_ARTIFACT_TYPES } from '@/types/artifact';
 
+import CopyIcon from '../icons/CopyIcon';
 import ArtifactRenderer from './ArtifactRenderer';
 import FileDirectoryView from './FileDirectoryView';
 import CodeRenderer from './renderers/CodeRenderer';
@@ -48,9 +49,15 @@ function escapeHtml(str: string): string {
 
 interface ArtifactPanelProps {
   artifacts: Artifact[];
+  minPanelWidth?: number;
+  maxPanelWidth?: number;
 }
 
-const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ artifacts }) => {
+const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
+  artifacts,
+  minPanelWidth = MIN_PANEL_WIDTH,
+  maxPanelWidth = MAX_PANEL_WIDTH,
+}) => {
   const dispatch = useDispatch();
   const selectedArtifact = useSelector(selectSelectedArtifact);
   const panelWidth = useSelector(selectPanelWidth);
@@ -65,21 +72,32 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ artifacts }) => {
   const isResizing = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
+  const constrainedMaxPanelWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, maxPanelWidth));
+  const constrainedMinPanelWidth = Math.min(
+    constrainedMaxPanelWidth,
+    Math.max(MIN_PANEL_WIDTH, minPanelWidth),
+  );
+  const constrainedPanelWidth = Math.max(constrainedMinPanelWidth, Math.min(constrainedMaxPanelWidth, panelWidth));
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isResizing.current = true;
     startX.current = e.clientX;
-    startWidth.current = panelWidth;
+    startWidth.current = constrainedPanelWidth;
     document.body.classList.add('select-none');
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       if (!isResizing.current) return;
-      const delta = startX.current - moveEvent.clientX;
-      const maxAvailable = Math.max(MIN_PANEL_WIDTH, window.innerWidth - 480 - 4);
-      const clampedMax = Math.min(MAX_PANEL_WIDTH, maxAvailable);
-      const newWidth = Math.max(MIN_PANEL_WIDTH, Math.min(clampedMax, startWidth.current + delta));
-      dispatch(setPanelWidth(newWidth));
+      const nextWidth = startWidth.current + startX.current - moveEvent.clientX;
+      if (nextWidth < constrainedMinPanelWidth) {
+        isResizing.current = false;
+        document.body.classList.remove('select-none');
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        dispatch(closePanel());
+        return;
+      }
+      dispatch(setPanelWidth(Math.min(constrainedMaxPanelWidth, nextWidth)));
     };
 
     const handleMouseUp = () => {
@@ -91,7 +109,7 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ artifacts }) => {
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [panelWidth, dispatch]);
+  }, [constrainedMaxPanelWidth, constrainedMinPanelWidth, constrainedPanelWidth, dispatch]);
 
   useEffect(() => {
     return () => {
@@ -201,7 +219,7 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ artifacts }) => {
         onMouseDown={handleResizeStart}
       />
       <aside
-        style={{ width: panelWidth, maxWidth: 'calc(100vw - 480px - 4px)' }}
+        style={{ width: constrainedPanelWidth, maxWidth: constrainedMaxPanelWidth }}
         className="shrink border-l border-border bg-background flex flex-col h-full overflow-hidden relative"
       >
         {/* Floating file list overlay */}
@@ -243,7 +261,7 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ artifacts }) => {
                   className="p-1 rounded text-secondary hover:text-foreground hover:bg-surface transition-colors"
                   title={t('artifactCopyCode')}
                 >
-                  <CopyIcon />
+                  <CopyIcon className="h-3.5 w-3.5" />
                 </button>
               )}
               {BROWSER_OPENABLE_TYPES.has(selectedArtifact.type) && (
@@ -344,13 +362,6 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ artifacts }) => {
     </>
   );
 };
-
-const CopyIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
-    <path d="M10.5 5.5V3.5a1.5 1.5 0 00-1.5-1.5H3.5A1.5 1.5 0 002 3.5V9a1.5 1.5 0 001.5 1.5h2" />
-  </svg>
-);
 
 const FolderIcon = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

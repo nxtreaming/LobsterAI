@@ -8,6 +8,7 @@ import { RootState } from '../../store';
 import { isDefaultAgentId } from '../../utils/agentDisplay';
 import AgentCreateModal from '../agent/AgentCreateModal';
 import AgentSettingsPanel from '../agent/AgentSettingsPanel';
+import { type CoworkOpenShareOptionsEventDetail,CoworkUiEvent } from '../cowork/constants';
 import AgentTreeNode from './AgentTreeNode';
 import MyAgentSidebarHeader from './MyAgentSidebarHeader';
 import type { AgentSidebarAgentNode, AgentSidebarTaskNode } from './types';
@@ -51,7 +52,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
       await coworkService.loadSessions(task.agentId);
     }
     onShowCowork();
-    await coworkService.loadSession(task.id);
+    return coworkService.loadSession(task.id);
   };
 
   const handleDeleteTask = async (task: AgentSidebarTaskNode) => {
@@ -73,6 +74,18 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     if (renamed) {
       patchTaskPreview(task.id, { title });
     }
+  };
+
+  const handleShareTask = async (task: AgentSidebarTaskNode) => {
+    const session = await handleSelectTask(task);
+    if (!session) return;
+
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent<CoworkOpenShareOptionsEventDetail>(
+        CoworkUiEvent.OpenShareOptions,
+        { detail: { sessionId: task.id } },
+      ));
+    }, 0);
   };
 
   const handleEnterBatchMode = (task: AgentSidebarTaskNode) => {
@@ -132,6 +145,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
       onCollapseTasks={collapseTasks}
       onSelectTask={(task) => void handleSelectTask(task)}
       onDeleteTask={handleDeleteTask}
+      onShareTask={handleShareTask}
       onToggleTaskPin={handleToggleTaskPin}
       onRenameTask={handleRenameTask}
       onToggleSelection={onToggleSelection}

@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
 import { agentService } from '../../services/agent';
+import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { imService } from '../../services/im';
 import type { RootState } from '../../store';
@@ -46,6 +47,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [identity, setIdentity] = useState('');
+  const [userInfo, setUserInfo] = useState('');
   const [icon, setIcon] = useState(DefaultAgentAvatarIcon);
   const [model, setModel] = useState<Model | null>(null);
   const [workingDirectory, setWorkingDirectory] = useState('');
@@ -62,6 +64,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
   const initialWorkingDirectoryRef = useRef('');
   const initialModelRef = useRef('');
+  const initialUserInfoRef = useRef('');
   const initializedOpenRef = useRef(false);
 
   // IM binding state — keys are 'telegram' (single) or 'dingtalk:<instanceId>' (multi)
@@ -74,13 +77,14 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
       || description
       || systemPrompt
       || identity
+      || userInfo !== initialUserInfoRef.current
       || icon !== DefaultAgentAvatarIcon
       || (model ? toOpenClawModelRef(model) : '') !== initialModelRef.current
       || workingDirectory !== initialWorkingDirectoryRef.current
       || skillIds.length > 0
       || boundKeys.size > 0
     );
-  }, [name, description, systemPrompt, identity, icon, model, workingDirectory, skillIds, boundKeys]);
+  }, [name, description, systemPrompt, identity, userInfo, icon, model, workingDirectory, skillIds, boundKeys]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -93,6 +97,8 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     setDescription('');
     setSystemPrompt('');
     setIdentity('');
+    setUserInfo('');
+    initialUserInfoRef.current = '';
     setIcon(DefaultAgentAvatarIcon);
     const currentAgent = agents.find((agent) => agent.id === currentAgentId);
     const defaultWorkingDirectory = currentAgent?.workingDirectory?.trim() || coworkConfig.workingDirectory || '';
@@ -101,10 +107,14 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     setModel(globalSelectedModel ?? null);
     setWorkingDirectory(defaultWorkingDirectory);
     setSkillIds([]);
-    setActiveTab(AgentDetailTab.Prompt);
+    setActiveTab(AgentDetailTab.Identity);
     setShowUnsavedConfirm(false);
     setShowTemplatePicker(false);
     setBoundKeys(new Set());
+    void coworkService.readBootstrapFile('USER.md').then((content) => {
+      initialUserInfoRef.current = content;
+      setUserInfo(content);
+    });
     imService.loadConfig().then((cfg) => {
       if (cfg) setImConfig(cfg);
     });
@@ -129,11 +139,13 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     setDescription('');
     setSystemPrompt('');
     setIdentity('');
+    setUserInfo('');
+    initialUserInfoRef.current = '';
     setIcon(DefaultAgentAvatarIcon);
     setModel(null);
     setWorkingDirectory('');
     setSkillIds([]);
-    setActiveTab(AgentDetailTab.Prompt);
+    setActiveTab(AgentDetailTab.Identity);
     setShowTemplatePicker(false);
     setBoundKeys(new Set());
   };
@@ -167,6 +179,13 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     if (!name.trim()) return;
     setCreating(true);
     try {
+      if (userInfo !== initialUserInfoRef.current) {
+        const userInfoSaved = await coworkService.writeBootstrapFile('USER.md', userInfo);
+        if (!userInfoSaved) {
+          window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentCreateFailed') }));
+          return;
+        }
+      }
       const agent = await agentService.createAgent({
         name: name.trim(),
         description: description.trim(),
@@ -235,11 +254,33 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
   };
 
   const tabs: { key: AgentDetailTab; label: string }[] = [
-    { key: AgentDetailTab.Prompt, label: i18nService.t('agentTabPrompt') },
-    { key: AgentDetailTab.Identity, label: i18nService.t('agentIdentity') },
+    { key: AgentDetailTab.Identity, label: i18nService.t('coworkBootstrapIdentityTitle') },
+    { key: AgentDetailTab.Prompt, label: i18nService.t('coworkBootstrapSoulTitle') },
+    { key: AgentDetailTab.User, label: i18nService.t('coworkBootstrapUserTitle') },
     { key: AgentDetailTab.Skills, label: i18nService.t('agentTabSkills') },
     { key: AgentDetailTab.Im, label: i18nService.t('agentTabIM') },
   ];
+
+  const renderTextEditor = (
+    value: string,
+    onChange: (value: string) => void,
+    placeholder: string,
+    ariaLabel: string,
+    hint: string,
+  ) => (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <p className="shrink-0 text-xs leading-5 text-secondary">
+        {hint}
+      </p>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        className="min-h-0 flex-1 w-full resize-none border border-transparent bg-transparent text-sm leading-6 text-foreground placeholder:text-secondary/45 focus:outline-none"
+      />
+    </div>
+  );
 
   const content = (
     <>
@@ -303,24 +344,28 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
 
       {/* Tab content */}
       <div className="px-7 py-7 overflow-hidden flex-1 min-h-0">
-        {activeTab === AgentDetailTab.Prompt && (
-          <textarea
-            value={systemPrompt}
-            onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder={i18nService.t('agentSystemPromptPlaceholder')}
-            aria-label={i18nService.t('systemPrompt')}
-            className="h-full min-h-0 w-full resize-none border border-transparent bg-transparent text-sm leading-6 text-foreground placeholder:text-secondary/45 focus:outline-none"
-          />
+        {activeTab === AgentDetailTab.Prompt && renderTextEditor(
+          systemPrompt,
+          setSystemPrompt,
+          i18nService.t('coworkBootstrapPlaceholder'),
+          i18nService.t('coworkBootstrapSoulTitle'),
+          i18nService.t('coworkBootstrapSoulHint'),
         )}
 
-        {activeTab === AgentDetailTab.Identity && (
-          <textarea
-            value={identity}
-            onChange={(e) => setIdentity(e.target.value)}
-            placeholder={i18nService.t('agentIdentityPlaceholder')}
-            aria-label={i18nService.t('agentIdentity')}
-            className="h-full min-h-0 w-full resize-none border border-transparent bg-transparent text-sm leading-6 text-foreground placeholder:text-secondary/45 focus:outline-none"
-          />
+        {activeTab === AgentDetailTab.Identity && renderTextEditor(
+          identity,
+          setIdentity,
+          i18nService.t('coworkBootstrapPlaceholder'),
+          i18nService.t('coworkBootstrapIdentityTitle'),
+          i18nService.t('coworkBootstrapIdentityHint'),
+        )}
+
+        {activeTab === AgentDetailTab.User && renderTextEditor(
+          userInfo,
+          setUserInfo,
+          i18nService.t('coworkBootstrapPlaceholder'),
+          i18nService.t('coworkBootstrapUserTitle'),
+          i18nService.t('coworkBootstrapUserHint'),
         )}
 
         {activeTab === AgentDetailTab.Skills && (
