@@ -3680,6 +3680,50 @@ if (!gotTheLock) {
       };
     }
   });
+  // ── Dreaming content display ──────────────────────────────────────────
+  ipcMain.handle('cowork:dreaming:status', async () => {
+    try {
+      const gwClient = openClawRuntimeAdapter?.getGatewayClient();
+      if (!gwClient) {
+        return { success: false, error: 'Gateway client not available' };
+      }
+      const result = await gwClient.request<Record<string, unknown>>(
+        'doctor.memory.status',
+        {},
+        { timeoutMs: 10_000 },
+      );
+      const dreaming = (result as any)?.dreaming;
+      if (!dreaming) {
+        return { success: true, data: null };
+      }
+      return { success: true, data: dreaming };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch dreaming status',
+      };
+    }
+  });
+  ipcMain.handle('cowork:dreaming:diary', async () => {
+    try {
+      const gwClient = openClawRuntimeAdapter?.getGatewayClient();
+      if (!gwClient) {
+        return { success: false, error: 'Gateway client not available' };
+      }
+      const result = await gwClient.request<Record<string, unknown>>(
+        'doctor.memory.dreamDiary',
+        {},
+        { timeoutMs: 10_000 },
+      );
+      return { success: true, data: result };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch dream diary',
+      };
+    }
+  });
+
   ipcMain.handle('cowork:bootstrap:read', async (_event, filename: string) => {
     try {
       const mainWorkspace = getMainAgentWorkspacePath(getOpenClawEngineManager().getStateDir());

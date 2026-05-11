@@ -27,8 +27,8 @@ import type {
 } from '../types/cowork';
 import { OpenClawSessionKeepAlive as OpenClawSessionKeepAliveValues } from '../types/cowork';
 import Modal from './common/Modal';
-import EmbeddingSettingsSection from './cowork/EmbeddingSettingsSection';
 import DreamingSettingsSection from './cowork/DreamingSettingsSection';
+import EmbeddingSettingsSection from './cowork/EmbeddingSettingsSection';
 import ErrorMessage from './ErrorMessage';
 import BrainIcon from './icons/BrainIcon';
 import PencilIcon from './icons/PencilIcon';
@@ -863,6 +863,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
   const [dreamingFrequency, setDreamingFrequency] = useState<string>(coworkConfig.dreamingFrequency ?? '0 3 * * *');
   const [dreamingModel, setDreamingModel] = useState<string>(coworkConfig.dreamingModel ?? '');
   const [dreamingTimezone, setDreamingTimezone] = useState<string>(coworkConfig.dreamingTimezone ?? '');
+  const [memoryTab, setMemoryTab] = useState<'entries' | 'embedding' | 'dreaming'>('entries');
   const [openClawSessionKeepAlive, setOpenClawSessionKeepAlive] = useState<OpenClawSessionKeepAlive>(
     coworkConfig.openClawSessionPolicy?.keepAlive || OpenClawSessionKeepAliveValues.ThirtyDays,
   );
@@ -3134,117 +3135,144 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
           </div>
         );
 
-      case 'coworkMemory':
+      case 'coworkMemory': {
+        const memoryTabs = [
+          { key: 'entries' as const, titleKey: 'coworkMemoryTabEntries' },
+          { key: 'embedding' as const, titleKey: 'coworkMemoryTabEmbedding' },
+          { key: 'dreaming' as const, titleKey: 'coworkMemoryTabDreaming' },
+        ];
         return (
-          <div className="space-y-6">
-            <div className="space-y-4 rounded-xl border px-4 py-4 border-border">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <div className="text-sm font-medium text-foreground">
-                    {i18nService.t('coworkMemoryCrudTitle')}
-                  </div>
-                  <div className="text-xs text-secondary">
-                    {i18nService.t('coworkMemoryManageHint')}
-                  </div>
-                </div>
+          <div className="flex flex-col h-full space-y-4">
+            <div className="flex gap-1 border-b border-border shrink-0">
+              {memoryTabs.map((tab) => (
                 <button
                   type="button"
-                  onClick={handleOpenCoworkMemoryModal}
-                  className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-sm transition-colors active:scale-[0.98]"
+                  key={tab.key}
+                  onClick={() => setMemoryTab(tab.key)}
+                  className={`px-4 py-2 text-sm font-medium transition-colors rounded-t-lg ${
+                    memoryTab === tab.key
+                      ? 'bg-primary-muted text-primary border-b-2 border-primary'
+                      : 'text-secondary hover:text-foreground hover:bg-surface-raised'
+                  }`}
                 >
-                  <PlusCircleIcon className="h-4 w-4 mr-1.5" />
-                  {i18nService.t('coworkMemoryCrudCreate')}
+                  {i18nService.t(tab.titleKey)}
                 </button>
-              </div>
+              ))}
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {memoryTab === 'entries' && (
+                <div className="space-y-4 rounded-xl border px-4 py-4 border-border">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-foreground">
+                        {i18nService.t('coworkMemoryCrudTitle')}
+                      </div>
+                      <div className="text-xs text-secondary">
+                        {i18nService.t('coworkMemoryManageHint')}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleOpenCoworkMemoryModal}
+                      className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-sm transition-colors active:scale-[0.98]"
+                    >
+                      <PlusCircleIcon className="h-4 w-4 mr-1.5" />
+                      {i18nService.t('coworkMemoryCrudCreate')}
+                    </button>
+                  </div>
 
-              {coworkMemoryStats && (
-                <div className="text-xs text-secondary">
-                  {`${i18nService.t('coworkMemoryTotalLabel')}: ${coworkMemoryStats.total}`}
+                  {coworkMemoryStats && (
+                    <div className="text-xs text-secondary">
+                      {`${i18nService.t('coworkMemoryTotalLabel')}: ${coworkMemoryStats.total}`}
+                    </div>
+                  )}
+
+                  <input
+                    type="text"
+                    value={coworkMemoryQuery}
+                    onChange={(event) => setCoworkMemoryQuery(event.target.value)}
+                    placeholder={i18nService.t('coworkMemorySearchPlaceholder')}
+                    className="w-full rounded-lg border px-3 py-2 text-sm border-border bg-surface"
+                  />
+
+                  <div className="rounded-lg border border-border">
+                    {coworkMemoryListLoading ? (
+                      <div className="px-3 py-3 text-xs text-secondary">
+                        {i18nService.t('loading')}
+                      </div>
+                    ) : coworkMemoryEntries.length === 0 ? (
+                      <div className="px-3 py-3 text-xs text-secondary">
+                        {i18nService.t('coworkMemoryEmpty')}
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-border">
+                        {coworkMemoryEntries.map((entry) => (
+                          <div key={entry.id} className="px-3 py-3 text-xs hover:bg-surface-raised transition-colors">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-foreground break-words">
+                                  {entry.text}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditCoworkMemoryEntry(entry)}
+                                  className="rounded border px-2 py-1 border-border text-foreground hover:bg-surface-raised transition-colors"
+                                >
+                                  {i18nService.t('edit')}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { void handleDeleteCoworkMemoryEntry(entry); }}
+                                  className="rounded border px-2 py-1 text-red-500 border-border hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-60 transition-colors"
+                                  disabled={coworkMemoryListLoading}
+                                >
+                                  {i18nService.t('delete')}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
-              <input
-                type="text"
-                value={coworkMemoryQuery}
-                onChange={(event) => setCoworkMemoryQuery(event.target.value)}
-                placeholder={i18nService.t('coworkMemorySearchPlaceholder')}
-                className="w-full rounded-lg border px-3 py-2 text-sm border-border bg-surface"
-              />
+              {memoryTab === 'embedding' && (
+                <EmbeddingSettingsSection
+                  embeddingEnabled={embeddingEnabled}
+                  embeddingProvider={embeddingProvider}
+                  embeddingModel={embeddingModel}
+                  embeddingVectorWeight={embeddingVectorWeight}
+                  embeddingRemoteBaseUrl={embeddingRemoteBaseUrl}
+                  embeddingRemoteApiKey={embeddingRemoteApiKey}
+                  onEmbeddingEnabledChange={setEmbeddingEnabled}
+                  onEmbeddingProviderChange={setEmbeddingProvider}
+                  onEmbeddingModelChange={setEmbeddingModel}
+                  onEmbeddingVectorWeightChange={setEmbeddingVectorWeight}
+                  onEmbeddingRemoteBaseUrlChange={setEmbeddingRemoteBaseUrl}
+                  onEmbeddingRemoteApiKeyChange={setEmbeddingRemoteApiKey}
+                />
+              )}
 
-              <div className="rounded-lg border border-border">
-                {coworkMemoryListLoading ? (
-                  <div className="px-3 py-3 text-xs text-secondary">
-                    {i18nService.t('loading')}
-                  </div>
-                ) : coworkMemoryEntries.length === 0 ? (
-                  <div className="px-3 py-3 text-xs text-secondary">
-                    {i18nService.t('coworkMemoryEmpty')}
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border">
-                    {coworkMemoryEntries.map((entry) => (
-                      <div key={entry.id} className="px-3 py-3 text-xs hover:bg-surface-raised transition-colors">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-foreground break-words">
-                              {entry.text}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => handleEditCoworkMemoryEntry(entry)}
-                              className="rounded border px-2 py-1 border-border text-foreground hover:bg-surface-raised transition-colors"
-                            >
-                              {i18nService.t('edit')}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { void handleDeleteCoworkMemoryEntry(entry); }}
-                              className="rounded border px-2 py-1 text-red-500 border-border hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-60 transition-colors"
-                              disabled={coworkMemoryListLoading}
-                            >
-                              {i18nService.t('delete')}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {memoryTab === 'dreaming' && (
+                <DreamingSettingsSection
+                  dreamingEnabled={dreamingEnabled}
+                  dreamingFrequency={dreamingFrequency}
+                  dreamingModel={dreamingModel}
+                  dreamingTimezone={dreamingTimezone}
+                  onDreamingEnabledChange={setDreamingEnabled}
+                  onDreamingFrequencyChange={setDreamingFrequency}
+                  onDreamingModelChange={setDreamingModel}
+                  onDreamingTimezoneChange={setDreamingTimezone}
+                />
+              )}
             </div>
-
-            {/* Section 3: Embedding / Vector Memory Search */}
-            <EmbeddingSettingsSection
-              embeddingEnabled={embeddingEnabled}
-              embeddingProvider={embeddingProvider}
-              embeddingModel={embeddingModel}
-              embeddingVectorWeight={embeddingVectorWeight}
-              embeddingRemoteBaseUrl={embeddingRemoteBaseUrl}
-              embeddingRemoteApiKey={embeddingRemoteApiKey}
-              onEmbeddingEnabledChange={setEmbeddingEnabled}
-              onEmbeddingProviderChange={setEmbeddingProvider}
-              onEmbeddingModelChange={setEmbeddingModel}
-              onEmbeddingVectorWeightChange={setEmbeddingVectorWeight}
-              onEmbeddingRemoteBaseUrlChange={setEmbeddingRemoteBaseUrl}
-              onEmbeddingRemoteApiKeyChange={setEmbeddingRemoteApiKey}
-            />
-
-            {/* Section 4: Dreaming - Background Memory Consolidation */}
-            <DreamingSettingsSection
-              dreamingEnabled={dreamingEnabled}
-              dreamingFrequency={dreamingFrequency}
-              dreamingModel={dreamingModel}
-              dreamingTimezone={dreamingTimezone}
-              onDreamingEnabledChange={setDreamingEnabled}
-              onDreamingFrequencyChange={setDreamingFrequency}
-              onDreamingModelChange={setDreamingModel}
-              onDreamingTimezoneChange={setDreamingTimezone}
-            />
-
           </div>
         );
+      }
 
       case 'model':
         return (

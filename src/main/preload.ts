@@ -305,6 +305,8 @@ contextBridge.exposeInMainWorld('electron', {
     deleteMemoryEntry: (input: { id: string }) =>
       ipcRenderer.invoke('cowork:memory:deleteEntry', input),
     getMemoryStats: () => ipcRenderer.invoke('cowork:memory:getStats'),
+    getDreamingStatus: () => ipcRenderer.invoke('cowork:dreaming:status'),
+    getDreamDiary: () => ipcRenderer.invoke('cowork:dreaming:diary'),
     readBootstrapFile: (filename: string) => ipcRenderer.invoke('cowork:bootstrap:read', filename),
     writeBootstrapFile: (filename: string, content: string) =>
       ipcRenderer.invoke('cowork:bootstrap:write', filename, content),

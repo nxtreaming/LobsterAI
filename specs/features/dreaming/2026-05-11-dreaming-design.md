@@ -198,12 +198,14 @@ if (managedConfig.plugins) {
 | 文件 | 操作 |
 |------|------|
 | `src/main/coworkStore.ts` | 修改（类型定义 + 默认值 + 读写逻辑） |
-| `src/renderer/types/cowork.ts` | 修改（类型同步） |
+| `src/renderer/types/cowork.ts` | 修改（类型同步 + Dreaming 内容展示数据类型） |
 | `src/renderer/store/slices/coworkSlice.ts` | 修改（Redux 默认值） |
-| `src/renderer/services/i18n.ts` | 修改（国际化 key） |
-| `src/renderer/components/cowork/DreamingSettingsSection.tsx` | **新建**（UI 组件） |
-| `src/renderer/components/Settings.tsx` | 修改（6 处集成点） |
+| `src/renderer/services/i18n.ts` | 修改（国际化 key，含 Tab 名称和内容展示文案） |
+| `src/renderer/components/cowork/DreamingSettingsSection.tsx` | **新建**（UI 组件，含配置表单和内容展示） |
+| `src/renderer/components/Settings.tsx` | 修改（记忆页 Tab 化 + 集成点） |
 | `src/main/libs/openclawConfigSync.ts` | 修改（config sync 逻辑） |
+| `src/main/main.ts` | 修改（新增 dreaming:status / dreaming:diary IPC 通道） |
+| `src/main/preload.ts` | 修改（暴露 getDreamingStatus / getDreamDiary 方法） |
 
 ## 7. 验收标准
 
@@ -213,3 +215,64 @@ if (managedConfig.plugins) {
 4. 保存后检查 `openclaw.json`，`dreaming` 字段正确包含 `enabled`、`frequency`，以及非空的 `timezone`、`model`
 5. 关闭开关 → 保存 → `openclaw.json` 中无 `dreaming` 字段
 6. 中英文切换后所有标签/提示正确显示
+7. 设置 > 记忆页面三个 Tab（记忆条目管理 / Embedding 语义搜索 / Dreaming 记忆整理）正常切换
+8. Dreaming Tab 内，启用后显示场景/日记/高级三个子 Tab，内容为只读展示
+
+---
+
+## 8. 增补：记忆页 Tab 化 + Dreaming 内容展示 (2026-05-11)
+
+### 8.1 背景
+
+原有设计将三个子模块（记忆条目管理、Embedding、Dreaming）平铺显示，滚动体验差。需重构为 Tab 切换形式，并在 Dreaming Tab 中增加对标 OpenClaw 后台 `/dreaming` 页面的只读内容展示。
+
+### 8.2 记忆页 Tab 化
+
+参照 **设置 > 个性化** 的 `bootstrapTab` 实现模式：
+
+- 新增 state: `memoryTab: 'entries' | 'embedding' | 'dreaming'`
+- 三个 Tab: 记忆条目管理 / Embedding 语义搜索 / Dreaming 记忆整理
+- Tab 按钮样式与个性化页一致 (`bg-primary-muted text-primary border-b-2 border-primary`)
+
+### 8.3 Dreaming 内容展示
+
+在 Dreaming 配置表单下方，增加内容展示区，包含三个子 Tab：
+
+#### 场景 Tab
+
+- 状态指示（活跃/空闲），带彩色圆点
+- 已提升计数、时区
+- 三阶段状态：Light / Deep / REM 的启用状态和下次运行时间
+
+#### 日记 Tab
+
+- 解析 `DREAMS.md` 内容（与 OpenClaw `parseDiaryEntries` 逻辑一致）
+- 按日期切分，逆序展示，日期 chip 导航
+- `flattenDiaryBody` 清洗：移除结构化标题、源引用标记、列表标记
+- 支持刷新
+
+#### 高级 Tab
+
+- 三段式列表：已扎根信号 / 等待中条目 / 今日已提升
+- 等待中条目支持按"最近"和"信号"两种排序
+- 每条目显示 snippet、源位置、信号计数
+- 仅只读展示，不包含操作按钮
+
+### 8.4 IPC 通道
+
+| 通道 | 方法 | 说明 |
+|------|------|------|
+| `cowork:dreaming:status` | `doctor.memory.status` | 获取 dreaming 状态、阶段信息、短期/已提升条目 |
+| `cowork:dreaming:diary` | `doctor.memory.dreamDiary` | 获取 Dream Diary 文件内容 |
+
+通过现有 `openClawRuntimeAdapter.getGatewayClient().request()` 调用。
+
+### 8.5 新增类型
+
+`src/renderer/types/cowork.ts` 新增：
+
+- `DreamingPhaseInfo`: 阶段配置（enabled, cron, nextRunAtMs）
+- `DreamingEntry`: 短期/已提升条目（key, path, snippet, 各类信号计数等）
+- `DreamingStatusData`: 完整状态数据
+- `DreamDiaryData`: 日记文件数据（found, path, content, updatedAtMs）
+
