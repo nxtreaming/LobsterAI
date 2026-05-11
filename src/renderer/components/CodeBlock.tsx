@@ -1391,7 +1391,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
               )}
             </button>
           </CodeBlockTooltip>
-          <code className="block px-4 py-3 font-mono dark:text-gray-100 text-gray-800 whitespace-pre">
+          <code className="block px-4 py-3 font-mono dark:text-gray-100 text-gray-800 whitespace-pre dark:bg-[#282c34] bg-[#f0f2f5] w-max min-w-full">
             {trimmedCodeText}
           </code>
         </div>
@@ -1514,7 +1514,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
           )
         ) : (
           <div className="m-0 overflow-x-auto dark:bg-[#282c34] bg-[#f0f2f5] text-[13px] leading-6">
-            <code className="block px-4 py-3 font-mono dark:text-gray-100 text-gray-800 whitespace-pre">
+            <code className="block px-4 py-3 font-mono dark:text-gray-100 text-gray-800 whitespace-pre dark:bg-[#282c34] bg-[#f0f2f5] w-max min-w-full">
               {trimmedCodeText}
             </code>
           </div>

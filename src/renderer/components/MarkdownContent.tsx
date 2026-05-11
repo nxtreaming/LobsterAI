@@ -319,7 +319,7 @@ const createMarkdownComponents = (
     </li>
   ),
   blockquote: ({ node: _node, className: _className, children, ...props }: any) => (
-    <blockquote className="border-l-4 border-primary pl-4 py-1 my-2 bg-surface-raised/30 rounded-r-lg text-foreground/90" {...props}>
+    <blockquote className="border-l-4 border-primary pl-4 py-1 my-2 bg-surface-raised/30 rounded-r-lg text-foreground/90 overflow-x-auto" {...props}>
       {children}
     </blockquote>
   ),
