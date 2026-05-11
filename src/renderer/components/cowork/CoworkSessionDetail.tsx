@@ -4,7 +4,6 @@ import {
   DocumentArrowDownIcon,
   PhotoIcon,
 } from '@heroicons/react/24/outline';
-import { FolderIcon } from '@heroicons/react/24/solid';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo,useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
@@ -37,7 +36,6 @@ import type { Artifact } from '../../types/artifact';
 import { PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import type { Skill } from '../../types/skill';
-import { getCompactFolderName } from '../../utils/path';
 import { formatMessageDateTime } from '../../utils/tokenFormat';
 import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
 import { ArtifactPanel, ArtifactPreviewCard } from '../artifacts';
@@ -70,6 +68,8 @@ const NAV_BOTTOM_SNAP_THRESHOLD = 20;
 const ARTIFACT_PANEL_TRANSITION_MS = 200;
 const ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH = 4;
 const COWORK_DETAIL_MIN_WIDTH = 480;
+const COWORK_DETAIL_CONTENT_CLASS = 'mx-auto w-full max-w-[760px]';
+const COWORK_DETAIL_GUTTER_CLASS = 'px-6 sm:px-8 lg:px-10';
 const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
 const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
 
@@ -1238,18 +1238,18 @@ export const UserMessageItem: React.FC<{
 
   return (
     <div
-      className="py-2 px-4 focus:outline-none"
+      className={`py-2 ${COWORK_DETAIL_GUTTER_CLASS} focus:outline-none`}
       tabIndex={0}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={handleMouseLeave}
       onFocus={() => setIsHovered(true)}
       onBlur={handleBlur}
     >
-      <div className="max-w-5xl min-w-[320px] mx-auto">
-        <div className="pl-4 sm:pl-8 md:pl-12">
+      <div className={COWORK_DETAIL_CONTENT_CLASS}>
+        <div>
           <div className="flex items-start gap-3 flex-row-reverse">
             <div className="w-full min-w-0 flex flex-col items-end">
-              <div className="w-fit max-w-[54rem] rounded-2xl px-4 py-2.5 bg-surface text-foreground shadow-subtle">
+              <div className="w-fit max-w-full rounded-2xl px-4 py-2.5 bg-surface text-foreground shadow-subtle">
                 {displayContent?.trim() && (
                   <MarkdownContent
                     content={displayContent}
@@ -1410,8 +1410,8 @@ const StreamingActivityBar: React.FC<{ messages: CoworkMessage[] }> = ({ message
   };
 
   return (
-    <div className="shrink-0 animate-fade-in px-4">
-      <div className="max-w-5xl min-w-[320px] mx-auto">
+    <div className={`shrink-0 animate-fade-in ${COWORK_DETAIL_GUTTER_CLASS}`}>
+      <div className={COWORK_DETAIL_CONTENT_CLASS}>
         <div className="streaming-bar" />
         <div className="py-1">
           <span className="text-xs text-secondary">
@@ -1571,10 +1571,10 @@ export const AssistantTurnBlock: React.FC<{
   };
 
   return (
-    <div className="px-4 py-2">
-      <div className="max-w-5xl min-w-[320px] mx-auto">
+    <div className={`py-2 ${COWORK_DETAIL_GUTTER_CLASS}`}>
+      <div className={COWORK_DETAIL_CONTENT_CLASS}>
         <div className="flex items-start gap-3">
-          <div className="flex-1 min-w-0 px-4 py-3 space-y-3">
+          <div className="flex-1 min-w-0 py-3 space-y-3">
             {visibleAssistantItems.map((item, index) => {
               if (item.type === 'assistant') {
                 if (item.message.metadata?.isThinking) {
@@ -2017,22 +2017,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       window.removeEventListener(CoworkUiEvent.OpenShareOptions, handleOpenShareOptions);
     };
   }, [currentSession?.id]);
-
-  // Helper: truncate path for display
-  const truncatePath = (path: string, maxLength = 20): string => {
-    if (!path) return i18nService.t('noFolderSelected');
-    return getCompactFolderName(path, maxLength) || i18nService.t('noFolderSelected');
-  };
-
-  // Open folder in Finder/Explorer
-  const handleOpenFolder = useCallback(async () => {
-    if (!currentSession?.cwd) return;
-    try {
-      await window.electron.shell.openPath(currentSession.cwd);
-    } catch (error) {
-      console.error('Failed to open folder:', error);
-    }
-  }, [currentSession?.cwd]);
 
   const sessionToMarkdown = useCallback((): string => {
     if (!currentSession) return '';
@@ -2672,21 +2656,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           </h1>
         </div>
 
-        {/* Right side: Folder + Artifact toggle */}
+        {/* Right side: Artifact toggle */}
         <div className="non-draggable flex items-center gap-1">
-          {/* Folder button */}
-          <button
-            type="button"
-            onClick={handleOpenFolder}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm text-secondary hover:bg-surface-raised hover:text-foreground transition-colors"
-            aria-label={i18nService.t('coworkOpenFolder')}
-          >
-            <FolderIcon className="h-4 w-4" />
-            <span className="max-w-[120px] truncate text-xs">
-              {truncatePath(currentSession.cwd)}
-            </span>
-          </button>
-
           {/* Artifact panel toggle */}
           <button
             type="button"
@@ -2986,8 +2957,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       {isStreaming && <StreamingActivityBar messages={currentSession.messages} />}
 
       {/* Input Area */}
-      <div className="p-4 shrink-0">
-        <div className="max-w-5xl min-w-[320px] mx-auto pl-4">
+      <div className={`py-4 shrink-0 ${COWORK_DETAIL_GUTTER_CLASS}`}>
+        <div className={COWORK_DETAIL_CONTENT_CLASS}>
           <CoworkPromptInput
             ref={promptInputRef}
             onSubmit={onContinue}
@@ -2999,11 +2970,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             remoteManaged={remoteManaged}
             onManageSkills={remoteManaged ? undefined : onManageSkills}
             showModelSelector={true}
+            showReadOnlyContext={true}
+            readOnlyContextTrailingText={i18nService.t('aiGeneratedDisclaimer')}
+            workingDirectory={currentSession?.cwd ?? ''}
+            contextAgentId={currentSession?.agentId}
             sessionId={currentSession?.id}
           />
-          <p className="text-center text-[11px] text-muted opacity-85 mt-2 mb-[-8px] select-none">
-            {i18nService.t('aiGeneratedDisclaimer')}
-          </p>
         </div>
       </div>
     </div>

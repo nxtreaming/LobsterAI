@@ -20,14 +20,12 @@ import type { CoworkImageAttachment, CoworkSession, OpenClawEngineStatus } from 
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import ComposeIcon from '../icons/ComposeIcon';
 import SidebarToggleIcon from '../icons/SidebarToggleIcon';
-import ModelSelector from '../ModelSelector';
 import { PromptPanel,QuickActionBar } from '../quick-actions';
 import type { SettingsOpenOptions } from '../Settings';
 import WindowTitleBar from '../window/WindowTitleBar';
 import { useAgentSelectedModel } from './agentModelSelection';
 import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInput';
 import CoworkSessionDetail from './CoworkSessionDetail';
-import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
 
 export interface CoworkViewProps {
   onRequestAppSettings?: (options?: SettingsOpenOptions) => void;
@@ -70,13 +68,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
   const currentAgent = agents.find((agent) => agent.id === currentAgentId);
   const currentAgentWorkingDirectory = currentAgent?.workingDirectory?.trim() || config.workingDirectory || '';
   const currentAgentSelectedModel = useAgentSelectedModel(currentAgentId, currentAgent?.model ?? '');
-  const {
-    isPersistingAgentModel,
-    persistAgentModelSelection,
-  } = usePersistAgentModelSelection({
-    agentId: currentAgentId,
-    syncDefaultModel: currentAgentId === 'main' || currentAgent?.isDefault === true,
-  });
 
   const buildApiConfigNotice = (error?: string): { noticeI18nKey: string; noticeExtra?: string } => {
     const key = 'coworkModelSettingsRequired';
@@ -465,7 +456,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
   const isEngineReady = isOpenClawReadyForSession(openClawStatus);
 
   const homeHeader = (
-    <div className="draggable flex h-12 items-center justify-between px-4 border-b border-border shrink-0">
+    <div className="draggable flex h-12 items-center justify-between px-4 shrink-0">
       <div className="non-draggable h-8 flex items-center">
         {isSidebarCollapsed && (
           <div className={`flex items-center gap-1 mr-2 ${isMac ? 'pl-[68px]' : ''}`}>
@@ -486,14 +477,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
             {updateBadge}
           </div>
         )}
-        <ModelSelector
-          disabled={isPersistingAgentModel}
-          value={currentAgentSelectedModel}
-          onChange={async (nextModel) => {
-            if (!nextModel) return;
-            await persistAgentModelSelection(nextModel);
-          }}
-        />
       </div>
       <div className="non-draggable flex items-center">
         <div className="flex items-center gap-1.5 mr-2 px-2.5 py-1">
@@ -553,7 +536,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
 
   // Home view - no current session
   return (
-    <div className="flex-1 flex flex-col bg-background h-full">
+    <div className="flex-1 flex flex-col bg-surface h-full">
       {/* Engine status banner for error states */}
       {engineStatusBanner}
 
@@ -562,18 +545,22 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto min-h-0 relative">
-        <div className="relative max-w-5xl w-full min-w-[320px] mx-auto px-4 pt-[15vh] pb-8 space-y-10">
+        <div className="relative flex min-h-full w-full min-w-[320px] flex-col items-center px-4 pt-[clamp(88px,19vh,140px)] pb-8">
           {/* Welcome Section - staggered entrance animation */}
-          <div className="text-center space-y-5">
-            <img src="logo.png" alt="logo" className="w-16 h-16 mx-auto animate-fade-in-up" />
+          <div className="w-full max-w-3xl text-center">
+            <img
+              src="logo.png"
+              alt="LobsterAI"
+              className="mx-auto h-12 w-12 animate-fade-in-up"
+            />
             <h2
-              className="text-3xl font-bold tracking-tight text-foreground animate-fade-in-up"
-              style={{ animationDelay: '60ms', animationFillMode: 'both' }}
+              className="mt-4 text-[24px] font-semibold leading-8 tracking-normal text-foreground animate-fade-in-up"
+              style={{ animationDelay: '70ms', animationFillMode: 'both' }}
             >
               {i18nService.t('coworkWelcome')}
             </h2>
             <p
-              className="text-sm text-secondary max-w-md mx-auto animate-fade-in-up"
+              className="mt-2 text-[15px] font-normal leading-6 text-secondary animate-fade-in-up"
               style={{ animationDelay: '120ms', animationFillMode: 'both' }}
             >
               {i18nService.t('coworkDescription')}
@@ -582,32 +569,32 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
 
           {/* Prompt Input Area - Large version with folder selector */}
           <div
-            className="max-w-3xl mx-auto w-full space-y-3 animate-fade-in-up"
-            style={{ animationDelay: '200ms', animationFillMode: 'both' }}
+            className="mt-9 w-full max-w-3xl animate-fade-in-up"
+            style={{ animationDelay: '180ms', animationFillMode: 'both' }}
           >
-            <div className="rounded-2xl">
-              <CoworkPromptInput
-                ref={promptInputRef}
-                onSubmit={handleStartSession}
-                onStop={handleStopSession}
-                isStreaming={isStreaming}
-                disabled={!isEngineReady}
-                placeholder={i18nService.t('coworkPlaceholder')}
-                size="large"
-                workingDirectory={currentAgentWorkingDirectory}
-                onWorkingDirectoryChange={async (dir: string) => {
-                  await agentService.updateAgent(currentAgentId, { workingDirectory: dir });
-                }}
-                showFolderSelector={true}
-                onManageSkills={() => onShowSkills?.()}
-              />
-            </div>
+            <CoworkPromptInput
+              ref={promptInputRef}
+              onSubmit={handleStartSession}
+              onStop={handleStopSession}
+              isStreaming={isStreaming}
+              disabled={!isEngineReady}
+              placeholder={i18nService.t('coworkPlaceholder')}
+              size="large"
+              workingDirectory={currentAgentWorkingDirectory}
+              onWorkingDirectoryChange={async (dir: string) => {
+                await agentService.updateAgent(currentAgentId, { workingDirectory: dir });
+              }}
+              showFolderSelector={true}
+              showModelSelector={true}
+              showAgentSelector={true}
+              onManageSkills={() => onShowSkills?.()}
+            />
           </div>
 
           {/* Quick Actions */}
           <div
-            className="max-w-3xl mx-auto w-full space-y-4 animate-fade-in-up"
-            style={{ animationDelay: '300ms', animationFillMode: 'both' }}
+            className="mt-8 w-full max-w-3xl space-y-4 animate-fade-in-up"
+            style={{ animationDelay: '260ms', animationFillMode: 'both' }}
           >
             {selectedAction ? (
               <PromptPanel

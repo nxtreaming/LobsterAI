@@ -21,6 +21,8 @@ interface ModelSelectorProps {
   defaultLabel?: string;
   /** Disable interaction while the selected model is being persisted. */
   disabled?: boolean;
+  /** Use a denser trigger for compact toolbars. */
+  compact?: boolean;
   /** Render the dropdown outside the local stacking context. */
   portal?: boolean;
 }
@@ -35,6 +37,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   onChange,
   defaultLabel,
   disabled = false,
+  compact = false,
   portal = false,
 }) => {
   const dispatch = useDispatch();
@@ -160,6 +163,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     if (!selectedModel) return false;
     return isSameModelIdentity(model, selectedModel);
   };
+  const triggerClassName = compact
+    ? 'space-x-1.5 px-2 py-1 rounded-lg max-w-[220px]'
+    : 'space-x-2 px-3 py-1.5 rounded-xl max-w-[280px]';
+  const triggerTextClassName = compact
+    ? 'font-normal text-[13px] leading-5'
+    : 'font-medium text-sm';
+  const triggerIconClassName = compact ? 'h-3.5 w-3.5' : 'h-4 w-4';
 
   const renderModelItem = (model: Model) => (
     <button
@@ -235,10 +245,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         type="button"
         disabled={disabled}
         onClick={toggleOpen}
-        className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl hover:bg-surface-raised text-foreground transition-colors max-w-[280px] disabled:opacity-70 disabled:cursor-wait ${isOpen ? 'bg-surface-raised' : ''}`}
+        className={`flex items-center hover:bg-surface-raised text-foreground transition-colors disabled:opacity-70 disabled:cursor-wait ${triggerClassName} ${isOpen ? 'bg-surface-raised' : ''}`}
       >
-        <span className="font-medium text-sm truncate">{selectedModel?.name ?? defaultLabel ?? ''}</span>
-        <ChevronDownIcon className="h-4 w-4 shrink-0 dark:text-claude-darkTextSecondary text-claude-textSecondary" />
+        <span className={`${triggerTextClassName} truncate`}>{selectedModel?.name ?? defaultLabel ?? ''}</span>
+        <ChevronDownIcon className={`${triggerIconClassName} shrink-0 dark:text-claude-darkTextSecondary text-claude-textSecondary`} />
       </button>
 
       {portal && dropdown ? createPortal(dropdown, document.body) : dropdown}

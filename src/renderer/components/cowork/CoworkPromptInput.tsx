@@ -1,7 +1,7 @@
-import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { CheckIcon, ChevronDownIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { ArrowUpIcon, FolderIcon, StopIcon } from '@heroicons/react/24/solid';
-import React, { useCallback,useEffect, useRef, useState } from 'react';
-import { useDispatch,useSelector } from 'react-redux';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 
 import { agentService } from '../../services/agent';
 import { configService } from '../../services/config';
@@ -22,12 +22,15 @@ import type { Model } from '../../store/slices/modelSlice';
 import { setSkills, toggleActiveSkill } from '../../store/slices/skillSlice';
 import { CoworkImageAttachment } from '../../types/cowork';
 import { Skill } from '../../types/skill';
+import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getCompactFolderName } from '../../utils/path';
+import AgentAvatarIcon from '../agent/AgentAvatarIcon';
+import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
 import XMarkIcon from '../icons/XMarkIcon';
 import ModelSelector from '../ModelSelector';
-import { ActiveSkillBadge,SkillsButton } from '../skills';
+import { ActiveSkillBadge, SkillsButton } from '../skills';
 import { resolveAgentModelSelection, resolveEffectiveModel, useAgentSelectedModel } from './agentModelSelection';
 import AttachmentCard from './AttachmentCard';
 import FolderSelectorPopover from './FolderSelectorPopover';
@@ -93,10 +96,48 @@ const SEND_SHORTCUT_OPTIONS = [
 
 const isMacPlatform = navigator.platform.includes('Mac');
 
+const ContextLabelMaxLength = {
+  Folder: 6,
+  Agent: 6,
+  DefaultFolder: 30,
+} as const;
+
+const READ_ONLY_CONTEXT_COMPACT_WIDTH = 168;
+
+const truncateDisplayText = (value: string, maxLength: number): string => {
+  const trimmed = value.trim();
+  const characters = Array.from(trimmed);
+  if (characters.length <= maxLength) return trimmed;
+  return `${characters.slice(0, maxLength).join('')}...`;
+};
+
 const getSendShortcutLabel = (value: string): string => {
   const option = SEND_SHORTCUT_OPTIONS.find(o => o.value === value);
   if (!option) return value;
   return isMacPlatform ? option.labelMac : option.label;
+};
+
+interface AgentSelectorOption {
+  id: string;
+  name?: string;
+  icon?: string;
+  enabled?: boolean;
+}
+
+const AgentContextAvatar: React.FC<{ agent: AgentSelectorOption; className?: string }> = ({ agent, className = 'h-4 w-4' }) => {
+  if (shouldUseDefaultAgentIcon(agent)) {
+    return <DefaultAgentIcon className={className} />;
+  }
+
+  return (
+    <AgentAvatarIcon
+      value={agent.icon}
+      className={className}
+      iconClassName={className}
+      legacyClassName="text-[13px]"
+      fallbackText={getAgentDisplayName(agent).trim().slice(0, 1).toUpperCase() || 'A'}
+    />
+  );
 };
 
 export interface CoworkPromptInputRef {
@@ -119,6 +160,10 @@ interface CoworkPromptInputProps {
   onWorkingDirectoryChange?: (dir: string) => void;
   showFolderSelector?: boolean;
   showModelSelector?: boolean;
+  showAgentSelector?: boolean;
+  showReadOnlyContext?: boolean;
+  readOnlyContextTrailingText?: string;
+  contextAgentId?: string;
   onManageSkills?: () => void;
   sessionId?: string;
   /** When true, hides attachment/skill buttons but keeps the input box visible (disabled) */
@@ -138,6 +183,10 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       onWorkingDirectoryChange,
       showFolderSelector = false,
       showModelSelector = false,
+      showAgentSelector = false,
+      showReadOnlyContext = false,
+      readOnlyContextTrailingText,
+      contextAgentId,
       onManageSkills,
       sessionId,
       remoteManaged = false,
@@ -158,9 +207,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [isAddingFile, setIsAddingFile] = useState(false);
     const [imageVisionHint, setImageVisionHint] = useState(false);
     const [isPatchingModel, setIsPatchingModel] = useState(false);
+    const [showAgentMenu, setShowAgentMenu] = useState(false);
+    const [isReadOnlyContextCompact, setIsReadOnlyContextCompact] = useState(false);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const folderButtonRef = useRef<HTMLButtonElement>(null);
+    const agentButtonRef = useRef<HTMLButtonElement>(null);
+    const agentMenuRef = useRef<HTMLDivElement>(null);
+    const readOnlyContextGroupRef = useRef<HTMLDivElement>(null);
     const dragDepthRef = useRef(0);
     const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const modelPatchRequestIdRef = useRef(0);
@@ -215,7 +269,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   });
 
   const isLarge = size === 'large';
-  const minHeight = isLarge ? 60 : 24;
+  const useHomeContextLayout = isLarge && showAgentSelector;
+  const minHeight = isLarge ? (useHomeContextLayout ? 52 : 60) : 24;
   const maxHeight = isLarge ? 200 : 200;
 
   const effectiveSelectedModel = resolveEffectiveModel({
@@ -282,6 +337,51 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       setShowFolderRequiredWarning(false);
     }
   }, [workingDirectory]);
+
+  useEffect(() => {
+    if (!isLarge || !showReadOnlyContext || useHomeContextLayout) {
+      setIsReadOnlyContextCompact(false);
+      return;
+    }
+
+    const element = readOnlyContextGroupRef.current;
+    if (!element) return;
+
+    const updateCompactState = () => {
+      setIsReadOnlyContextCompact(element.getBoundingClientRect().width < READ_ONLY_CONTEXT_COMPACT_WIDTH);
+    };
+
+    updateCompactState();
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const resizeObserver = new ResizeObserver(updateCompactState);
+    resizeObserver.observe(element);
+    return () => resizeObserver.disconnect();
+  }, [isLarge, showReadOnlyContext, useHomeContextLayout]);
+
+  useEffect(() => {
+    if (!showAgentMenu) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!agentButtonRef.current?.contains(target) && !agentMenuRef.current?.contains(target)) {
+        setShowAgentMenu(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowAgentMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside, true);
+    document.addEventListener('keydown', handleEscape, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('keydown', handleEscape, true);
+    };
+  }, [showAgentMenu]);
 
   useEffect(() => {
     modelPatchRequestIdRef.current += 1;
@@ -417,6 +517,15 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
   }, [onManageSkills]);
 
+  const handleSelectAgent = useCallback((agentId: string) => {
+    if (!agentId || agentId === currentAgentId) {
+      setShowAgentMenu(false);
+      return;
+    }
+    agentService.switchAgent(agentId);
+    setShowAgentMenu(false);
+  }, [currentAgentId]);
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isComposing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
     if (event.key !== 'Enter' || isComposing) return;
@@ -468,23 +577,46 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   };
 
   const containerClass = isLarge
-    ? 'relative rounded-2xl border border-border bg-surface shadow-card'
+    ? useHomeContextLayout
+      ? 'relative rounded-2xl'
+      : `relative rounded-2xl border border-border bg-surface ${showReadOnlyContext ? '' : 'shadow-card'}`
     : 'relative flex items-end gap-2 p-3 rounded-xl border border-border bg-surface';
 
   const textareaClass = isLarge
-    ? `w-full resize-none bg-transparent px-4 pt-2.5 pb-2 text-foreground placeholder:dark:text-foregroundSecondary/60 placeholder:text-secondary/60 focus:outline-none text-[15px] leading-[23px] min-h-[${minHeight}px] max-h-[${maxHeight}px]`
+    ? `w-full resize-none bg-transparent px-4 pb-2 text-foreground placeholder:dark:text-foregroundSecondary/60 placeholder:text-secondary/60 focus:outline-none min-h-[${minHeight}px] max-h-[${maxHeight}px] ${
+      useHomeContextLayout
+        ? 'pt-3 text-[14px] leading-[22px]'
+        : 'pt-2.5 text-[15px] leading-[23px]'
+    }`
     : 'flex-1 resize-none bg-transparent text-foreground placeholder:placeholder:text-secondary focus:outline-none text-sm leading-relaxed min-h-[24px] max-h-[200px]';
 
-  const truncatePath = (path: string, maxLength = 30): string => {
+  const truncatePath = (path: string, maxLength: number = ContextLabelMaxLength.DefaultFolder): string => {
     if (!path) return i18nService.t('noFolderSelected');
-    return getCompactFolderName(path, maxLength) || i18nService.t('noFolderSelected');
+    const folderName = getCompactFolderName(path) || i18nService.t('noFolderSelected');
+    return truncateDisplayText(folderName, maxLength);
   };
+
+  const hasWorkingDirectory = workingDirectory.trim().length > 0;
 
   const handleFolderSelect = (path: string) => {
     if (onWorkingDirectoryChange) {
       onWorkingDirectoryChange(path);
     }
   };
+
+  const handleOpenWorkingDirectory = useCallback(async () => {
+    const path = workingDirectory.trim();
+    if (!path) return;
+
+    try {
+      const result = await window.electron.shell.openPath(path);
+      if (!result?.success) {
+        console.error('[CoworkPromptInput] failed to open folder:', result?.error);
+      }
+    } catch (error) {
+      console.error('[CoworkPromptInput] failed to open folder:', error);
+    }
+  }, [workingDirectory]);
 
   const addAttachment = useCallback((filePath: string, imageInfo?: { isImage: boolean; dataUrl?: string }) => {
     if (!filePath) return;
@@ -784,6 +916,28 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     () => configService.getConfig().shortcuts?.sendMessage ?? 'Enter'
   );
   const sendButtonTitle = `${i18nService.t('sendMessage')} (${getSendShortcutLabel(currentSendShortcut)})`;
+  const currentAgentForDisplay: AgentSelectorOption = currentAgent ?? {
+    id: currentAgentId,
+    name: currentAgentId,
+    icon: '',
+    enabled: true,
+  };
+  const enabledAgentOptions = agents.filter((agent) => agent.enabled || agent.id === currentAgentId);
+  const agentOptions = enabledAgentOptions.some((agent) => agent.id === currentAgentForDisplay.id)
+    ? enabledAgentOptions
+    : [currentAgentForDisplay, ...enabledAgentOptions];
+  const currentAgentName = getAgentDisplayName(currentAgentForDisplay);
+  const homeContextAgentName = truncateDisplayText(currentAgentName, ContextLabelMaxLength.Agent);
+  const readOnlyContextAgentId = contextAgentId?.trim() || currentAgentId;
+  const readOnlyContextAgent = agents.find((agent) => agent.id === readOnlyContextAgentId);
+  const readOnlyContextAgentForDisplay: AgentSelectorOption = readOnlyContextAgent ?? {
+    id: readOnlyContextAgentId,
+    name: readOnlyContextAgentId,
+    icon: '',
+    enabled: true,
+  };
+  const readOnlyContextAgentName = getAgentDisplayName(readOnlyContextAgentForDisplay);
+  const readOnlyContextAgentLabel = truncateDisplayText(readOnlyContextAgentName, ContextLabelMaxLength.Agent);
 
   // Sync when config is updated elsewhere (e.g. Settings panel)
   useEffect(() => {
@@ -794,6 +948,169 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     window.addEventListener('config-updated', syncFromConfig);
     return () => window.removeEventListener('config-updated', syncFromConfig);
   }, []);
+
+  const largeModelSelector = showModelSelector ? (
+    <div className="flex flex-col items-start gap-1">
+      <ModelSelector
+        compact={useHomeContextLayout}
+        dropdownDirection="up"
+        disabled={isPatchingModel || isPersistingAgentModel}
+        value={agentModelIsInvalid && currentSession?.modelOverride
+          ? { id: '__invalid__', name: currentSession.modelOverride.split('/').pop() || currentSession.modelOverride } as Model
+          : agentSelectedModel}
+        onChange={async (nextModel) => {
+          if (isPatchingModel || isPersistingAgentModel) return;
+          if (!nextModel) return;
+          const modelRef = toOpenClawModelRef(nextModel);
+          if (sessionId) {
+            const requestId = modelPatchRequestIdRef.current + 1;
+            modelPatchRequestIdRef.current = requestId;
+            const previousModelOverride = currentSession?.id === sessionId
+              ? currentSession.modelOverride
+              : '';
+
+            setIsPatchingModel(true);
+            dispatch(updateCurrentSessionModelOverride({ sessionId, modelOverride: modelRef }));
+
+            try {
+              const patchedSession = await coworkService.patchSession(sessionId, { model: modelRef });
+              if (requestId !== modelPatchRequestIdRef.current) return;
+
+              if (!patchedSession) {
+                dispatch(updateCurrentSessionModelOverride({
+                  sessionId,
+                  modelOverride: previousModelOverride,
+                }));
+                window.dispatchEvent(new CustomEvent('app:showToast', {
+                  detail: i18nService.t('coworkModelSwitchFailed'),
+                }));
+                return;
+              }
+
+              if (currentAgent && agentModelIsInvalid) {
+                void agentService.updateAgent(currentAgent.id, { model: modelRef });
+              }
+            } catch {
+              if (requestId === modelPatchRequestIdRef.current) {
+                dispatch(updateCurrentSessionModelOverride({
+                  sessionId,
+                  modelOverride: previousModelOverride,
+                }));
+                window.dispatchEvent(new CustomEvent('app:showToast', {
+                  detail: i18nService.t('coworkModelSwitchFailed'),
+                }));
+              }
+            } finally {
+              if (requestId === modelPatchRequestIdRef.current) {
+                setIsPatchingModel(false);
+              }
+            }
+            return;
+          }
+          await persistAgentModelSelection(nextModel);
+        }}
+      />
+      {agentModelIsInvalid && (
+        <span className="max-w-60 text-[11px] leading-4 text-red-500">
+          {i18nService.t('agentModelInvalidHint')}
+        </span>
+      )}
+    </div>
+  ) : null;
+
+  const largeInputActions = !remoteManaged ? (
+    <>
+      <button
+        type="button"
+        onClick={handleAddFile}
+        className="flex h-7 w-7 items-center justify-center rounded-lg text-secondary hover:bg-surface-raised hover:text-foreground transition-colors"
+        title={i18nService.t('coworkAddFile')}
+        aria-label={i18nService.t('coworkAddFile')}
+        disabled={disabled || isStreaming || isAddingFile}
+      >
+        <PaperClipIcon className="h-4 w-4" />
+      </button>
+      <SkillsButton
+        onSelectSkill={handleSelectSkill}
+        onManageSkills={handleManageSkills}
+      />
+      <ActiveSkillBadge />
+    </>
+  ) : null;
+
+  const largeSendButton = isStreaming ? (
+    <button
+      type="button"
+      onClick={handleStopClick}
+      className="p-2 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all shadow-subtle hover:shadow-card active:scale-95"
+      aria-label="Stop"
+    >
+      <StopIcon className="h-5 w-5" />
+    </button>
+  ) : (
+    <button
+      type="button"
+      onClick={handleSubmit}
+      disabled={!canSubmit}
+      className={`flex h-8 w-8 items-center justify-center rounded-full transition-all ${
+        canSubmit
+          ? 'bg-neutral-950 text-white shadow-subtle hover:bg-neutral-800 active:scale-95 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200'
+          : 'cursor-not-allowed bg-neutral-300 text-white dark:bg-neutral-700 dark:text-neutral-500'
+      }`}
+      aria-label={i18nService.t('sendMessage')}
+      title={sendButtonTitle}
+    >
+      <ArrowUpIcon className="h-[18px] w-[18px]" />
+    </button>
+  );
+
+  const readOnlyContextRow = isLarge && showReadOnlyContext && !useHomeContextLayout ? (
+    <div className="mt-2 grid min-h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4">
+      <div ref={readOnlyContextGroupRef} className="flex min-w-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={handleOpenWorkingDirectory}
+          disabled={!hasWorkingDirectory}
+          className={`flex h-7 items-center rounded-lg text-[13px] text-secondary transition-colors ${
+            hasWorkingDirectory ? 'hover:bg-background/80 hover:text-foreground' : 'cursor-default'
+          } ${
+            isReadOnlyContextCompact
+              ? 'w-7 flex-none justify-center'
+              : 'min-w-0 flex-1 gap-1.5 px-2'
+          }`}
+          title={workingDirectory || i18nService.t('noFolderSelected')}
+          aria-label={i18nService.t('coworkOpenFolder')}
+        >
+          <FolderIcon className="h-4 w-4 shrink-0" />
+          {!isReadOnlyContextCompact && (
+            <span className="min-w-0 truncate">
+              {truncatePath(workingDirectory, ContextLabelMaxLength.Folder)}
+            </span>
+          )}
+        </button>
+        <div
+          className={`flex h-7 items-center rounded-lg text-[13px] text-secondary ${
+            isReadOnlyContextCompact
+              ? 'w-7 flex-none justify-center'
+              : 'min-w-0 flex-1 gap-1.5 px-2'
+          }`}
+          title={`${i18nService.t('coworkCurrentAgent')}: ${readOnlyContextAgentName}`}
+        >
+          <AgentContextAvatar agent={readOnlyContextAgentForDisplay} />
+          {!isReadOnlyContextCompact && (
+            <span className="min-w-0 truncate">{readOnlyContextAgentLabel}</span>
+          )}
+        </div>
+      </div>
+      {readOnlyContextTrailingText && (
+        <span className="pointer-events-none min-w-0 max-w-full select-none truncate text-center text-[13px] text-muted opacity-85">
+          {readOnlyContextTrailingText}
+        </span>
+      )}
+      <div aria-hidden="true" />
+    </div>
+  ) : null;
+
   return (
     <div className="relative">
       {attachments.length > 0 && (
@@ -835,23 +1152,126 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           </div>
         )}
         {isLarge ? (
-          <>
-            <textarea
-              ref={textareaRef}
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              placeholder={placeholder}
-              disabled={disabled}
-              rows={isLarge ? 2 : 1}
-              className={textareaClass}
-              style={{ minHeight: `${minHeight}px` }}
-            />
-            <div className="flex items-center justify-between px-4 pb-2 pt-1.5">
-              <div className="flex items-center gap-2 relative">
+          useHomeContextLayout ? (
+            <>
+              <div className="relative z-10 rounded-2xl border border-border bg-surface shadow-card">
+                <textarea
+                  ref={textareaRef}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  placeholder={placeholder}
+                  disabled={disabled}
+                  rows={2}
+                  className={textareaClass}
+                  style={{ minHeight: `${minHeight}px` }}
+                />
+                <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {largeInputActions}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {largeModelSelector}
+                    {largeSendButton}
+                  </div>
+                </div>
+              </div>
+              <div className="-mt-2 flex min-h-10 items-center gap-2.5 rounded-b-2xl bg-black/[0.035] px-4 pb-2 pt-3.5 dark:bg-white/[0.05]">
                 {showFolderSelector && (
-                  <>
+                  <div className="relative min-w-0 shrink">
+                    <button
+                      ref={folderButtonRef as React.RefObject<HTMLButtonElement>}
+                      type="button"
+                      onClick={() => setShowFolderMenu(!showFolderMenu)}
+                      className={`flex h-7 max-w-[260px] items-center gap-1.5 rounded-lg px-2 text-[13px] transition-colors ${
+                        showFolderRequiredWarning
+                          ? 'ring-1 ring-warning text-warning animate-shake'
+                          : `text-secondary hover:bg-background/80 hover:text-foreground ${
+                            showFolderMenu ? 'bg-background/80 text-foreground' : ''
+                          }`
+                      }`}
+                    >
+                      <FolderIcon className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 truncate">
+                        {truncatePath(workingDirectory, ContextLabelMaxLength.Folder)}
+                      </span>
+                      <ChevronDownIcon className="h-3.5 w-3.5 shrink-0" />
+                    </button>
+                    <FolderSelectorPopover
+                      isOpen={showFolderMenu}
+                      onClose={() => setShowFolderMenu(false)}
+                      onSelectFolder={handleFolderSelect}
+                      anchorRef={folderButtonRef as React.RefObject<HTMLElement>}
+                      portal
+                    />
+                    {showFolderRequiredWarning && (
+                      <div className="absolute left-0 top-full z-10 mt-1 whitespace-nowrap rounded-md bg-surface-raised px-2 py-1 text-xs text-warning shadow-subtle animate-fade-in-up">
+                        {i18nService.t('coworkSelectFolderFirst')}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="relative min-w-0 shrink">
+                  <button
+                    ref={agentButtonRef}
+                    type="button"
+                    onClick={() => setShowAgentMenu(!showAgentMenu)}
+                    className={`flex h-7 max-w-[220px] items-center gap-1.5 rounded-lg px-2 text-[13px] text-secondary transition-colors hover:bg-background/80 hover:text-foreground ${
+                      showAgentMenu ? 'bg-background/80 text-foreground' : ''
+                    }`}
+                    aria-label={i18nService.t('coworkSelectAgent')}
+                    title={`${i18nService.t('coworkCurrentAgent')}: ${currentAgentName}`}
+                  >
+                    <AgentContextAvatar agent={currentAgentForDisplay} />
+                    <span className="min-w-0 truncate">{homeContextAgentName}</span>
+                    <ChevronDownIcon className="h-3.5 w-3.5 shrink-0" />
+                  </button>
+                  {showAgentMenu && (
+                    <div
+                      ref={agentMenuRef}
+                      className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-64 overflow-y-auto rounded-xl border border-border bg-surface py-1 shadow-popover"
+                    >
+                      {agentOptions.map((agent) => {
+                        const isSelectedAgent = agent.id === currentAgentId;
+                        return (
+                          <button
+                            key={agent.id}
+                            type="button"
+                            onClick={() => handleSelectAgent(agent.id)}
+                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-surface-raised ${
+                              isSelectedAgent ? 'bg-surface-raised/70 text-foreground' : 'text-foreground'
+                            }`}
+                          >
+                            <AgentContextAvatar agent={agent} />
+                            <span className="min-w-0 flex-1 truncate">{getAgentDisplayName(agent)}</span>
+                            {isSelectedAgent && <CheckIcon className="h-4 w-4 shrink-0 text-primary" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <textarea
+                ref={textareaRef}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                placeholder={placeholder}
+                disabled={disabled}
+                rows={2}
+                className={textareaClass}
+                style={{ minHeight: `${minHeight}px` }}
+              />
+              <div className="flex items-center justify-between px-4 pb-2 pt-1.5">
+                <div className="flex items-center gap-2 relative">
+                  {showFolderSelector && (
+                    <>
                       <div className="flex items-center">
                         <button
                           ref={folderButtonRef as React.RefObject<HTMLButtonElement>}
@@ -882,137 +1302,28 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                           )}
                         </button>
                       </div>
-                    <FolderSelectorPopover
-                      isOpen={showFolderMenu}
-                      onClose={() => setShowFolderMenu(false)}
-                      onSelectFolder={handleFolderSelect}
-                      anchorRef={folderButtonRef as React.RefObject<HTMLElement>}
-                    />
-                    {showFolderRequiredWarning && (
-                      <div className="absolute left-0 top-full mt-1 px-2 py-1 rounded-md bg-surface-raised text-warning text-xs whitespace-nowrap animate-fade-in-up shadow-subtle z-10">
-                        {i18nService.t('coworkSelectFolderFirst')}
-                      </div>
-                    )}
-                  </>
-                )}
-                {showModelSelector && (
-                  <div className="flex flex-col items-start gap-1">
-                    <ModelSelector
-                      dropdownDirection="up"
-                      disabled={isPatchingModel || isPersistingAgentModel}
-                      value={agentModelIsInvalid && currentSession?.modelOverride
-                        ? { id: '__invalid__', name: currentSession.modelOverride.split('/').pop() || currentSession.modelOverride } as Model
-                        : agentSelectedModel}
-                      onChange={async (nextModel) => {
-                        if (isPatchingModel || isPersistingAgentModel) return;
-                        if (!nextModel) return;
-                        const modelRef = toOpenClawModelRef(nextModel);
-                        if (sessionId) {
-                          const requestId = modelPatchRequestIdRef.current + 1;
-                          modelPatchRequestIdRef.current = requestId;
-                          const previousModelOverride = currentSession?.id === sessionId
-                            ? currentSession.modelOverride
-                            : '';
-
-                          setIsPatchingModel(true);
-                          dispatch(updateCurrentSessionModelOverride({ sessionId, modelOverride: modelRef }));
-
-                          try {
-                            const patchedSession = await coworkService.patchSession(sessionId, { model: modelRef });
-                            if (requestId !== modelPatchRequestIdRef.current) return;
-
-                            if (!patchedSession) {
-                              dispatch(updateCurrentSessionModelOverride({
-                                sessionId,
-                                modelOverride: previousModelOverride,
-                              }));
-                              window.dispatchEvent(new CustomEvent('app:showToast', {
-                                detail: i18nService.t('coworkModelSwitchFailed'),
-                              }));
-                              return;
-                            }
-
-                            if (currentAgent && agentModelIsInvalid) {
-                              void agentService.updateAgent(currentAgent.id, { model: modelRef });
-                            }
-                          } catch {
-                            if (requestId === modelPatchRequestIdRef.current) {
-                              dispatch(updateCurrentSessionModelOverride({
-                                sessionId,
-                                modelOverride: previousModelOverride,
-                              }));
-                              window.dispatchEvent(new CustomEvent('app:showToast', {
-                                detail: i18nService.t('coworkModelSwitchFailed'),
-                              }));
-                            }
-                          } finally {
-                            if (requestId === modelPatchRequestIdRef.current) {
-                              setIsPatchingModel(false);
-                            }
-                          }
-                          return;
-                        }
-                        await persistAgentModelSelection(nextModel);
-                      }}
-                    />
-                    {agentModelIsInvalid && (
-                      <span className="max-w-60 text-[11px] leading-4 text-red-500">
-                        {i18nService.t('agentModelInvalidHint')}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {!remoteManaged && (
-                  <button
-                    type="button"
-                    onClick={handleAddFile}
-                    className="flex items-center justify-center p-1.5 rounded-lg text-sm text-secondary hover:bg-surface-raised hover:text-foreground transition-colors"
-                    title={i18nService.t('coworkAddFile')}
-                    aria-label={i18nService.t('coworkAddFile')}
-                    disabled={disabled || isStreaming || isAddingFile}
-                  >
-                    <PaperClipIcon className="h-4 w-4" />
-                  </button>
-                )}
-                {!remoteManaged && (
-                  <>
-                    <SkillsButton
-                      onSelectSkill={handleSelectSkill}
-                      onManageSkills={handleManageSkills}
-                    />
-                    <ActiveSkillBadge />
-                  </>
-                )}
+                      <FolderSelectorPopover
+                        isOpen={showFolderMenu}
+                        onClose={() => setShowFolderMenu(false)}
+                        onSelectFolder={handleFolderSelect}
+                        anchorRef={folderButtonRef as React.RefObject<HTMLElement>}
+                      />
+                      {showFolderRequiredWarning && (
+                        <div className="absolute left-0 top-full mt-1 px-2 py-1 rounded-md bg-surface-raised text-warning text-xs whitespace-nowrap animate-fade-in-up shadow-subtle z-10">
+                          {i18nService.t('coworkSelectFolderFirst')}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {largeModelSelector}
+                  {largeInputActions}
+                </div>
+                <div className="flex items-center gap-2">
+                  {largeSendButton}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                {isStreaming ? (
-                  <button
-                    type="button"
-                    onClick={handleStopClick}
-                    className="p-2 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all shadow-subtle hover:shadow-card active:scale-95"
-                    aria-label="Stop"
-                  >
-                    <StopIcon className="h-5 w-5" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleSubmit}
-                    disabled={!canSubmit}
-                    className={`flex h-8 w-8 items-center justify-center rounded-full transition-all ${
-                      canSubmit
-                        ? 'bg-neutral-950 text-white shadow-subtle hover:bg-neutral-800 active:scale-95 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200'
-                        : 'cursor-not-allowed bg-neutral-300 text-white dark:bg-neutral-700 dark:text-neutral-500'
-                    }`}
-                    aria-label={i18nService.t('sendMessage')}
-                    title={sendButtonTitle}
-                  >
-                    <ArrowUpIcon className="h-[18px] w-[18px]" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </>
+            </>
+          )
         ) : (
           <>
             <textarea
@@ -1070,6 +1381,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           </>
         )}
       </div>
+      {readOnlyContextRow}
     </div>
   );
   }

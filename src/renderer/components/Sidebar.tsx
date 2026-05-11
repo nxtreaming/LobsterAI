@@ -382,13 +382,13 @@ const Sidebar: React.FC<SidebarProps> = ({
           }`}
         />
         <div
-          className={`pointer-events-none absolute inset-x-0 top-[68px] z-10 h-10 bg-gradient-to-b from-surface-raised to-transparent transition-opacity duration-150 ${
-            agentScrollEdges.top ? 'opacity-100' : 'opacity-0'
+          className={`pointer-events-none absolute inset-x-0 top-[68px] z-10 h-3 bg-gradient-to-b from-surface-raised to-transparent transition-opacity duration-150 ${
+            agentScrollEdges.top ? 'opacity-40' : 'opacity-0'
           }`}
         />
         <div
-          className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 h-16 bg-gradient-to-t from-surface-raised to-transparent transition-opacity duration-150 ${
-            agentScrollEdges.bottom ? 'opacity-100' : 'opacity-0'
+          className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 h-3 bg-gradient-to-t from-surface-raised to-transparent transition-opacity duration-150 ${
+            agentScrollEdges.bottom ? 'opacity-40' : 'opacity-0'
           }`}
         />
       </div>
@@ -449,7 +449,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       ) : (
-        <div className="px-3 pb-2 pt-1 flex items-center gap-1">
+        <div className="flex items-center gap-1 pb-2 pl-3 pr-2 pt-1">
           {!hideLogin && (
             <div className="flex-1 min-w-0">
               <LoginButton />
@@ -458,7 +458,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={() => onShowSettings()}
-            className={`inline-flex h-7 items-center justify-start gap-2 rounded-md px-1.5 text-[14px] font-normal text-foreground/80 transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04] ${hideLogin ? 'w-full' : 'shrink-0'}`}
+            className={`inline-flex h-7 items-center justify-start gap-1.5 rounded-md px-1.5 text-[14px] font-normal text-foreground/80 transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04] ${hideLogin ? 'w-full' : 'shrink-0'}`}
             aria-label={i18nService.t('settings')}
           >
             <Cog6ToothIcon className="h-4 w-4 shrink-0" />

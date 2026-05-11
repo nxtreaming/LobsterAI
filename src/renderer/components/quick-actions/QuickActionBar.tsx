@@ -1,10 +1,11 @@
 import React from 'react';
+
 import type { LocalizedQuickAction } from '../../types/quickAction';
-import PresentationChartBarIcon from '../icons/PresentationChartBarIcon';
-import GlobeAltIcon from '../icons/GlobeAltIcon';
-import DevicePhoneMobileIcon from '../icons/DevicePhoneMobileIcon';
-import ChartBarIcon from '../icons/ChartBarIcon';
 import AcademicCapIcon from '../icons/AcademicCapIcon';
+import ChartBarIcon from '../icons/ChartBarIcon';
+import DevicePhoneMobileIcon from '../icons/DevicePhoneMobileIcon';
+import GlobeAltIcon from '../icons/GlobeAltIcon';
+import PresentationChartBarIcon from '../icons/PresentationChartBarIcon';
 
 interface QuickActionBarProps {
   actions: LocalizedQuickAction[];
@@ -26,7 +27,7 @@ const QuickActionBar: React.FC<QuickActionBarProps> = ({ actions, onActionSelect
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2.5">
+    <div className="flex flex-wrap items-center justify-center gap-2">
       {actions.map((action) => {
         const IconComponent = iconMap[action.icon];
 
@@ -35,10 +36,10 @@ const QuickActionBar: React.FC<QuickActionBarProps> = ({ actions, onActionSelect
             key={action.id}
             type="button"
             onClick={() => onActionSelect(action.id)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all duration-200 ease-out bg-surface border-border text-secondary hover:bg-surface-raised hover:border-primary/40"
+            className="flex items-center gap-1.5 rounded-lg border border-border-subtle bg-surface px-3 py-1.5 text-[13px] font-normal leading-5 text-secondary transition-all duration-200 ease-out hover:bg-surface-raised hover:border-primary/30 hover:text-foreground"
           >
             {IconComponent && (
-              <IconComponent className="w-4 h-4 text-secondary" />
+              <IconComponent className="h-3.5 w-3.5 text-secondary" />
             )}
             <span>{action.label}</span>
           </button>
