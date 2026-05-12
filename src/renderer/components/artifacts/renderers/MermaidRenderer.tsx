@@ -78,12 +78,14 @@ const MermaidRenderer: React.FC<MermaidRendererProps> = ({ artifact }) => {
   }
 
   return (
-    <div className="relative w-full h-full overflow-auto" ref={containerRef}>
-      <div
-        className="flex items-center justify-center min-h-full p-4"
-        style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}
-        dangerouslySetInnerHTML={{ __html: svg }}
-      />
+    <div className="relative w-full h-full">
+      <div className="w-full h-full overflow-auto" ref={containerRef}>
+        <div
+          className="flex items-center justify-center min-h-full p-4"
+          style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
       <div className="absolute bottom-3 right-3 flex items-center gap-1">
         <button
           onClick={zoomOut}

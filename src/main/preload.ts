@@ -379,6 +379,10 @@ contextBridge.exposeInMainWorld('electron', {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
     openHtmlInBrowser: (htmlContent: string) => ipcRenderer.invoke('shell:openHtmlInBrowser', htmlContent),
   },
+  clipboard: {
+    writeImageFromFile: (filePath: string) =>
+      ipcRenderer.invoke('clipboard:writeImageFromFile', filePath),
+  },
   voice: {
     triggerDictation: () => ipcRenderer.invoke('voice:triggerDictation'),
   },

@@ -298,6 +298,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     copyToClipboard: '复制到剪贴板',
     coworkReEdit: '重新编辑',
     messageCopied: '消息已复制',
+    copyFailed: '复制失败',
     // 代码块搜索面板
     codeSearchFind: '查找',
     codeSearchReplace: '替换',
@@ -337,7 +338,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     artifactView: '查看',
     artifactViewing: '预览中',
     artifactPreview: '预览',
-    artifactCode: '代码',
+    artifactCode: '源码',
     artifactPanelToggle: '预览面板',
     artifactDownload: '下载',
     artifactOpenFolder: '打开文件夹',
@@ -2118,6 +2119,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     copyToClipboard: 'Copy to Clipboard',
     coworkReEdit: 'Re-edit',
     messageCopied: 'Message copied',
+    copyFailed: 'Copy failed',
     // Code block search panel
     codeSearchFind: 'Find',
     codeSearchReplace: 'Replace',
@@ -2158,7 +2160,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     artifactView: 'View',
     artifactViewing: 'Viewing',
     artifactPreview: 'Preview',
-    artifactCode: 'Code',
+    artifactCode: 'Source',
     artifactPanelToggle: 'Artifacts',
     artifactDownload: 'Download',
     artifactOpenFolder: 'Open in Folder',
