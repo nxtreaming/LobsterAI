@@ -1257,7 +1257,6 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
 
   const shouldUseCodeMirror =
     !isInline &&
-    match &&
     trimmedCodeText.length <= CODE_BLOCK_CHAR_LIMIT &&
     trimmedCodeText.split('\n').length <= CODE_BLOCK_LINE_LIMIT;
 
@@ -1368,41 +1367,11 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
   }
 
   // -------------------------------------------------------------------------
-  // No-language plain block
-  // -------------------------------------------------------------------------
-  if (!match) {
-    return (
-      <div className="my-2 relative group">
-        <div className="overflow-x-auto rounded-lg border border-border-subtle dark:bg-[#282c34] bg-[#f0f2f5] text-[13px] leading-6">
-          <CodeBlockTooltip
-            content={i18nService.t('copyToClipboard')}
-            className="absolute top-2 right-2 z-10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200"
-          >
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-secondary hover:bg-surface-raised hover:text-foreground transition-colors transform-gpu"
-              aria-label={i18nService.t('copyToClipboard')}
-            >
-              {isCopied ? (
-                <CheckIcon className="h-4 w-4 text-green-500" />
-              ) : (
-                <CopyIcon className="h-4 w-4" />
-              )}
-            </button>
-          </CodeBlockTooltip>
-          <code className="block px-4 py-3 font-mono dark:text-gray-100 text-gray-800 whitespace-pre dark:bg-[#282c34] bg-[#f0f2f5] w-max min-w-full">
-            {trimmedCodeText}
-          </code>
-        </div>
-      </div>
-    );
-  }
-
-  // -------------------------------------------------------------------------
   // Language code block header
   // -------------------------------------------------------------------------
-  const displayLang = isDiffBlock
+  const displayLang = !match
+    ? 'text'
+    : isDiffBlock
     ? diffInnerLang
       ? `diff · ${diffInnerLang}`
       : 'diff'

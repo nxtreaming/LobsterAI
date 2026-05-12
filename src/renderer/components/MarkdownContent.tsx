@@ -15,6 +15,7 @@ import { i18nService } from '../services/i18n';
 import CodeBlock from './CodeBlock';
 
 const SAFE_URL_PROTOCOLS = new Set(['http', 'https', 'mailto', 'tel', 'file']);
+const LINK_CLASS_NAME = 'text-primary hover:text-primary-hover underline decoration-primary/50 hover:decoration-primary transition-colors break-words [overflow-wrap:anywhere]';
 
 const encodeFileUrl = (url: string): string => {
   const encoded = encodeURI(url);
@@ -470,11 +471,11 @@ const createMarkdownComponents = (
           <a
             href={toFileHref(filePath)}
             onClick={handleClick}
-            className="text-primary hover:text-primary-hover underline decoration-primary/50 hover:decoration-primary transition-colors cursor-pointer inline-flex items-center gap-1"
+            className={`${LINK_CLASS_NAME} cursor-pointer inline-flex max-w-full flex-wrap items-center gap-1`}
             title={filePath}
             {...props}
           >
-            {children}
+            <span className="min-w-0 break-words [overflow-wrap:anywhere]">{children}</span>
             {isDirectoryLink ? (
               <FolderIcon className="h-3.5 w-3.5 inline" />
             ) : (
@@ -516,7 +517,7 @@ const createMarkdownComponents = (
           target="_blank"
           rel="noopener noreferrer"
           onClick={handleExternalClick}
-          className="text-primary hover:text-primary-hover underline decoration-primary/50 hover:decoration-primary transition-colors"
+          className={LINK_CLASS_NAME}
           {...props}
         >
           {children}
@@ -529,7 +530,7 @@ const createMarkdownComponents = (
         href={hrefValue}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-primary hover:text-primary-hover underline decoration-primary/50 hover:decoration-primary transition-colors"
+        className={LINK_CLASS_NAME}
         {...props}
       >
         {children}
@@ -559,7 +560,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
   );
   const normalizedContent = useMemo(() => normalizeDisplayMath(encodeFileUrlsInMarkdown(content)), [content]);
   return (
-    <div className={`markdown-content text-[15px] leading-[23px] ${className}`}>
+    <div className={`markdown-content min-w-0 max-w-full text-[15px] leading-[23px] ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
