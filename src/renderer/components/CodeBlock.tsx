@@ -33,39 +33,97 @@ import {
   Panel,
   rectangularSelection,
 } from '@codemirror/view';
-import {
-  ArrowDownTrayIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronUpIcon,
-  MagnifyingGlassIcon,
-} from '@heroicons/react/24/outline';
 import { indentationMarkers } from '@replit/codemirror-indentation-markers';
 import CodeMirror from '@uiw/react-codemirror';
 import React, { useCallback, useEffect, useMemo,useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { i18nService } from '../services/i18n';
-import CopyIcon from './icons/CopyIcon';
 import Tooltip, { TooltipAlign, TooltipPosition } from './ui/Tooltip';
 
-/** Word-wrap toggle icon: mimics a "wrap text" glyph */
-const WrapTextIcon: React.FC<{ className?: string }> = ({ className }) => (
+const CodeBlockIcon: React.FC<{
+  className?: string;
+  children: React.ReactNode;
+  viewBox?: string;
+}> = ({ className, children, viewBox = '0 0 24 24' }) => (
   <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
+    className={className}
+    viewBox={viewBox}
     fill="none"
     stroke="currentColor"
     strokeWidth="2"
     strokeLinecap="round"
     strokeLinejoin="round"
-    className={className}
+    aria-hidden="true"
   >
+    {children}
+  </svg>
+);
+
+const ChevronIcon: React.FC<{ className?: string; direction: 'up' | 'down' }> = ({ className, direction }) => (
+  <CodeBlockIcon className={className}>
+    {direction === 'up' ? (
+      <path d="m6 15 6-6 6 6" />
+    ) : (
+      <path d="m6 9 6 6 6-6" />
+    )}
+  </CodeBlockIcon>
+);
+
+const SearchIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <CodeBlockIcon className={className}>
+    <path d="m21 21-4.35-4.35" />
+    <circle cx="11" cy="11" r="7" />
+  </CodeBlockIcon>
+);
+
+/** Word-wrap toggle icon: mimics a "wrap text" glyph */
+const WrapTextIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <CodeBlockIcon className={className}>
     <line x1="3" y1="6" x2="21" y2="6" />
     <path d="M3 12h13a3 3 0 0 1 0 6h-3" />
     <polyline points="11 15 8 18 11 21" />
     <line x1="3" y1="18" x2="5" y2="18" />
-  </svg>
+  </CodeBlockIcon>
+);
+
+const FullscreenIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <CodeBlockIcon className={className}>
+    <path d="M14.5 5H19v4.5" />
+    <path d="M9.5 19H5v-4.5" />
+    <path d="M19 5l-5 5" />
+    <path d="M5 19l5-5" />
+  </CodeBlockIcon>
+);
+
+const FullscreenExitIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <CodeBlockIcon className={className}>
+    <path d="M10 5v5H5" />
+    <path d="M5 10l5-5" />
+    <path d="M14 19v-5h5" />
+    <path d="M19 14l-5 5" />
+  </CodeBlockIcon>
+);
+
+const CopyCodeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <CodeBlockIcon className={className}>
+    <rect x="8" y="8" width="11" height="11" rx="2" />
+    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+  </CodeBlockIcon>
+);
+
+const DownloadIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <CodeBlockIcon className={className}>
+    <path d="M12 3v12" />
+    <path d="m7 10 5 5 5-5" />
+    <path d="M5 21h14" />
+  </CodeBlockIcon>
+);
+
+const CheckCodeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <CodeBlockIcon className={className}>
+    <path d="m5 12 5 5L20 7" />
+  </CodeBlockIcon>
 );
 
 // ---------------------------------------------------------------------------
@@ -612,6 +670,7 @@ const baseTheme = EditorView.theme({
     borderRadius: '5px',
     border: '1px solid transparent',
     fontSize: '12px',
+    lineHeight: '1',
     color: 'var(--lobster-text-secondary)',
     cursor: 'pointer',
     userSelect: 'none',
@@ -623,6 +682,10 @@ const baseTheme = EditorView.theme({
     color: 'var(--lobster-foreground)',
   },
   '.cm-search-opt input[type="checkbox"]': {
+    display: 'block',
+    flex: '0 0 auto',
+    width: '13px',
+    height: '13px',
     margin: '0',
     cursor: 'pointer',
     accentColor: 'var(--lobster-primary)',
@@ -877,7 +940,7 @@ const CodeFullscreenModal: React.FC<CodeFullscreenModalProps> = ({ code, lang, i
                 ariaLabel={searchOpen ? t('codeBlockSearchClose') : t('codeBlockSearch')}
                 active={searchOpen}
               >
-                <MagnifyingGlassIcon className="h-4 w-4" />
+                <SearchIcon className="h-[18px] w-[18px]" />
               </HeaderButton>
             </CodeBlockTooltip>
             <CodeBlockTooltip content={wrap ? t('codeBlockWordWrapOff') : t('codeBlockWordWrap')}>
@@ -886,14 +949,14 @@ const CodeFullscreenModal: React.FC<CodeFullscreenModalProps> = ({ code, lang, i
                 ariaLabel={wrap ? t('codeBlockWordWrapOff') : t('codeBlockWordWrap')}
                 active={wrap}
               >
-                <WrapTextIcon className="h-4 w-4" />
+                <WrapTextIcon className="h-[18px] w-[18px]" />
               </HeaderButton>
             </CodeBlockTooltip>
             <CodeBlockTooltip content={t('copyToClipboard')}>
               <HeaderButton onClick={handleCopy} ariaLabel={t('copyToClipboard')}>
                 {isCopied
-                  ? <CheckIcon className="h-4 w-4 text-green-500" />
-                  : <CopyIcon className="h-4 w-4" />}
+                  ? <CheckCodeIcon className="h-[18px] w-[18px] text-green-500" />
+                  : <CopyCodeIcon className="h-[18px] w-[18px]" />}
               </HeaderButton>
             </CodeBlockTooltip>
             {/* Divider */}
@@ -901,9 +964,7 @@ const CodeFullscreenModal: React.FC<CodeFullscreenModalProps> = ({ code, lang, i
             {/* Close */}
             <CodeBlockTooltip content={t('codeBlockFullscreenExit')}>
               <HeaderButton onClick={onClose} ariaLabel={t('codeBlockFullscreenExit')}>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+                <FullscreenExitIcon className="h-[18px] w-[18px]" />
               </HeaderButton>
             </CodeBlockTooltip>
           </div>
@@ -952,7 +1013,7 @@ const HeaderButton: React.FC<{
     type="button"
     onClick={onClick}
     className={[
-      'inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors transform-gpu',
+      'inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors',
       active
         ? 'bg-surface text-foreground'
         : 'text-secondary hover:bg-surface hover:text-foreground',
@@ -1400,9 +1461,9 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
               active={collapsed}
             >
               {collapsed ? (
-                <ChevronDownIcon className="h-4 w-4" />
+                <ChevronIcon className="h-[18px] w-[18px]" direction="down" />
               ) : (
-                <ChevronUpIcon className="h-4 w-4" />
+                <ChevronIcon className="h-[18px] w-[18px]" direction="up" />
               )}
             </HeaderButton>
           </CodeBlockTooltip>
@@ -1414,7 +1475,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
                 ariaLabel={searchOpen ? i18nService.t('codeBlockSearchClose') : i18nService.t('codeBlockSearch')}
                 active={searchOpen}
               >
-                <MagnifyingGlassIcon className="h-4 w-4" />
+                <SearchIcon className="h-[18px] w-[18px]" />
               </HeaderButton>
             </CodeBlockTooltip>
           )}
@@ -1425,25 +1486,22 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
               ariaLabel={wrap ? i18nService.t('codeBlockWordWrapOff') : i18nService.t('codeBlockWordWrap')}
               active={wrap}
             >
-              <WrapTextIcon className="h-4 w-4" />
+              <WrapTextIcon className="h-[18px] w-[18px]" />
             </HeaderButton>
           </CodeBlockTooltip>
           {/* Fullscreen expand */}
           <CodeBlockTooltip content={i18nService.t('codeBlockFullscreen')}>
             <HeaderButton onClick={() => setFullscreen(true)} ariaLabel={i18nService.t('codeBlockFullscreen')}>
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
-                <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
+              <FullscreenIcon className="h-[18px] w-[18px]" />
             </HeaderButton>
           </CodeBlockTooltip>
           {/* Copy */}
           <CodeBlockTooltip content={i18nService.t('copyToClipboard')}>
             <HeaderButton onClick={handleCopy} ariaLabel={i18nService.t('copyToClipboard')}>
               {isCopied ? (
-                <CheckIcon className="h-4 w-4 text-green-500" />
+                <CheckCodeIcon className="h-[18px] w-[18px] text-green-500" />
               ) : (
-                <CopyIcon className="h-4 w-4" />
+                <CopyCodeIcon className="h-[18px] w-[18px]" />
               )}
             </HeaderButton>
           </CodeBlockTooltip>
@@ -1451,9 +1509,9 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
           <CodeBlockTooltip content={i18nService.t('saveToFile')}>
             <HeaderButton onClick={handleSave} ariaLabel={i18nService.t('saveToFile')}>
               {isSaved ? (
-                <CheckIcon className="h-4 w-4 text-green-500" />
+                <CheckCodeIcon className="h-[18px] w-[18px] text-green-500" />
               ) : (
-                <ArrowDownTrayIcon className="h-4 w-4" />
+                <DownloadIcon className="h-[18px] w-[18px]" />
               )}
             </HeaderButton>
           </CodeBlockTooltip>
