@@ -5176,6 +5176,32 @@ if (!gotTheLock) {
   });
 
   // ---- artifact file watching ----
+
+  // Voice dictation - trigger OS-level speech-to-text
+  ipcMain.handle('voice:triggerDictation', async () => {
+    try {
+      if (process.platform === 'win32') {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        // Simulate Win+H via keybd_event P/Invoke
+        await execAsync(`powershell -NoProfile -Command "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class KS{[DllImport(\\\"user32.dll\\\")]public static extern void keybd_event(byte k,byte s,uint f,int e);public static void WinH(){keybd_event(0x5B,0,0,0);keybd_event(0x48,0,0,0);keybd_event(0x48,0,2,0);keybd_event(0x5B,0,2,0);}}'; [KS]::WinH()"`);
+        return { success: true };
+      } else if (process.platform === 'darwin') {
+        // macOS: simulate Fn+Fn (dictation trigger) via AppleScript
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        await execAsync(`osascript -e 'tell application "System Events" to key code 63' -e 'delay 0.05' -e 'tell application "System Events" to key code 63'`);
+        return { success: true };
+      }
+      return { success: false, error: 'Unsupported platform' };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+
+  // ---- artifact file watching ----
   const fileWatchers = new Map<string, { watcher: fs.FSWatcher; debounceTimer: ReturnType<typeof setTimeout> | null }>();
 
   ipcMain.handle('artifact:watchFile', (_event, filePath: string) => {
