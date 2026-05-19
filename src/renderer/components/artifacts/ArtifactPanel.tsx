@@ -1,3 +1,5 @@
+import { ArtifactBrowserPartition } from '@shared/artifactPreview/constants';
+import type { LocalWebService } from '@shared/localWebServices/constants';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
@@ -17,9 +19,7 @@ import {
   setPanelWidth,
   setPreviewTabContentView,
 } from '@/store/slices/artifactSlice';
-import type { ArtifactType } from '@/types/artifact';
-import type { Artifact } from '@/types/artifact';
-import { PREVIEWABLE_ARTIFACT_TYPES } from '@/types/artifact';
+import { type Artifact, type ArtifactType, ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '@/types/artifact';
 
 import CopyIcon from '../icons/CopyIcon';
 import ArtifactRenderer from './ArtifactRenderer';
@@ -32,7 +32,7 @@ const BROWSER_OPENABLE_TYPES = new Set<ArtifactType>(['html', 'svg', 'mermaid'])
 
 const SYSTEM_OPENABLE_TYPES = new Set<ArtifactType>(['document']);
 
-const NON_CODE_TYPES = new Set<ArtifactType>(['document', 'image', 'text']);
+const NON_CODE_TYPES = new Set<ArtifactType>(['document', 'image', 'text', ArtifactTypeValue.LocalService]);
 
 const COPYABLE_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg']);
 
@@ -41,6 +41,7 @@ const FILE_LIST_DRAWER_TRANSITION_MS = 180;
 
 function isCopyableArtifact(artifact: Artifact): boolean {
   if (artifact.type === 'document') return false;
+  if (artifact.type === ArtifactTypeValue.LocalService) return false;
   if (artifact.type === 'image') {
     const filename = artifact.fileName || artifact.filePath || '';
     const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
@@ -92,9 +93,26 @@ interface ArtifactPanelProps {
   activeSpecialTab?: ArtifactSpecialTab;
   minPanelWidth?: number;
   maxPanelWidth?: number;
+  browserAddress?: string;
+  browserUrl?: string;
+  onBrowserAddressChange?: (value: string) => void;
+  onBrowserUrlChange?: (value: string) => void;
   onOpenFileListTab?: () => void;
+  onOpenBrowserTab?: () => void;
   onBrowserAnnotationCaptured?: (payload: BrowserAnnotationPayload) => void;
 }
+
+export const BrowserAnnotationShape = {
+  Rectangle: 'rectangle',
+} as const;
+
+export type BrowserAnnotationShape = typeof BrowserAnnotationShape[keyof typeof BrowserAnnotationShape];
+
+export const BrowserAnnotationColor = {
+  Blue: 'blue',
+} as const;
+
+export type BrowserAnnotationColor = typeof BrowserAnnotationColor[keyof typeof BrowserAnnotationColor];
 
 export interface BrowserAnnotationElementInfo {
   tagName: string;
@@ -105,11 +123,31 @@ export interface BrowserAnnotationElementInfo {
   height: number;
 }
 
+export interface BrowserAnnotationRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserAnnotationScreenshotInfo {
+  width: number;
+  height: number;
+  devicePixelRatio: number;
+}
+
+export interface BrowserAnnotationMarkInfo extends BrowserAnnotationRect {
+  shape: BrowserAnnotationShape;
+  color: BrowserAnnotationColor;
+}
+
 export interface BrowserAnnotationPayload {
   comment: string;
   imageDataUrl: string;
   pageUrl: string;
   pageTitle: string;
+  screenshot: BrowserAnnotationScreenshotInfo;
+  annotation: BrowserAnnotationMarkInfo;
   element: BrowserAnnotationElementInfo;
 }
 
@@ -119,7 +157,12 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   activeSpecialTab = ArtifactSpecialTab.FileList,
   minPanelWidth = MIN_PANEL_WIDTH,
   maxPanelWidth = MAX_PANEL_WIDTH,
+  browserAddress: controlledBrowserAddress,
+  browserUrl: controlledBrowserUrl,
+  onBrowserAddressChange,
+  onBrowserUrlChange,
   onOpenFileListTab,
+  onOpenBrowserTab,
   onBrowserAnnotationCaptured,
 }) => {
   const dispatch = useDispatch();
@@ -127,8 +170,8 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   const activePreviewTab = useSelector((state: RootState) => selectActivePreviewTab(state, sessionId));
   const [showFileListDrawer, setShowFileListDrawer] = useState(false);
   const [isFileListDrawerVisible, setIsFileListDrawerVisible] = useState(false);
-  const [browserAddress, setBrowserAddress] = useState('');
-  const [browserUrl, setBrowserUrl] = useState('');
+  const [localBrowserAddress, setLocalBrowserAddress] = useState('');
+  const [localBrowserUrl, setLocalBrowserUrl] = useState('');
   const fileListDrawerRef = useRef<HTMLDivElement>(null);
   const fileListButtonRef = useRef<HTMLButtonElement>(null);
   const fileListDrawerAnimationFrameRef = useRef<number | undefined>(undefined);
@@ -152,6 +195,18 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
     Math.max(MIN_PANEL_WIDTH, minPanelWidth),
   );
   const constrainedPanelWidth = Math.max(constrainedMinPanelWidth, Math.min(constrainedMaxPanelWidth, panelWidth));
+  const browserAddress = controlledBrowserAddress ?? localBrowserAddress;
+  const browserUrl = controlledBrowserUrl ?? localBrowserUrl;
+
+  const handleBrowserAddressChange = useCallback((value: string) => {
+    setLocalBrowserAddress(value);
+    onBrowserAddressChange?.(value);
+  }, [onBrowserAddressChange]);
+
+  const handleBrowserUrlChange = useCallback((value: string) => {
+    setLocalBrowserUrl(value);
+    onBrowserUrlChange?.(value);
+  }, [onBrowserUrlChange]);
 
   const openFileListDrawer = useCallback(() => {
     if (fileListDrawerCloseTimeoutRef.current !== undefined) {
@@ -310,15 +365,32 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
     };
   }, [selectedArtifact?.filePath]);
 
+  const openLocalServiceArtifact = useCallback((artifact: Artifact): boolean => {
+    if (artifact.type !== ArtifactTypeValue.LocalService) return false;
+    const url = artifact.url || artifact.content;
+    if (!url) return true;
+    onOpenBrowserTab?.();
+    handleBrowserAddressChange(url);
+    handleBrowserUrlChange(url);
+    return true;
+  }, [handleBrowserAddressChange, handleBrowserUrlChange, onOpenBrowserTab]);
+
   const handleSelectArtifact = useCallback((id: string) => {
+    const artifact = artifacts.find(item => item.id === id);
+    if (artifact && openLocalServiceArtifact(artifact)) return;
     onOpenFileListTab?.();
     dispatch(openArtifactPreviewTab({ sessionId, artifactId: id }));
-  }, [dispatch, onOpenFileListTab, sessionId]);
+  }, [artifacts, dispatch, onOpenFileListTab, openLocalServiceArtifact, sessionId]);
 
   const handleSelectArtifactFromDrawer = useCallback((id: string) => {
+    const artifact = artifacts.find(item => item.id === id);
+    if (artifact && openLocalServiceArtifact(artifact)) {
+      closeFileListDrawer();
+      return;
+    }
     dispatch(openArtifactPreviewTab({ sessionId, artifactId: id }));
     closeFileListDrawer();
-  }, [closeFileListDrawer, dispatch, sessionId]);
+  }, [artifacts, closeFileListDrawer, dispatch, openLocalServiceArtifact, sessionId]);
 
   const handleSetContentView = useCallback((contentView: ArtifactContentView) => {
     if (!activePreviewTab) return;
@@ -571,8 +643,9 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
           <BrowserTabContent
             address={browserAddress}
             currentUrl={browserUrl}
-            onAddressChange={setBrowserAddress}
-            onCurrentUrlChange={setBrowserUrl}
+            sessionArtifacts={artifacts}
+            onAddressChange={handleBrowserAddressChange}
+            onCurrentUrlChange={handleBrowserUrlChange}
             onAnnotationCaptured={onBrowserAnnotationCaptured}
           />
         ) : (
@@ -593,13 +666,16 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
 type BrowserWebviewElement = HTMLElement & {
   canGoBack?: () => boolean;
   canGoForward?: () => boolean;
-  capturePage?: () => Promise<{ toDataURL: () => string }>;
+  capturePage?: () => Promise<{ toDataURL: () => string; getSize?: () => { width: number; height: number } }>;
   executeJavaScript?: (code: string) => Promise<unknown>;
+  loadURL?: (url: string) => Promise<void>;
   goBack?: () => void;
   goForward?: () => void;
   reload?: () => void;
   stop?: () => void;
   getURL?: () => string;
+  getZoomFactor?: () => number;
+  setZoomFactor?: (factor: number) => void;
 };
 
 const BrowserScreenshotStatus = {
@@ -625,6 +701,83 @@ const BrowserToolbarAction = {
 
 type BrowserToolbarAction = typeof BrowserToolbarAction[keyof typeof BrowserToolbarAction];
 
+const BrowserZoom = {
+  Min: 0.25,
+  Max: 3,
+  Step: 0.1,
+  Default: 1,
+} as const;
+
+const BrowserPageUrl = {
+  Blank: 'about:blank',
+} as const;
+
+const LocalServiceDisplay = {
+  Limit: 10,
+} as const;
+
+const BrowserDevicePresetId = {
+  Responsive: 'responsive',
+  FourK: '4k',
+  LaptopLarge: 'laptop-large',
+  Laptop: 'laptop',
+  SurfacePro7: 'surface-pro-7',
+  IPadAir: 'ipad-air',
+  IPadMini: 'ipad-mini',
+  SurfaceDuo: 'surface-duo',
+  IPhone15ProMax: 'iphone-15-pro-max',
+  Pixel8: 'pixel-8',
+  IPhone15Pro: 'iphone-15-pro',
+  SamsungGalaxyS24Ultra: 'samsung-galaxy-s24-ultra',
+  IPhoneSe: 'iphone-se',
+} as const;
+
+type BrowserDevicePresetId = typeof BrowserDevicePresetId[keyof typeof BrowserDevicePresetId];
+
+interface BrowserDevicePreset {
+  id: BrowserDevicePresetId;
+  labelKey?: string;
+  label?: string;
+  width: number;
+  height: number;
+}
+
+const BrowserDeviceViewport = {
+  MinSize: 50,
+  MaxSize: 9999,
+  DefaultWidth: 880,
+  DefaultHeight: 888,
+} as const;
+
+const BrowserDeviceScale = {
+  Min: 0.25,
+  Max: 2,
+  Default: 1,
+} as const;
+
+const BROWSER_DEVICE_PRESETS: BrowserDevicePreset[] = [
+  {
+    id: BrowserDevicePresetId.Responsive,
+    labelKey: 'artifactBrowserDeviceResponsive',
+    width: BrowserDeviceViewport.DefaultWidth,
+    height: BrowserDeviceViewport.DefaultHeight,
+  },
+  { id: BrowserDevicePresetId.FourK, label: '4K', width: 3840, height: 2160 },
+  { id: BrowserDevicePresetId.LaptopLarge, label: 'Laptop L', width: 1440, height: 900 },
+  { id: BrowserDevicePresetId.Laptop, labelKey: 'artifactBrowserDeviceLaptop', width: 1366, height: 768 },
+  { id: BrowserDevicePresetId.SurfacePro7, label: 'Surface Pro 7', width: 912, height: 1368 },
+  { id: BrowserDevicePresetId.IPadAir, label: 'iPad Air', width: 820, height: 1180 },
+  { id: BrowserDevicePresetId.IPadMini, label: 'iPad Mini', width: 768, height: 1024 },
+  { id: BrowserDevicePresetId.SurfaceDuo, label: 'Surface Duo', width: 540, height: 720 },
+  { id: BrowserDevicePresetId.IPhone15ProMax, label: 'iPhone 15 Pro Max', width: 430, height: 932 },
+  { id: BrowserDevicePresetId.Pixel8, label: 'Pixel 8', width: 412, height: 915 },
+  { id: BrowserDevicePresetId.IPhone15Pro, label: 'iPhone 15 Pro', width: 393, height: 852 },
+  { id: BrowserDevicePresetId.SamsungGalaxyS24Ultra, label: 'Samsung Galaxy S24 Ultra', width: 384, height: 824 },
+  { id: BrowserDevicePresetId.IPhoneSe, label: 'iPhone SE', width: 375, height: 667 },
+];
+
+const BROWSER_DEVICE_SCALE_OPTIONS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+
 interface BrowserToolbarTooltipPosition {
   left: number;
   top: number;
@@ -637,6 +790,34 @@ interface BrowserAnnotationResult {
   pageUrl?: string;
   pageTitle?: string;
   element?: BrowserAnnotationElementInfo;
+  rect?: BrowserAnnotationRect;
+  viewport?: BrowserAnnotationScreenshotInfo;
+}
+
+function normalizeBrowserAnnotationRect(
+  rect: BrowserAnnotationRect,
+  viewport: BrowserAnnotationScreenshotInfo | undefined,
+  screenshot: BrowserAnnotationScreenshotInfo,
+): BrowserAnnotationMarkInfo {
+  const screenshotWidth = screenshot.width > 0 ? screenshot.width : 1;
+  const screenshotHeight = screenshot.height > 0 ? screenshot.height : 1;
+  const viewportWidth = viewport?.width && viewport.width > 0 ? viewport.width : screenshotWidth;
+  const viewportHeight = viewport?.height && viewport.height > 0 ? viewport.height : screenshotHeight;
+  const scaleX = screenshotWidth / viewportWidth;
+  const scaleY = screenshotHeight / viewportHeight;
+  const x = Math.max(0, Math.min(screenshotWidth, Math.round(rect.x * scaleX)));
+  const y = Math.max(0, Math.min(screenshotHeight, Math.round(rect.y * scaleY)));
+  const maxWidth = Math.max(0, screenshotWidth - x);
+  const maxHeight = Math.max(0, screenshotHeight - y);
+
+  return {
+    shape: BrowserAnnotationShape.Rectangle,
+    color: BrowserAnnotationColor.Blue,
+    x,
+    y,
+    width: Math.max(0, Math.min(maxWidth, Math.round(rect.width * scaleX))),
+    height: Math.max(0, Math.min(maxHeight, Math.round(rect.height * scaleY))),
+  };
 }
 
 function normalizeBrowserUrl(value: string): string | null {
@@ -652,11 +833,96 @@ function normalizeBrowserUrl(value: string): string | null {
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
 }
 
+function clampBrowserZoomFactor(value: number): number {
+  return Math.max(BrowserZoom.Min, Math.min(BrowserZoom.Max, Number(value.toFixed(2))));
+}
+
+function clampBrowserDeviceSize(value: number): number {
+  if (!Number.isFinite(value)) return BrowserDeviceViewport.MinSize;
+  return Math.max(
+    BrowserDeviceViewport.MinSize,
+    Math.min(BrowserDeviceViewport.MaxSize, Math.round(value)),
+  );
+}
+
+function clampBrowserDeviceScale(value: number): number {
+  if (!Number.isFinite(value)) return BrowserDeviceScale.Default;
+  return Math.max(BrowserDeviceScale.Min, Math.min(BrowserDeviceScale.Max, Number(value.toFixed(2))));
+}
+
+function getBrowserDevicePresetLabel(preset: BrowserDevicePreset): string {
+  return preset.labelKey ? t(preset.labelKey) : preset.label ?? preset.id;
+}
+
+function isLocalServiceHostname(hostname: string): boolean {
+  const value = hostname.toLowerCase();
+  return value === 'localhost' || value === '127.0.0.1' || value === '[::1]' || value === '::1';
+}
+
+function parseLocalServiceArtifact(artifact: Artifact): LocalWebService | null {
+  if (artifact.type !== ArtifactTypeValue.LocalService) return null;
+  const rawUrl = artifact.url || artifact.content;
+  if (!rawUrl) return null;
+
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (!isLocalServiceHostname(parsed.hostname) || !parsed.port) return null;
+    const port = Number(parsed.port);
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) return null;
+    return {
+      id: `session-localhost:${port}`,
+      title: artifact.title || `localhost:${port}`,
+      url: rawUrl.trim(),
+      host: parsed.hostname,
+      port,
+      online: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getSessionLocalServices(artifacts: Artifact[] | undefined): LocalWebService[] {
+  const byPort = new Map<number, LocalWebService>();
+  for (const artifact of artifacts ?? []) {
+    const service = parseLocalServiceArtifact(artifact);
+    if (!service || byPort.has(service.port)) continue;
+    byPort.set(service.port, service);
+  }
+  return Array.from(byPort.values());
+}
+
+function mergeLocalServices(
+  sessionServices: LocalWebService[],
+  discoveredServices: LocalWebService[],
+): LocalWebService[] {
+  const byPort = new Map<number, LocalWebService>();
+  const discoveredByPort = new Map(discoveredServices.map(service => [service.port, service]));
+
+  for (const sessionService of sessionServices) {
+    const discovered = discoveredByPort.get(sessionService.port);
+    byPort.set(sessionService.port, discovered ? {
+      ...sessionService,
+      title: discovered.title || sessionService.title,
+      url: sessionService.url || discovered.url,
+      host: discovered.host || sessionService.host,
+      online: true,
+    } : sessionService);
+  }
+
+  for (const discoveredService of discoveredServices) {
+    if (!byPort.has(discoveredService.port)) {
+      byPort.set(discoveredService.port, discoveredService);
+    }
+  }
+
+  return Array.from(byPort.values()).slice(0, LocalServiceDisplay.Limit);
+}
+
 interface BrowserAnnotationLabels {
   instruction: string;
   placeholder: string;
   send: string;
-  cancel: string;
   tag: string;
   size: string;
   color: string;
@@ -685,26 +951,21 @@ function buildBrowserAnnotationScript(labels: BrowserAnnotationLabels): string {
 
   const composer = document.createElement('div');
   composer.setAttribute('data-lobster-annotation-ui', 'true');
-  composer.style.cssText = 'position:fixed;display:none;min-width:300px;max-width:380px;border-radius:18px;background:rgba(22,22,24,0.96);color:#fff;padding:8px;box-shadow:0 12px 32px rgba(0,0,0,0.28);pointer-events:auto;gap:8px;align-items:center;';
+  composer.style.cssText = 'position:fixed;display:none;min-width:300px;max-width:380px;border-radius:16px;background:rgba(22,22,24,0.96);color:#fff;padding:6px 7px;box-shadow:0 12px 32px rgba(0,0,0,0.28);pointer-events:auto;gap:6px;align-items:center;';
 
   const textarea = document.createElement('textarea');
   textarea.placeholder = labels.placeholder;
   textarea.rows = 1;
-  textarea.style.cssText = 'min-width:0;flex:1;height:36px;max-height:96px;resize:none;border:0;outline:none;border-radius:12px;background:transparent;color:#fff;padding:8px 10px;font:13px/20px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+  textarea.style.cssText = 'min-width:0;flex:1;height:30px;max-height:84px;resize:none;border:0;outline:none;border-radius:10px;background:transparent;color:#fff;padding:5px 8px;font:13px/18px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
 
   const sendButton = document.createElement('button');
   sendButton.type = 'button';
-  sendButton.textContent = '✓';
+  sendButton.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>';
   sendButton.title = labels.send;
-  sendButton.style.cssText = 'width:36px;height:36px;border:0;border-radius:999px;background:#fff;color:#111;font-size:20px;line-height:1;cursor:pointer;';
+  sendButton.setAttribute('aria-label', labels.send);
+  sendButton.style.cssText = 'width:32px;height:32px;border:0;border-radius:999px;background:#fff;color:#111;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:opacity 120ms ease, transform 120ms ease;';
 
-  const cancelButton = document.createElement('button');
-  cancelButton.type = 'button';
-  cancelButton.textContent = '×';
-  cancelButton.title = labels.cancel;
-  cancelButton.style.cssText = 'width:30px;height:30px;border:0;border-radius:999px;background:transparent;color:#c8c8c8;font-size:20px;line-height:1;cursor:pointer;';
-
-  composer.append(textarea, sendButton, cancelButton);
+  composer.append(textarea, sendButton);
   overlayRoot.append(highlight, tooltip, composer);
   document.documentElement.appendChild(overlayRoot);
 
@@ -734,6 +995,15 @@ function buildBrowserAnnotationScript(labels: BrowserAnnotationLabels): string {
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const cleanText = (value) => (value || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
   const formatFont = (value) => cleanText(value).split(',')[0].replace(/["']/g, '').slice(0, 42);
+  const hasComment = () => textarea.value.trim().length > 0;
+
+  const updateSendState = () => {
+    const enabled = hasComment();
+    sendButton.disabled = !enabled;
+    sendButton.style.opacity = enabled ? '1' : '0.42';
+    sendButton.style.cursor = enabled ? 'pointer' : 'not-allowed';
+    sendButton.style.transform = enabled ? 'scale(1)' : 'scale(0.98)';
+  };
 
   const readInfo = (element) => {
     const rect = element.getBoundingClientRect();
@@ -781,7 +1051,7 @@ function buildBrowserAnnotationScript(labels: BrowserAnnotationLabels): string {
     const rect = info.rect;
     composer.style.display = 'flex';
     composer.style.left = clamp(rect.left + Math.min(100, rect.width / 2), 8, window.innerWidth - 388) + 'px';
-    composer.style.top = clamp(rect.top + Math.min(32, rect.height / 2), 8, window.innerHeight - 72) + 'px';
+    composer.style.top = clamp(rect.top + Math.min(32, rect.height / 2), 8, window.innerHeight - 52) + 'px';
     textarea.focus();
   };
 
@@ -823,6 +1093,11 @@ function buildBrowserAnnotationScript(labels: BrowserAnnotationLabels): string {
     event.preventDefault();
     event.stopPropagation();
     if (!selectedInfo) return;
+    if (!hasComment()) {
+      updateSendState();
+      textarea.focus();
+      return;
+    }
     composer.style.display = 'none';
     const { rect, ...element } = selectedInfo;
     finish({
@@ -830,15 +1105,23 @@ function buildBrowserAnnotationScript(labels: BrowserAnnotationLabels): string {
       comment: textarea.value.trim(),
       pageUrl: location.href,
       pageTitle: document.title || '',
+      rect: {
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      },
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio || 1,
+      },
       element,
     });
   });
 
-  cancelButton.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    finish({ status: labels.statusCancelled });
-  });
+  textarea.addEventListener('input', updateSendState);
+  updateSendState();
 
   document.addEventListener('mousemove', handleMouseMove, true);
   document.addEventListener('click', handleClick, true);
@@ -855,6 +1138,7 @@ function buildBrowserAnnotationScript(labels: BrowserAnnotationLabels): string {
 interface BrowserTabContentProps {
   address: string;
   currentUrl: string;
+  sessionArtifacts?: Artifact[];
   onAddressChange: (value: string) => void;
   onCurrentUrlChange: (value: string) => void;
   onAnnotationCaptured?: (payload: BrowserAnnotationPayload) => void;
@@ -863,6 +1147,7 @@ interface BrowserTabContentProps {
 const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
   address,
   currentUrl,
+  sessionArtifacts,
   onAddressChange,
   onCurrentUrlChange,
   onAnnotationCaptured,
@@ -873,13 +1158,32 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
   const [screenshotStatus, setScreenshotStatus] = useState<BrowserScreenshotStatus>(BrowserScreenshotStatus.Idle);
   const [isAnnotating, setIsAnnotating] = useState(false);
+  const [localServices, setLocalServices] = useState<LocalWebService[]>([]);
+  const [isLoadingLocalServices, setIsLoadingLocalServices] = useState(false);
   const [hoveredToolbarAction, setHoveredToolbarAction] = useState<BrowserToolbarAction | null>(null);
   const [toolbarTooltipPosition, setToolbarTooltipPosition] = useState<BrowserToolbarTooltipPosition | null>(null);
   const [webviewNode, setWebviewNode] = useState<BrowserWebviewElement | null>(null);
+  const [isWebviewReady, setIsWebviewReady] = useState(false);
+  const [isBrowserMenuOpen, setIsBrowserMenuOpen] = useState(false);
+  const [browserZoomFactor, setBrowserZoomFactor] = useState<number>(BrowserZoom.Default);
+  const [isDeviceToolbarVisible, setIsDeviceToolbarVisible] = useState(false);
+  const [devicePresetId, setDevicePresetId] = useState<BrowserDevicePresetId>(BrowserDevicePresetId.Responsive);
+  const [deviceWidth, setDeviceWidth] = useState<number>(BrowserDeviceViewport.DefaultWidth);
+  const [deviceHeight, setDeviceHeight] = useState<number>(BrowserDeviceViewport.DefaultHeight);
+  const [deviceScale, setDeviceScale] = useState<number>(BrowserDeviceScale.Default);
   const annotateButtonRef = useRef<HTMLDivElement>(null);
   const screenshotButtonRef = useRef<HTMLDivElement>(null);
   const openExternalButtonRef = useRef<HTMLDivElement>(null);
+  const browserMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const browserMenuRef = useRef<HTMLDivElement>(null);
   const screenshotStatusTimeoutRef = useRef<number | undefined>(undefined);
+  const lastRequestedUrlRef = useRef('');
+  const lastRequestedWebviewRef = useRef<BrowserWebviewElement | null>(null);
+  const webviewNodeRef = useRef<BrowserWebviewElement | null>(null);
+  const sessionLocalServices = useMemo(
+    () => getSessionLocalServices(sessionArtifacts),
+    [sessionArtifacts],
+  );
 
   useEffect(() => () => {
     if (screenshotStatusTimeoutRef.current !== undefined) {
@@ -887,12 +1191,66 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
     }
   }, []);
 
+  const handleWebviewRef = useCallback((node: BrowserWebviewElement | null) => {
+    if (webviewNodeRef.current === node) return;
+    webviewNodeRef.current = node;
+    lastRequestedUrlRef.current = '';
+    lastRequestedWebviewRef.current = null;
+    setIsWebviewReady(false);
+    setWebviewNode(node);
+  }, []);
+
+  const loadLocalServices = useCallback(async () => {
+    if (!window.electron?.artifact?.listLocalWebServices) return;
+    setIsLoadingLocalServices(true);
+    try {
+      const services = await window.electron.artifact.listLocalWebServices({
+        preferredPorts: sessionLocalServices.map(service => service.port),
+      });
+      setLocalServices(mergeLocalServices(sessionLocalServices, services));
+    } catch {
+      setLocalServices(sessionLocalServices.slice(0, LocalServiceDisplay.Limit));
+    } finally {
+      setIsLoadingLocalServices(false);
+    }
+  }, [sessionLocalServices]);
+
+  useEffect(() => {
+    if (currentUrl) return;
+    void loadLocalServices();
+  }, [currentUrl, loadLocalServices]);
+
+  useEffect(() => {
+    if (!isBrowserMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (browserMenuRef.current?.contains(target) || browserMenuButtonRef.current?.contains(target)) {
+        return;
+      }
+      setIsBrowserMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsBrowserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isBrowserMenuOpen]);
+
   const syncNavigationState = useCallback((node: BrowserWebviewElement | null) => {
     if (!node) return;
     setCanGoBack(node.canGoBack?.() ?? false);
     setCanGoForward(node.canGoForward?.() ?? false);
     const nextUrl = node.getURL?.();
-    if (nextUrl && nextUrl !== 'about:blank') {
+    if (nextUrl && nextUrl !== BrowserPageUrl.Blank) {
       onCurrentUrlChange(nextUrl);
       onAddressChange(nextUrl);
     }
@@ -936,7 +1294,7 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
     };
   }, [getToolbarActionElement, hoveredToolbarAction]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!webviewNode) return;
 
     const handleStartLoading = () => setIsLoading(true);
@@ -946,26 +1304,78 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
     };
     const handleNavigate = (event: Event) => {
       const nextUrl = (event as Event & { url?: string }).url;
-      if (nextUrl && nextUrl !== 'about:blank') {
+      if (nextUrl && nextUrl !== BrowserPageUrl.Blank) {
         onCurrentUrlChange(nextUrl);
         onAddressChange(nextUrl);
       }
       syncNavigationState(webviewNode);
     };
+    const handleFailLoad = (event: Event) => {
+      const detail = event as Event & { errorCode?: number };
+      setIsLoading(false);
+      if (detail.errorCode === -3) return;
+      syncNavigationState(webviewNode);
+    };
+    const handleDomReady = () => {
+      setIsWebviewReady(true);
+      webviewNode.setZoomFactor?.(browserZoomFactor);
+      handleStopLoading();
+    };
 
     webviewNode.addEventListener('did-start-loading', handleStartLoading);
     webviewNode.addEventListener('did-stop-loading', handleStopLoading);
+    webviewNode.addEventListener('did-fail-load', handleFailLoad);
     webviewNode.addEventListener('did-navigate', handleNavigate);
     webviewNode.addEventListener('did-navigate-in-page', handleNavigate);
-    webviewNode.addEventListener('dom-ready', handleStopLoading);
+    webviewNode.addEventListener('dom-ready', handleDomReady);
     return () => {
       webviewNode.removeEventListener('did-start-loading', handleStartLoading);
       webviewNode.removeEventListener('did-stop-loading', handleStopLoading);
+      webviewNode.removeEventListener('did-fail-load', handleFailLoad);
       webviewNode.removeEventListener('did-navigate', handleNavigate);
       webviewNode.removeEventListener('did-navigate-in-page', handleNavigate);
-      webviewNode.removeEventListener('dom-ready', handleStopLoading);
+      webviewNode.removeEventListener('dom-ready', handleDomReady);
     };
-  }, [onAddressChange, onCurrentUrlChange, syncNavigationState, webviewNode]);
+  }, [browserZoomFactor, onAddressChange, onCurrentUrlChange, syncNavigationState, webviewNode]);
+
+  useEffect(() => {
+    if (!isWebviewReady || !webviewNode?.setZoomFactor) return;
+    webviewNode.setZoomFactor(browserZoomFactor);
+  }, [browserZoomFactor, isWebviewReady, webviewNode]);
+
+  useEffect(() => {
+    if (!currentUrl || !isWebviewReady || !webviewNode?.loadURL) return;
+
+    const loadedUrl = webviewNode.getURL?.();
+    const isSamePendingRequest = lastRequestedWebviewRef.current === webviewNode &&
+      lastRequestedUrlRef.current === currentUrl;
+    if (loadedUrl === currentUrl || isSamePendingRequest) return;
+
+    lastRequestedUrlRef.current = currentUrl;
+    lastRequestedWebviewRef.current = webviewNode;
+    setIsLoading(true);
+    let loadPromise: Promise<void>;
+    try {
+      loadPromise = webviewNode.loadURL(currentUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('dom-ready') || message.includes('attached to the DOM')) {
+        setIsWebviewReady(false);
+        return;
+      }
+      lastRequestedUrlRef.current = '';
+      lastRequestedWebviewRef.current = null;
+      setIsLoading(false);
+      return;
+    }
+    loadPromise.catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('ERR_ABORTED') || message.includes('(-3)')) return;
+      lastRequestedUrlRef.current = '';
+      lastRequestedWebviewRef.current = null;
+      setIsLoading(false);
+    });
+  }, [currentUrl, isWebviewReady, webviewNode]);
 
   const handleNavigate = useCallback(() => {
     const nextUrl = normalizeBrowserUrl(address);
@@ -973,6 +1383,11 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
     onCurrentUrlChange(nextUrl);
     onAddressChange(nextUrl);
   }, [address, onAddressChange, onCurrentUrlChange]);
+
+  const handleOpenLocalService = useCallback((service: LocalWebService) => {
+    onCurrentUrlChange(service.url);
+    onAddressChange(service.url);
+  }, [onAddressChange, onCurrentUrlChange]);
 
   const handleAddressKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
@@ -984,6 +1399,93 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
     if (!currentUrl) return;
     window.electron?.shell?.openExternal(currentUrl);
   }, [currentUrl]);
+
+  const handleToggleDeviceToolbar = useCallback(() => {
+    setIsDeviceToolbarVisible(value => !value);
+    setIsBrowserMenuOpen(false);
+  }, []);
+
+  const handleDevicePresetChange = useCallback((value: string) => {
+    const preset = BROWSER_DEVICE_PRESETS.find(item => item.id === value);
+    if (!preset) return;
+    setDevicePresetId(preset.id);
+    setDeviceWidth(preset.width);
+    setDeviceHeight(preset.height);
+  }, []);
+
+  const handleDeviceWidthChange = useCallback((value: string) => {
+    setDevicePresetId(BrowserDevicePresetId.Responsive);
+    setDeviceWidth(clampBrowserDeviceSize(Number(value)));
+  }, []);
+
+  const handleDeviceHeightChange = useCallback((value: string) => {
+    setDevicePresetId(BrowserDevicePresetId.Responsive);
+    setDeviceHeight(clampBrowserDeviceSize(Number(value)));
+  }, []);
+
+  const handleRotateDevice = useCallback(() => {
+    setDevicePresetId(BrowserDevicePresetId.Responsive);
+    setDeviceWidth(deviceHeight);
+    setDeviceHeight(deviceWidth);
+  }, [deviceHeight, deviceWidth]);
+
+  const handleDeviceScaleChange = useCallback((value: string) => {
+    setDeviceScale(clampBrowserDeviceScale(Number(value)));
+  }, []);
+
+  const applyBrowserZoom = useCallback((nextFactor: number) => {
+    const clampedFactor = clampBrowserZoomFactor(nextFactor);
+    setBrowserZoomFactor(clampedFactor);
+    webviewNode?.setZoomFactor?.(clampedFactor);
+  }, [webviewNode]);
+
+  const handleZoomOut = useCallback(() => {
+    applyBrowserZoom(browserZoomFactor - BrowserZoom.Step);
+  }, [applyBrowserZoom, browserZoomFactor]);
+
+  const handleZoomIn = useCallback(() => {
+    applyBrowserZoom(browserZoomFactor + BrowserZoom.Step);
+  }, [applyBrowserZoom, browserZoomFactor]);
+
+  const handleResetZoom = useCallback(() => {
+    applyBrowserZoom(BrowserZoom.Default);
+  }, [applyBrowserZoom]);
+
+  const handleOpenBlankPage = useCallback(() => {
+    setIsBrowserMenuOpen(false);
+    lastRequestedUrlRef.current = '';
+    lastRequestedWebviewRef.current = null;
+    onAddressChange('');
+    onCurrentUrlChange('');
+  }, [onAddressChange, onCurrentUrlChange]);
+
+  const handleClearBrowserCookies = useCallback(async () => {
+    setIsBrowserMenuOpen(false);
+    try {
+      const result = await window.electron?.artifact?.clearBrowserCookies?.();
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: result?.success ? t('artifactBrowserCookiesCleared') : result?.error || t('artifactBrowserClearCookiesFailed'),
+      }));
+    } catch {
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: t('artifactBrowserClearCookiesFailed'),
+      }));
+    }
+  }, []);
+
+  const handleClearBrowserCache = useCallback(async () => {
+    setIsBrowserMenuOpen(false);
+    try {
+      const result = await window.electron?.artifact?.clearBrowserCache?.();
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: result?.success ? t('artifactBrowserCacheCleared') : result?.error || t('artifactBrowserClearCacheFailed'),
+      }));
+    } catch {
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: t('artifactBrowserClearCacheFailed'),
+      }));
+    }
+  }, []);
 
   const setTemporaryScreenshotStatus = useCallback((status: BrowserScreenshotStatus) => {
     setScreenshotStatus(status);
@@ -1006,8 +1508,14 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
         throw new Error(result?.error || 'Failed to write browser screenshot to clipboard');
       }
       setTemporaryScreenshotStatus(BrowserScreenshotStatus.Copied);
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: t('artifactBrowserScreenshotCopied'),
+      }));
     } catch {
       setTemporaryScreenshotStatus(BrowserScreenshotStatus.Error);
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: t('artifactBrowserScreenshotFailed'),
+      }));
     } finally {
       setIsCapturingScreenshot(false);
     }
@@ -1026,7 +1534,6 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
         instruction: t('artifactBrowserAnnotationInstruction'),
         placeholder: t('artifactBrowserAnnotationPlaceholder'),
         send: t('artifactBrowserAnnotationSend'),
-        cancel: t('artifactBrowserAnnotationCancel'),
         tag: t('artifactBrowserAnnotationLabelTag'),
         size: t('artifactBrowserAnnotationLabelSize'),
         color: t('artifactBrowserAnnotationLabelColor'),
@@ -1035,15 +1542,25 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
         statusCancelled: BrowserAnnotationStatus.Cancelled,
       };
       const result = await webviewNode.executeJavaScript(buildBrowserAnnotationScript(labels)) as BrowserAnnotationResult | undefined;
-      if (result?.status !== BrowserAnnotationStatus.Sent || !result.element) return;
+      if (result?.status !== BrowserAnnotationStatus.Sent || !result.element || !result.rect) return;
 
       await new Promise(resolve => window.setTimeout(resolve, 80));
       const image = await webviewNode.capturePage();
+      const imageDataUrl = image.toDataURL();
+      const imageSize = image.getSize?.();
+      const screenshot: BrowserAnnotationScreenshotInfo = {
+        width: Math.round(imageSize?.width || result.viewport?.width || 0),
+        height: Math.round(imageSize?.height || result.viewport?.height || 0),
+        devicePixelRatio: result.viewport?.devicePixelRatio || window.devicePixelRatio || 1,
+      };
+      const annotation = normalizeBrowserAnnotationRect(result.rect, result.viewport, screenshot);
       onAnnotationCaptured?.({
         comment: result.comment?.trim() ?? '',
-        imageDataUrl: image.toDataURL(),
+        imageDataUrl,
         pageUrl: result.pageUrl || currentUrl,
         pageTitle: result.pageTitle || '',
+        screenshot,
+        annotation,
         element: result.element,
       });
     } catch {
@@ -1073,7 +1590,7 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
           : '';
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="relative flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border px-3">
         <button
           type="button"
@@ -1135,9 +1652,14 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
           </button>
         </div>
         {isAnnotating && (
-          <span className="shrink-0 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary">
+          <button
+            type="button"
+            onClick={handleToggleAnnotation}
+            className="shrink-0 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary transition-colors hover:bg-primary/15"
+            title={t('artifactBrowserAnnotating')}
+          >
             {t('artifactBrowserAnnotating')}
-          </span>
+          </button>
         )}
         <div
           ref={screenshotButtonRef}
@@ -1179,7 +1701,93 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
             <BrowserIcon />
           </button>
         </div>
+        <button
+          ref={browserMenuButtonRef}
+          type="button"
+          onClick={() => setIsBrowserMenuOpen(value => !value)}
+          className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors ${
+            isBrowserMenuOpen
+              ? 'bg-surface text-foreground'
+              : 'text-secondary hover:bg-surface hover:text-foreground'
+          }`}
+          aria-label={t('artifactBrowserMenu')}
+          title={t('artifactBrowserMenu')}
+        >
+          <MoreVerticalIcon />
+        </button>
       </div>
+      {isBrowserMenuOpen && (
+        <div
+          ref={browserMenuRef}
+          className="absolute right-3 top-10 z-40 w-56 rounded-lg border border-border bg-surface-raised p-2 text-sm text-foreground shadow-xl"
+        >
+          <button
+            type="button"
+            onClick={handleOpenBlankPage}
+            className="flex h-8 w-full items-center rounded-md px-2 text-left text-xs transition-colors hover:bg-surface"
+          >
+            {t('artifactBrowserBlankPage')}
+          </button>
+          <button
+            type="button"
+            onClick={handleToggleDeviceToolbar}
+            className={`flex h-8 w-full items-center rounded-md px-2 text-left text-xs transition-colors hover:bg-surface ${
+              isDeviceToolbarVisible ? 'bg-surface text-foreground' : ''
+            }`}
+          >
+            {isDeviceToolbarVisible
+              ? t('artifactBrowserHideDeviceToolbar')
+              : t('artifactBrowserShowDeviceToolbar')}
+          </button>
+          <div className="my-1 border-t border-border" />
+          <div className="flex h-9 items-center gap-2 px-2">
+            <span className="min-w-0 flex-1 text-xs text-secondary">{t('artifactBrowserZoom')}</span>
+            <div className="flex h-7 shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                disabled={browserZoomFactor <= BrowserZoom.Min}
+                className="inline-flex h-full w-7 items-center justify-center text-secondary transition-colors hover:bg-surface hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
+                title={t('artifactBrowserZoomOut')}
+              >
+                <MinusIcon />
+              </button>
+              <button
+                type="button"
+                onClick={handleResetZoom}
+                className="h-full min-w-[54px] border-x border-border px-2 text-center text-xs text-foreground transition-colors hover:bg-surface"
+                title={t('artifactBrowserResetZoom')}
+              >
+                {Math.round(browserZoomFactor * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                disabled={browserZoomFactor >= BrowserZoom.Max}
+                className="inline-flex h-full w-7 items-center justify-center text-secondary transition-colors hover:bg-surface hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
+                title={t('artifactBrowserZoomIn')}
+              >
+                <PlusIcon />
+              </button>
+            </div>
+          </div>
+          <div className="my-1 border-t border-border" />
+          <button
+            type="button"
+            onClick={handleClearBrowserCookies}
+            className="flex h-8 w-full items-center rounded-md px-2 text-left text-xs transition-colors hover:bg-surface"
+          >
+            {t('artifactBrowserClearCookies')}
+          </button>
+          <button
+            type="button"
+            onClick={handleClearBrowserCache}
+            className="flex h-8 w-full items-center rounded-md px-2 text-left text-xs transition-colors hover:bg-surface"
+          >
+            {t('artifactBrowserClearCache')}
+          </button>
+        </div>
+      )}
       {hoveredToolbarLabel && toolbarTooltipPosition && createPortal(
         <div
           className="pointer-events-none fixed z-[9999] -translate-x-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] leading-none text-background shadow-sm"
@@ -1196,16 +1804,156 @@ const BrowserTabContent: React.FC<BrowserTabContentProps> = ({
         document.body,
       )}
       {currentUrl ? (
-        React.createElement('webview', {
-          ref: (node: BrowserWebviewElement | null) => setWebviewNode(node),
-          src: currentUrl,
-          partition: 'persist:lobster-artifact-browser',
-          className: 'min-h-0 flex-1 bg-white',
-          allowpopups: 'false',
-        })
+        <div className="flex min-h-0 flex-1 flex-col bg-background">
+          {isDeviceToolbarVisible && (
+            <div className="flex h-8 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-background px-2 text-xs text-secondary">
+              <span className="shrink-0 text-foreground">{t('artifactBrowserDeviceSize')}</span>
+              <select
+                value={devicePresetId}
+                onChange={event => handleDevicePresetChange(event.target.value)}
+                className="h-7 w-[176px] rounded-md border border-border bg-surface px-2 text-xs text-foreground outline-none focus:border-primary"
+                title={t('artifactBrowserDevicePreset')}
+              >
+                {BROWSER_DEVICE_PRESETS.map(preset => (
+                  <option key={preset.id} value={preset.id}>
+                    {getBrowserDevicePresetLabel(preset)}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min={BrowserDeviceViewport.MinSize}
+                max={BrowserDeviceViewport.MaxSize}
+                value={deviceWidth}
+                onChange={event => handleDeviceWidthChange(event.target.value)}
+                className="h-7 w-[72px] rounded-md border border-border bg-surface px-2 text-center text-xs text-foreground outline-none focus:border-primary"
+                aria-label={t('artifactBrowserDeviceWidth')}
+                title={t('artifactBrowserDeviceWidth')}
+              />
+              <span className="text-muted">x</span>
+              <input
+                type="number"
+                min={BrowserDeviceViewport.MinSize}
+                max={BrowserDeviceViewport.MaxSize}
+                value={deviceHeight}
+                onChange={event => handleDeviceHeightChange(event.target.value)}
+                className="h-7 w-[72px] rounded-md border border-border bg-surface px-2 text-center text-xs text-foreground outline-none focus:border-primary"
+                aria-label={t('artifactBrowserDeviceHeight')}
+                title={t('artifactBrowserDeviceHeight')}
+              />
+              <button
+                type="button"
+                onClick={handleRotateDevice}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-secondary transition-colors hover:bg-surface hover:text-foreground"
+                title={t('artifactBrowserDeviceRotate')}
+              >
+                <RotateDeviceIcon />
+              </button>
+              <select
+                value={deviceScale}
+                onChange={event => handleDeviceScaleChange(event.target.value)}
+                className="h-7 w-[82px] rounded-md border border-border bg-transparent px-2 text-xs text-secondary outline-none hover:bg-surface hover:text-foreground focus:border-primary"
+                title={t('artifactBrowserDeviceScale')}
+              >
+                {BROWSER_DEVICE_SCALE_OPTIONS.map(scale => (
+                  <option key={scale} value={scale}>
+                    {Math.round(scale * 100)}%
+                  </option>
+                ))}
+              </select>
+              <span className="min-w-0 flex-1" />
+              <button
+                type="button"
+                onClick={() => setIsDeviceToolbarVisible(false)}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-secondary transition-colors hover:bg-surface hover:text-foreground"
+                title={t('artifactBrowserHideDeviceToolbar')}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+          )}
+          <div className={`min-h-0 flex-1 overflow-auto ${isDeviceToolbarVisible ? 'bg-surface px-5 py-4' : 'bg-white'}`}>
+            <div
+              className={isDeviceToolbarVisible ? 'mx-auto overflow-hidden shadow-sm' : 'h-full w-full'}
+              style={isDeviceToolbarVisible
+                ? {
+                    width: deviceWidth * deviceScale,
+                    height: deviceHeight * deviceScale,
+                  }
+                : undefined}
+            >
+              <div
+                className="h-full w-full origin-top-left bg-white"
+                style={isDeviceToolbarVisible
+                  ? {
+                      width: deviceWidth,
+                      height: deviceHeight,
+                      transform: `scale(${deviceScale})`,
+                    }
+                  : undefined}
+              >
+                {React.createElement('webview', {
+                  ref: handleWebviewRef,
+                  src: BrowserPageUrl.Blank,
+                  partition: ArtifactBrowserPartition.Default,
+                  className: 'h-full w-full bg-white',
+                  allowpopups: 'false',
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
       ) : (
-        <div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-muted">
-          {t('artifactBrowserEmpty')}
+        <div className="flex flex-1 items-center justify-center overflow-auto px-6 py-10">
+          <div className="w-full max-w-[420px]">
+            <div className="mb-3 flex items-center justify-between px-1">
+              <div className="text-xs text-muted">{t('artifactBrowserLocalServices')}</div>
+              <button
+                type="button"
+                onClick={loadLocalServices}
+                className="inline-flex h-6 w-6 items-center justify-center rounded text-muted transition-colors hover:bg-surface hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                title={t('artifactBrowserLocalServicesRefresh')}
+                disabled={isLoadingLocalServices}
+              >
+                <RefreshIcon />
+              </button>
+            </div>
+            {localServices.length > 0 ? (
+              <div className="space-y-2">
+                {localServices.map(service => (
+                  <button
+                    key={service.id}
+                    type="button"
+                    onClick={() => handleOpenLocalService(service)}
+                    className="group flex w-full items-center gap-3 rounded-lg border border-border bg-background p-2 text-left transition-colors hover:border-primary/35 hover:bg-surface"
+                  >
+                    <div className="flex h-[52px] w-[84px] shrink-0 flex-col overflow-hidden rounded-md border border-border bg-surface shadow-sm">
+                      <div className="flex h-3 items-center gap-1 border-b border-border px-2">
+                        <span className="h-1.5 w-1.5 rounded-full bg-red-400/70" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-yellow-400/70" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-400/70" />
+                      </div>
+                      <div className="flex flex-1 items-center px-2 text-[8px] leading-tight text-muted">
+                        <span className="line-clamp-2">{service.title}</span>
+                      </div>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-foreground">{service.title}</div>
+                      <div className="truncate text-xs text-muted">{service.host}:{service.port}</div>
+                    </div>
+                    <span
+                      className={`h-2 w-2 shrink-0 rounded-full ${service.online ? 'bg-emerald-400' : 'bg-muted'}`}
+                      title={service.online ? t('artifactBrowserLocalServiceOnline') : undefined}
+                    />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted">
+                {isLoadingLocalServices ? t('artifactBrowserLocalServicesLoading') : t('artifactBrowserLocalServicesEmpty')}
+              </div>
+            )}
+        </div>
         </div>
       )}
     </div>
@@ -1228,7 +1976,7 @@ const BrowserIcon = () => (
 
 const AnnotateIcon = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3.25 3.25h9.5A1.75 1.75 0 0114.5 5v5.25A1.75 1.75 0 0112.75 12H8.4L4.75 14v-2H3.25A1.75 1.75 0 011.5 10.25V5a1.75 1.75 0 011.75-1.75z" />
+    <path d="M8 2.25c3.35 0 6 2.2 6 5.05 0 2.84-2.65 5.05-6 5.05-.7 0-1.36-.1-1.98-.29L3.55 13.5c-.46.27-.96-.23-.69-.69l1.06-1.82C2.74 10.08 2 8.79 2 7.3c0-2.85 2.65-5.05 6-5.05z" />
     <path d="M8 5.75v3.5M6.25 7.5h3.5" />
   </svg>
 );
@@ -1285,6 +2033,44 @@ const RefreshIcon = () => (
     <path d="M2.5 8a5.5 5.5 0 019.55-3.75" />
     <path d="M12.05 1.25v3h-3" />
     <path d="M3.95 14.75v-3h3" />
+  </svg>
+);
+
+const MoreVerticalIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+    <circle cx="8" cy="3.5" r="1.1" />
+    <circle cx="8" cy="8" r="1.1" />
+    <circle cx="8" cy="12.5" r="1.1" />
+  </svg>
+);
+
+const MinusIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+    <path d="M4 8h8" />
+  </svg>
+);
+
+const PlusIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+    <path d="M8 4v8" />
+    <path d="M4 8h8" />
+  </svg>
+);
+
+const RotateDeviceIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M5.5 2.5h5A1.5 1.5 0 0112 4v8a1.5 1.5 0 01-1.5 1.5h-5A1.5 1.5 0 014 12V4a1.5 1.5 0 011.5-1.5z" />
+    <path d="M7 4h2" />
+    <path d="M7.5 12h1" />
+    <path d="M14 8a6 6 0 01-1.76 4.24" />
+    <path d="M13.5 9.9L12.24 12.24 9.9 11" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+    <path d="M4.5 4.5l7 7" />
+    <path d="M11.5 4.5l-7 7" />
   </svg>
 );
 

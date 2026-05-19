@@ -1,4 +1,4 @@
-import type { Artifact, ArtifactType } from '../types/artifact';
+import { type Artifact, type ArtifactType, ArtifactTypeValue } from '../types/artifact';
 import type { CoworkMessage } from '../types/cowork';
 
 /**
@@ -40,6 +40,9 @@ const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 const BINARY_DOCUMENT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx', '.pdf', '.csv', '.tsv', '.xls']);
+const LOCAL_SERVICE_URL_RE = /\bhttps?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\])(?::\d{1,5})?(?:\/[^\s<>"'`)\]]*)?/gi;
+const MARKDOWN_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gi;
+const LOCAL_SERVICE_TRAILING_PUNCTUATION_RE = /[.,;:!?，。；：！？、]+$/;
 
 export function getArtifactTypeFromExtension(ext: string): ArtifactType | null {
   return EXTENSION_TO_ARTIFACT_TYPE[ext.toLowerCase()] ?? null;
@@ -51,6 +54,105 @@ export function isImageExtension(ext: string): boolean {
 
 export function isBinaryDocumentExtension(ext: string): boolean {
   return BINARY_DOCUMENT_EXTENSIONS.has(ext.toLowerCase());
+}
+
+function trimLocalServiceUrl(rawUrl: string): string {
+  let url = rawUrl.trim();
+  while (url.endsWith(')') && !url.includes('(')) {
+    url = url.slice(0, -1);
+  }
+  while (url.endsWith(']') && !url.includes('[')) {
+    url = url.slice(0, -1);
+  }
+  return url.replace(LOCAL_SERVICE_TRAILING_PUNCTUATION_RE, '');
+}
+
+export function normalizeLocalServiceUrlForDedup(url: string): string {
+  try {
+    const parsed = new URL(trimLocalServiceUrl(url));
+    const pathname = parsed.pathname === '/' ? '/' : parsed.pathname.replace(/\/+$/, '');
+    return `${parsed.protocol}//${parsed.host.toLowerCase()}${pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return trimLocalServiceUrl(url).toLowerCase();
+  }
+}
+
+function isLocalServiceUrl(url: string): boolean {
+  try {
+    const parsed = new URL(trimLocalServiceUrl(url));
+    const isHttp = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    if (!isHttp) return false;
+
+    return parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '0.0.0.0' ||
+      parsed.hostname === '[::1]' ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function buildLocalServiceTitle(url: string, linkText?: string): string {
+  const title = linkText?.trim();
+  if (title && !/^https?:\/\//i.test(title)) {
+    return title;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const pathPart = decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() ?? '');
+    return pathPart || parsed.host;
+  } catch {
+    return url;
+  }
+}
+
+export function parseLocalServiceUrlsFromText(
+  messageContent: string,
+  messageId: string,
+  sessionId: string,
+): Artifact[] {
+  if (!messageContent) return [];
+
+  const artifacts: Artifact[] = [];
+  const seenUrls = new Set<string>();
+  let index = 0;
+
+  const addUrl = (rawUrl: string, linkText?: string) => {
+    const url = trimLocalServiceUrl(rawUrl);
+    if (!url || !isLocalServiceUrl(url)) return;
+
+    const normalized = normalizeLocalServiceUrlForDedup(url);
+    if (seenUrls.has(normalized)) return;
+    seenUrls.add(normalized);
+
+    artifacts.push({
+      id: `artifact-local-service-${messageId}-${index}`,
+      messageId,
+      sessionId,
+      type: ArtifactTypeValue.LocalService,
+      title: buildLocalServiceTitle(url, linkText),
+      content: url,
+      url,
+      createdAt: Date.now(),
+    });
+    index++;
+  };
+
+  const markdownRe = new RegExp(MARKDOWN_LINK_RE.source, 'gi');
+  let markdownMatch: RegExpExecArray | null;
+  while ((markdownMatch = markdownRe.exec(messageContent)) !== null) {
+    addUrl(markdownMatch[2], markdownMatch[1]);
+  }
+
+  const urlRe = new RegExp(LOCAL_SERVICE_URL_RE.source, 'gi');
+  let urlMatch: RegExpExecArray | null;
+  while ((urlMatch = urlRe.exec(messageContent)) !== null) {
+    addUrl(urlMatch[0]);
+  }
+
+  return artifacts;
 }
 
 export const MEDIA_TOKEN_RE = /\bMEDIA:\s*`?([^`\n]+?)`?\s*$/gim;

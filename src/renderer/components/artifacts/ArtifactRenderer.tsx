@@ -34,6 +34,12 @@ const ArtifactRenderer: React.FC<ArtifactRendererProps> = ({ artifact }) => {
       return <DocumentRenderer artifact={artifact} />;
     case 'code':
       return <CodeRenderer artifact={artifact} />;
+    case 'local-service':
+      return (
+        <div className="flex h-full items-center justify-center p-4 text-center text-sm text-muted">
+          {artifact.url || artifact.content}
+        </div>
+      );
     default:
       return (
         <div className="flex items-center justify-center h-full text-muted text-sm">

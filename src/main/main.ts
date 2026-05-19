@@ -10,9 +10,10 @@ import { buildScheduledTaskEnginePrompt } from '../scheduledTask/enginePrompt';
 import { migrateScheduledTaskRunsToOpenclaw, migrateScheduledTasksToOpenclaw } from '../scheduledTask/migrate';
 import { AgentId, AgentIpcChannel } from '../shared/agent/constants';
 import { AppUpdateIpc } from '../shared/appUpdate/constants';
-import { ArtifactPreviewIpc } from '../shared/artifactPreview/constants';
+import { ArtifactBrowserPartition, ArtifactPreviewIpc } from '../shared/artifactPreview/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE } from '../shared/cowork/constants';
+import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import { PlatformRegistry } from '../shared/platform';
 import { ProviderName } from '../shared/providers';
 import { AgentManager } from './agentManager';
@@ -137,6 +138,13 @@ const IPC_MAX_KEYS = 80;
 const IPC_MAX_ITEMS = 40;
 const MAX_INLINE_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const ENGINE_NOT_READY_CODE = 'ENGINE_NOT_READY';
+const LOCAL_WEB_SERVICE_PROBE_TIMEOUT_MS = 700;
+const LOCAL_WEB_SERVICE_TITLE_MAX_LENGTH = 80;
+const LOCAL_WEB_SERVICE_PORTS = Array.from(new Set([
+  3000, 3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009, 3010,
+  3333, 4000, 4173, 5000, 5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180,
+  8000, 8080, 8081, 8888,
+])).sort((a, b) => a - b);
 const PowerSaveBlockerType = {
   PreventAppSuspension: 'prevent-app-suspension',
 } as const;
@@ -152,6 +160,60 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   'text/markdown': '.md',
   'application/json': '.json',
   'text/csv': '.csv',
+};
+
+const cleanHtmlTitle = (value: string): string =>
+  value.replace(/\s+/g, ' ').trim().slice(0, LOCAL_WEB_SERVICE_TITLE_MAX_LENGTH);
+
+const extractHtmlTitle = (html: string): string => {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (!match) return '';
+  return cleanHtmlTitle(match[1]
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'"));
+};
+
+const probeLocalWebService = async (port: number): Promise<LocalWebService | null> => {
+  const url = `http://localhost:${port}/`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LOCAL_WEB_SERVICE_PROBE_TIMEOUT_MS);
+
+  try {
+    const response = await session.defaultSession.fetch(url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.toLowerCase().includes('text/html')) {
+      return null;
+    }
+
+    const html = await response.text();
+    const title = extractHtmlTitle(html) || `localhost:${port}`;
+    return {
+      id: `localhost:${port}`,
+      title,
+      url,
+      host: 'localhost',
+      port,
+      online: true,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const sanitizeLocalWebServicePorts = (ports: unknown): number[] => {
+  if (!Array.isArray(ports)) return [];
+  return Array.from(new Set(ports
+    .filter((port): port is number => Number.isInteger(port) && port > 0 && port <= 65535)
+    .slice(0, IPC_MAX_ITEMS)));
 };
 
 function sanitizeOptionalPatchValue(
@@ -5602,6 +5664,35 @@ end tell'`, { timeout: 5000 });
     return { success: true };
   });
 
+  ipcMain.handle(ArtifactPreviewIpc.ClearBrowserCookies, async () => {
+    try {
+      await session.fromPartition(ArtifactBrowserPartition.Default).clearStorageData({
+        storages: ['cookies'],
+      });
+      return { success: true };
+    } catch (error) {
+      console.error('[ArtifactBrowser] failed to clear browser cookies:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+
+  ipcMain.handle(ArtifactPreviewIpc.ClearBrowserCache, async () => {
+    try {
+      await session.fromPartition(ArtifactBrowserPartition.Default).clearCache();
+      return { success: true };
+    } catch (error) {
+      console.error('[ArtifactBrowser] failed to clear browser cache:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+
+  ipcMain.handle(LocalWebServicesIpc.List, async (_event, options?: ListLocalWebServicesOptions) => {
+    const preferredPorts = sanitizeLocalWebServicePorts(options?.preferredPorts);
+    const ports = Array.from(new Set([...preferredPorts, ...LOCAL_WEB_SERVICE_PORTS])).sort((a, b) => a - b);
+    const results = await Promise.all(ports.map(port => probeLocalWebService(port)));
+    return results.filter((service): service is LocalWebService => service !== null);
+  });
+
   ipcMain.handle(AppUpdateIpc.GetState, async () => {
     return getAppUpdateCoordinator().getState();
   });
@@ -5988,10 +6079,10 @@ end tell'`, { timeout: 5000 });
       webPreferences.webSecurity = true;
       webPreferences.plugins = false;
       webPreferences.devTools = isDev;
-      webPreferences.partition = 'persist:lobster-artifact-browser';
+      webPreferences.partition = ArtifactBrowserPartition.Default;
       delete webPreferences.preload;
 
-      params.partition = 'persist:lobster-artifact-browser';
+      params.partition = ArtifactBrowserPartition.Default;
       params.allowpopups = 'false';
 
       const src = params.src ?? '';

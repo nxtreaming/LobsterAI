@@ -16,6 +16,7 @@ const TYPE_ORDER: Record<ArtifactType, number> = {
   markdown: 5,
   text: 6,
   code: 7,
+  'local-service': 8,
 };
 
 const TYPE_LABEL_KEYS: Record<ArtifactType, string> = {
@@ -27,6 +28,7 @@ const TYPE_LABEL_KEYS: Record<ArtifactType, string> = {
   markdown: 'artifactTypeMarkdown',
   text: 'artifactTypeText',
   code: 'artifactCode',
+  'local-service': 'artifactTypeHtml',
 };
 
 function getShortPath(filePath: string): string {

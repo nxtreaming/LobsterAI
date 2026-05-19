@@ -1,7 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-import { normalizeFilePathForDedup } from '../../services/artifactParser';
-import type { Artifact } from '../../types/artifact';
+import { normalizeFilePathForDedup, normalizeLocalServiceUrlForDedup } from '../../services/artifactParser';
+import { type Artifact, ArtifactTypeValue } from '../../types/artifact';
 import type { RootState } from '../index';
 
 const DEFAULT_PANEL_WIDTH = 560;
@@ -154,6 +154,20 @@ const artifactSlice = createSlice({
           state.artifactsBySession[sessionId][existing] = artifact;
         }
       } else {
+        if (artifact.type === ArtifactTypeValue.LocalService) {
+          const normalizedUrl = normalizeLocalServiceUrlForDedup(artifact.url || artifact.content);
+          const dupIndex = state.artifactsBySession[sessionId].findIndex(
+            a => a.type === ArtifactTypeValue.LocalService &&
+              normalizeLocalServiceUrlForDedup(a.url || a.content) === normalizedUrl
+          );
+          if (dupIndex >= 0) {
+            const old = state.artifactsBySession[sessionId][dupIndex];
+            state.artifactsBySession[sessionId][dupIndex] = artifact;
+            replacePreviewTabArtifactId(state, sessionId, old.id, artifact.id);
+            return;
+          }
+        }
+
         // Deduplicate by filePath: if another artifact with same filePath already exists, update it
         if (artifact.filePath) {
           const normalizedPath = normalizeFilePathForDedup(artifact.filePath);

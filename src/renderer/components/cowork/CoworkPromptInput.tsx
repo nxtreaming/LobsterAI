@@ -26,6 +26,7 @@ import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agen
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getCompactFolderName } from '../../utils/path';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
+import type { BrowserAnnotationPayload } from '../artifacts';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
 import XMarkIcon from '../icons/XMarkIcon';
@@ -146,18 +147,7 @@ export interface CoworkPromptInputRef {
   /** 设置图片附件（用于重新编辑消息时还原图片） */
   setImageAttachments: (images: CoworkImageAttachment[]) => void;
   /** 插入浏览器注释截图和注释文本 */
-  insertBrowserAnnotation: (annotation: {
-    comment: string;
-    imageDataUrl: string;
-    pageUrl: string;
-    pageTitle: string;
-    element: {
-      tagName: string;
-      text: string;
-      width: number;
-      height: number;
-    };
-  }) => void;
+  insertBrowserAnnotation: (annotation: BrowserAnnotationPayload) => void;
   /** 聚焦输入框 */
   focus: () => void;
 }
@@ -261,16 +251,32 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     insertBrowserAnnotation: (annotation) => {
       const timestamp = Date.now();
       const imageName = `${i18nService.t('artifactBrowserAnnotationImageName')}-${timestamp}.png`;
-      const elementText = annotation.element.text ? ` "${annotation.element.text}"` : '';
-      const elementSummary = `${annotation.element.tagName} ${annotation.element.width}x${annotation.element.height}${elementText}`;
+      const annotationArea = [
+        `shape=${annotation.annotation.shape}`,
+        `color=${annotation.annotation.color}`,
+        `x=${annotation.annotation.x}`,
+        `y=${annotation.annotation.y}`,
+        `width=${annotation.annotation.width}`,
+        `height=${annotation.annotation.height}`,
+      ].join(', ');
+      const pageLabel = i18nService.t('artifactBrowserAnnotationPromptPage');
+      const elementLabel = i18nService.t('artifactBrowserAnnotationPromptElement');
+      const elementSummary = [
+        annotation.element.tagName,
+        annotation.element.text ? `"${annotation.element.text}"` : '',
+        `${annotation.element.width}x${annotation.element.height}`,
+      ].filter(Boolean).join(', ');
       const annotationPrompt = [
         i18nService.t('artifactBrowserAnnotationPromptTitle'),
+        i18nService.t('artifactBrowserAnnotationPromptTarget'),
         '',
+        `${i18nService.t('artifactBrowserAnnotationPromptScreenshot')}: ${annotation.screenshot.width} x ${annotation.screenshot.height}`,
+        `${i18nService.t('artifactBrowserAnnotationPromptArea')}: ${annotationArea}`,
+        annotation.pageTitle || annotation.pageUrl ? `${pageLabel}: ${[annotation.pageTitle, annotation.pageUrl].filter(Boolean).join(' - ')}` : '',
+        elementSummary ? `${elementLabel}: ${elementSummary}` : '',
+        '',
+        `${i18nService.t('artifactBrowserAnnotationPromptComment')}:`,
         annotation.comment.trim(),
-        '',
-        `${i18nService.t('artifactBrowserAnnotationPromptPage')}: ${annotation.pageTitle || annotation.pageUrl}`,
-        annotation.pageTitle ? annotation.pageUrl : '',
-        `${i18nService.t('artifactBrowserAnnotationPromptElement')}: ${elementSummary}`,
       ].filter(line => line !== '').join('\n');
       const nextValue = value.trim() ? `${value.trim()}\n\n${annotationPrompt}` : annotationPrompt;
       setValue(nextValue);

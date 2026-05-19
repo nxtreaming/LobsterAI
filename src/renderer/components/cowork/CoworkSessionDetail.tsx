@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { getScheduledReminderDisplayText } from '../../../scheduledTask/reminderText';
-import { normalizeFilePathForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseMediaTokensFromText, parseToolArtifact, stripFileLinksFromText } from '../../services/artifactParser';
+import { normalizeFilePathForDedup, normalizeLocalServiceUrlForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseToolArtifact, stripFileLinksFromText } from '../../services/artifactParser';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { RootState } from '../../store';
@@ -39,7 +39,7 @@ import {
 } from '../../store/slices/artifactSlice';
 import { setActiveSkillIds } from '../../store/slices/skillSlice';
 import type { Artifact } from '../../types/artifact';
-import { PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
+import { ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import { CoworkSessionStatusValue } from '../../types/cowork';
 import type { Skill } from '../../types/skill';
@@ -1553,6 +1553,7 @@ export const AssistantTurnBlock: React.FC<{
   artifacts?: Artifact[];
   resolveLocalFilePath?: (href: string, text: string) => string | null;
   mapDisplayText?: (value: string) => string;
+  onOpenLocalService?: (artifact: Artifact) => void;
   showTypingIndicator?: boolean;
   showCopyButtons?: boolean;
 }> = ({
@@ -1560,6 +1561,7 @@ export const AssistantTurnBlock: React.FC<{
   artifacts,
   resolveLocalFilePath,
   mapDisplayText,
+  onOpenLocalService,
   showTypingIndicator = false,
   showCopyButtons = true,
 }) => {
@@ -1710,7 +1712,11 @@ export const AssistantTurnBlock: React.FC<{
             {artifacts && artifacts.length > 0 && (
               <div className="flex flex-wrap gap-2 pt-1">
                 {artifacts.map(artifact => (
-                  <ArtifactPreviewCard key={artifact.id} artifact={artifact} />
+                  <ArtifactPreviewCard
+                    key={artifact.id}
+                    artifact={artifact}
+                    onOpenLocalService={onOpenLocalService}
+                  />
                 ))}
               </div>
             )}
@@ -1866,6 +1872,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [isFileListPreviewTabOpen, setIsFileListPreviewTabOpen] = useState(isPanelOpen);
   const [isBrowserPreviewTabOpen, setIsBrowserPreviewTabOpen] = useState(false);
   const [activeSpecialPreviewTab, setActiveSpecialPreviewTab] = useState<ArtifactSpecialTab>(ArtifactSpecialTab.FileList);
+  const [browserPreviewAddress, setBrowserPreviewAddress] = useState('');
+  const [browserPreviewUrl, setBrowserPreviewUrl] = useState('');
   const [showArtifactAddMenu, setShowArtifactAddMenu] = useState(false);
   const [artifactAddMenuPosition, setArtifactAddMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const [artifactTabsCanScrollLeft, setArtifactTabsCanScrollLeft] = useState(false);
@@ -1876,6 +1884,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const fileListPreviewTabOpenBySessionRef = useRef<Record<string, boolean>>({});
   const browserPreviewTabOpenBySessionRef = useRef<Record<string, boolean>>({});
   const activeSpecialPreviewTabBySessionRef = useRef<Record<string, ArtifactSpecialTab>>({});
+  const browserPreviewAddressBySessionRef = useRef<Record<string, string>>({});
+  const browserPreviewUrlBySessionRef = useRef<Record<string, string>>({});
   const artifactAddButtonRef = useRef<HTMLButtonElement>(null);
   const artifactAddMenuRef = useRef<HTMLDivElement>(null);
   const artifactTabsScrollRef = useRef<HTMLDivElement>(null);
@@ -1976,6 +1986,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setActiveSpecialPreviewTab(sessionId
       ? activeSpecialPreviewTabBySessionRef.current[sessionId] ?? ArtifactSpecialTab.FileList
       : ArtifactSpecialTab.FileList);
+    setBrowserPreviewAddress(sessionId ? browserPreviewAddressBySessionRef.current[sessionId] ?? '' : '');
+    setBrowserPreviewUrl(sessionId ? browserPreviewUrlBySessionRef.current[sessionId] ?? '' : '');
     setShowArtifactAddMenu(false);
     loadedFileIdsRef.current = new Set();
   }, [sessionId]);
@@ -2001,6 +2013,29 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     }
   }, [sessionId]);
 
+  const handleBrowserPreviewAddressChange = useCallback((value: string) => {
+    setBrowserPreviewAddress(value);
+    if (sessionId) {
+      browserPreviewAddressBySessionRef.current[sessionId] = value;
+    }
+  }, [sessionId]);
+
+  const handleBrowserPreviewUrlChange = useCallback((value: string) => {
+    setBrowserPreviewUrl(value);
+    if (sessionId) {
+      browserPreviewUrlBySessionRef.current[sessionId] = value;
+    }
+  }, [sessionId]);
+
+  const clearBrowserPreviewState = useCallback(() => {
+    setBrowserPreviewAddress('');
+    setBrowserPreviewUrl('');
+    if (sessionId) {
+      delete browserPreviewAddressBySessionRef.current[sessionId];
+      delete browserPreviewUrlBySessionRef.current[sessionId];
+    }
+  }, [sessionId]);
+
   const handleOpenArtifactFileListTab = useCallback(() => {
     setSessionFileListPreviewTabOpen(true);
     setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.FileList);
@@ -2023,6 +2058,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.Browser);
     dispatch(activateArtifactBrowserTab({ sessionId }));
   }, [dispatch, sessionId, setSessionActiveSpecialPreviewTab, setSessionBrowserPreviewTabOpen]);
+
+  const handleOpenLocalServiceArtifact = useCallback((artifact: Artifact) => {
+    const url = artifact.url || artifact.content;
+    if (!url) return;
+    handleOpenArtifactBrowserTab();
+    handleBrowserPreviewAddressChange(url);
+    handleBrowserPreviewUrlChange(url);
+  }, [handleBrowserPreviewAddressChange, handleBrowserPreviewUrlChange, handleOpenArtifactBrowserTab]);
 
   const handleOpenArtifactFileListFromMenu = useCallback(() => {
     setShowArtifactAddMenu(false);
@@ -2073,6 +2116,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const handleCloseArtifactBrowserTab = useCallback(() => {
     const wasActive = !activeArtifactPreviewTab && activeSpecialPreviewTab === ArtifactSpecialTab.Browser;
     setSessionBrowserPreviewTabOpen(false);
+    clearBrowserPreviewState();
     if (!sessionId) {
       dispatch(closePanel(undefined));
       return;
@@ -2098,6 +2142,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     activeSpecialPreviewTab,
     artifactTabsWithArtifacts,
     dispatch,
+    clearBrowserPreviewState,
     isFileListPreviewTabOpen,
     sessionId,
     setSessionActiveSpecialPreviewTab,
@@ -2191,6 +2236,44 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   }, []);
 
   useLayoutEffect(() => {
+    const container = artifactTabsScrollRef.current;
+    if (!container || !isArtifactPanelVisible) return undefined;
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      const activeTab = container.querySelector<HTMLElement>('[data-artifact-preview-active="true"]');
+      if (!activeTab) {
+        updateArtifactTabsScrollState();
+        return;
+      }
+
+      const containerRect = container.getBoundingClientRect();
+      const activeRect = activeTab.getBoundingClientRect();
+      const visibleLeft = containerRect.left;
+      const visibleRight = containerRect.right - 36;
+      const padding = 8;
+
+      if (activeRect.left < visibleLeft + padding) {
+        container.scrollLeft -= visibleLeft + padding - activeRect.left;
+      } else if (activeRect.right > visibleRight - padding) {
+        container.scrollLeft += activeRect.right - visibleRight + padding;
+      }
+
+      updateArtifactTabsScrollState();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [
+    activeArtifactPreviewTab?.id,
+    activeSpecialPreviewTab,
+    isArtifactPanelVisible,
+    isBrowserPreviewTabOpen,
+    isFileListPreviewTabOpen,
+    updateArtifactTabsScrollState,
+  ]);
+
+  useLayoutEffect(() => {
     const element = artifactTabsScrollRef.current;
     if (!element || !isArtifactPanelVisible) {
       setArtifactTabsCanScrollLeft(false);
@@ -2258,9 +2341,20 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       const messages = currentSession.messages;
       const detected: Artifact[] = [];
       const seenFilePaths = new Set<string>();
+      const seenLocalServiceUrls = new Set<string>();
 
       for (const msg of messages) {
         if (msg.type === 'assistant' && !msg.metadata?.isThinking && msg.content) {
+          const localServiceArtifacts = parseLocalServiceUrlsFromText(msg.content, msg.id, sessionId);
+          for (const serviceArtifact of localServiceArtifacts) {
+            const url = serviceArtifact.url || serviceArtifact.content;
+            const normalized = normalizeLocalServiceUrlForDedup(url);
+            if (url && !seenLocalServiceUrls.has(normalized)) {
+              seenLocalServiceUrls.add(normalized);
+              detected.push(serviceArtifact);
+            }
+          }
+
           const fileLinks = parseFileLinksFromMessage(msg.content, msg.id, sessionId);
           for (const fl of fileLinks) {
             const normalized = fl.filePath ? normalizeFilePathForDedup(fl.filePath) : '';
@@ -2312,6 +2406,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       }
 
       const cwd = currentSession.cwd;
+      for (const artifact of detected) {
+        if (artifact.type === ArtifactTypeValue.LocalService) {
+          dispatch(addArtifact({ sessionId, artifact }));
+        }
+      }
+
       const toLoad = detected.filter(a => a.filePath && !loadedFileIdsRef.current.has(a.id));
       if (toLoad.length === 0) return;
 
@@ -3085,6 +3185,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 artifacts={turnArtifacts}
                 resolveLocalFilePath={resolveLocalFilePath}
                 mapDisplayText={mapDisplayText}
+                onOpenLocalService={handleOpenLocalServiceArtifact}
                 showTypingIndicator={showTypingIndicator}
                 showCopyButtons={!isStreaming || !isLastTurn}
               />
@@ -3142,6 +3243,11 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                   <div className="flex h-full min-w-max items-center gap-1 pl-4 pr-3">
                   {isFileListPreviewTabOpen && (
                     <div
+                      data-artifact-preview-active={
+                        !activeArtifactPreviewTab && activeSpecialPreviewTab === ArtifactSpecialTab.FileList
+                          ? 'true'
+                          : undefined
+                      }
                       className={`group flex h-7 max-w-[190px] items-center rounded-lg text-xs transition-colors ${
                         activeArtifactPreviewTab || activeSpecialPreviewTab !== ArtifactSpecialTab.FileList
                           ? 'text-secondary hover:bg-surface hover:text-foreground'
@@ -3176,6 +3282,11 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                   )}
                   {isBrowserPreviewTabOpen && (
                     <div
+                      data-artifact-preview-active={
+                        !activeArtifactPreviewTab && activeSpecialPreviewTab === ArtifactSpecialTab.Browser
+                          ? 'true'
+                          : undefined
+                      }
                       className={`group flex h-7 max-w-[190px] items-center rounded-lg text-xs transition-colors ${
                         activeArtifactPreviewTab || activeSpecialPreviewTab !== ArtifactSpecialTab.Browser
                           ? 'text-secondary hover:bg-surface hover:text-foreground'
@@ -3214,6 +3325,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                     return (
                       <div
                         key={tab.id}
+                        data-artifact-preview-active={isActive ? 'true' : undefined}
                         className={`group flex h-7 w-[clamp(92px,24vw,190px)] items-center rounded-lg text-xs transition-colors ${
                           isActive
                             ? 'bg-surface-raised text-foreground shadow-sm'
@@ -3679,7 +3791,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               activeSpecialTab={activeSpecialPreviewTab}
               minPanelWidth={artifactPanelMinWidth}
               maxPanelWidth={artifactPanelMaxWidth}
+              browserAddress={browserPreviewAddress}
+              browserUrl={browserPreviewUrl}
+              onBrowserAddressChange={handleBrowserPreviewAddressChange}
+              onBrowserUrlChange={handleBrowserPreviewUrlChange}
               onOpenFileListTab={handleOpenArtifactFileListTab}
+              onOpenBrowserTab={handleOpenArtifactBrowserTab}
               onBrowserAnnotationCaptured={handleBrowserAnnotationCaptured}
             />
           </ArtifactPanelErrorBoundary>

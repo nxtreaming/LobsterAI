@@ -1,5 +1,6 @@
 import type { OpenClawSessionPatch } from '../../common/openclawSession';
 import type { AppUpdateCheckResult, AppUpdateRuntimeState } from '../../shared/appUpdate/constants';
+import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
 interface ApiResponse {
   ok: boolean;
   status: number;
@@ -600,6 +601,9 @@ interface IElectronAPI {
     createPreviewSession: (filePath: string) => Promise<{ success: boolean; sessionId?: string; url?: string; error?: string }>;
     createOfficePreviewSession: (filePath: string) => Promise<{ success: boolean; sessionId?: string; url?: string; error?: string }>;
     destroyPreviewSession: (sessionId: string) => Promise<{ success: boolean }>;
+    clearBrowserCookies: () => Promise<{ success: boolean; error?: string }>;
+    clearBrowserCache: () => Promise<{ success: boolean; error?: string }>;
+    listLocalWebServices: (options?: ListLocalWebServicesOptions) => Promise<LocalWebService[]>;
   };
   autoLaunch: {
     get: () => Promise<{ enabled: boolean }>;
