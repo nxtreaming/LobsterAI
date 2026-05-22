@@ -534,7 +534,20 @@ interface IElectronAPI {
       sessionKey?: string;
     }) => Promise<{
       success: boolean;
-      messages?: Array<{ role: string; content: string }>;
+      messages?: Array<{
+        id: string;
+        type: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'system';
+        content: string;
+        timestamp: number;
+        metadata?: {
+          toolName?: string;
+          toolInput?: Record<string, unknown>;
+          toolResult?: string;
+          toolUseId?: string | null;
+          isError?: boolean;
+          [key: string]: unknown;
+        };
+      }>;
       error?: string;
     }>;
     listSubagentSessions: (parentSessionId: string) => Promise<{

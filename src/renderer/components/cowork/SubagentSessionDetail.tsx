@@ -1,17 +1,11 @@
 import { ArrowLeftIcon } from '@heroicons/react/20/solid';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 import { i18nService } from '../../services/i18n';
-import type { SubagentSessionSummary } from '../../types/cowork';
+import type { CoworkMessage, SubagentSessionSummary } from '../../types/cowork';
 import ComposeIcon from '../icons/ComposeIcon';
 import SidebarToggleIcon from '../icons/SidebarToggleIcon';
-
-interface SubTaskMessage {
-  role: string;
-  content: string;
-}
+import ConversationTurnsView from './ConversationTurnsView';
 
 interface SubagentSessionDetailProps {
   subagent: SubagentSessionSummary;
@@ -24,7 +18,7 @@ interface SubagentSessionDetailProps {
 
 const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent, onBack, isSidebarCollapsed, onToggleSidebar, onNewChat, updateBadge }) => {
   const isMac = window.electron.platform === 'darwin';
-  const [messages, setMessages] = useState<SubTaskMessage[]>([]);
+  const [messages, setMessages] = useState<CoworkMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<'running' | 'done' | 'error'>(subagent.status);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -47,7 +41,7 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
         sessionKey: subagent.sessionKey ?? undefined,
       });
       if (result?.success && result.messages) {
-        setMessages(result.messages);
+        setMessages(result.messages as CoworkMessage[]);
       }
     } catch { /* ignore */ }
     finally {
@@ -88,20 +82,6 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
   const displayTitle = subagent.task
     ? subagent.task.length > 60 ? subagent.task.slice(0, 60) + '...' : subagent.task
     : subagent.agentId ?? 'Subagent';
-
-  const roleBg = (role: string) =>
-    role === 'assistant'
-      ? 'bg-blue-50/60 dark:bg-blue-950/20'
-      : role === 'tool'
-        ? 'bg-amber-50/60 dark:bg-amber-950/20'
-        : 'bg-gray-50/60 dark:bg-gray-800/20';
-
-  const roleLabel = (role: string) => {
-    if (role === 'user') return i18nService.t('subTaskRoleUser') || 'Task';
-    if (role === 'assistant') return subagent.agentId ?? 'Agent';
-    if (role === 'tool') return i18nService.t('subTaskRoleTool') || 'Tool';
-    return role;
-  };
 
   return (
     <div className="flex h-full flex-col">
@@ -164,7 +144,7 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
       </div>
 
       {/* Messages */}
-      <div ref={contentRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div ref={contentRef} className="flex-1 overflow-y-auto">
         {loading && (
           <div className="flex items-center justify-center py-12">
             <div className="h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -182,18 +162,13 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
           </div>
         )}
 
-        {!loading && messages.map((msg, idx) => (
-          <div key={idx} className={`rounded-lg px-4 py-3 ${roleBg(msg.role)}`}>
-            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-secondary/70">
-              {roleLabel(msg.role)}
-            </div>
-            <div className="prose prose-sm dark:prose-invert max-w-none text-foreground break-words">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {msg.content}
-              </ReactMarkdown>
-            </div>
-          </div>
-        ))}
+        {!loading && messages.length > 0 && (
+          <ConversationTurnsView
+            messages={messages}
+            isStreaming={status === 'running'}
+            readOnly={true}
+          />
+        )}
       </div>
 
       {/* Footer status bar */}

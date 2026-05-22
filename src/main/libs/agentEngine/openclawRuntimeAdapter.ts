@@ -6414,7 +6414,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     parentSessionId: string,
     agentId: string,
     sessionKey?: string,
-  ): Promise<Array<{ role: string; content: string }>> {
+  ) {
     return this.subagentTracker.getSubTaskHistory(parentSessionId, agentId, sessionKey);
   }
 

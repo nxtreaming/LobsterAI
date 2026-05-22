@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 import type { SubagentRunStore } from '../../subagentRunStore';
 import {
   extractGatewayMessageText,
@@ -7,6 +9,22 @@ import {
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 };
+
+/** Message format compatible with renderer CoworkMessage interface */
+export interface SubagentCoworkMessage {
+  id: string;
+  type: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'system';
+  content: string;
+  timestamp: number;
+  metadata?: {
+    toolName?: string;
+    toolInput?: Record<string, unknown>;
+    toolResult?: string;
+    toolUseId?: string | null;
+    isError?: boolean;
+    [key: string]: unknown;
+  };
+}
 
 export type GatewayClientLike = {
   request: <T = Record<string, unknown>>(
@@ -26,8 +44,8 @@ export type GatewayClientLike = {
 export class SubagentTracker {
   /** Maps toolCallId → OpenClaw session key for the subagent session */
   private readonly subagentSessionKeys = new Map<string, string>();
-  /** Maps toolCallId → collected conversation messages */
-  private readonly subagentMessages = new Map<string, Array<{ role: string; content: string }>>();
+  /** Maps toolCallId → collected conversation messages (CoworkMessage format) */
+  private readonly subagentMessages = new Map<string, SubagentCoworkMessage[]>();
   /** Maps toolCallId → agentId for correlating spawn start → result */
   private readonly subagentToolCallIdToAgentId = new Map<string, string>();
   /** Maps toolCallId → lifecycle status */
@@ -213,7 +231,7 @@ export class SubagentTracker {
     parentSessionId: string,
     runId: string,
     sessionKey?: string,
-  ): Promise<Array<{ role: string; content: string }>> {
+  ): Promise<SubagentCoworkMessage[]> {
     // 1. Try locally collected messages (only serve cache if subagent is done)
     const status = this.subagentStatus.get(runId);
     const local = this.subagentMessages.get(runId);
@@ -285,7 +303,7 @@ export class SubagentTracker {
   private async fetchSubagentHistory(
     sessionKey: string,
     runId: string,
-  ): Promise<Array<{ role: string; content: string }>> {
+  ): Promise<SubagentCoworkMessage[]> {
     const client = this.getGatewayClient();
     if (!client) return [];
     try {
@@ -301,7 +319,9 @@ export class SubagentTracker {
 
       console.log('[SubagentTracker] fetchSubagentHistory: got', history.messages.length, 'raw messages for key:', sessionKey);
 
-      const messages: Array<{ role: string; content: string }> = [];
+      const messages: SubagentCoworkMessage[] = [];
+      let ts = Date.now() - history.messages.length * 1000; // synthetic timestamps
+
       for (const raw of history.messages) {
         if (!isRecord(raw)) continue;
         const role = typeof raw.role === 'string' ? raw.role.trim().toLowerCase() : '';
@@ -309,19 +329,45 @@ export class SubagentTracker {
         // Handle standard user/assistant/system messages
         if (role === 'user' || role === 'assistant' || role === 'system') {
           const text = extractGatewayMessageText(raw).trim();
-          if (text && !shouldSuppressHeartbeatText(role as 'user' | 'assistant' | 'system', text)) {
-            messages.push({ role, content: text });
-          } else if (role === 'assistant' && !text && Array.isArray(raw.content)) {
+
+          // For assistant messages with content array containing tool_use blocks
+          if (role === 'assistant' && Array.isArray(raw.content)) {
+            // Extract text parts first
+            if (text && !shouldSuppressHeartbeatText(role, text)) {
+              messages.push({
+                id: crypto.randomUUID(),
+                type: 'assistant',
+                content: text,
+                timestamp: ts++,
+              });
+            }
+            // Extract tool_use blocks
             for (const block of raw.content as unknown[]) {
               if (!isRecord(block)) continue;
               const blockType = typeof block.type === 'string' ? block.type : '';
               if (blockType === 'tool_use' || blockType === 'tool_call' || blockType === 'toolCall') {
                 const toolName = typeof block.name === 'string' ? block.name : 'tool';
-                messages.push({ role: 'tool', content: `[Calling ${toolName}]` });
+                const toolInput = isRecord(block.input) ? block.input as Record<string, unknown> : {};
+                const toolUseId = typeof block.id === 'string' ? block.id : null;
+                messages.push({
+                  id: crypto.randomUUID(),
+                  type: 'tool_use',
+                  content: '',
+                  timestamp: ts++,
+                  metadata: { toolName, toolInput, toolUseId },
+                });
               }
             }
+          } else if (text && !shouldSuppressHeartbeatText(role as 'user' | 'assistant' | 'system', text)) {
+            const type = role === 'system' ? 'system' : role as 'user' | 'assistant';
+            messages.push({
+              id: crypto.randomUUID(),
+              type,
+              content: text,
+              timestamp: ts++,
+            });
           } else if (!text) {
-            console.log('[SubagentTracker] dropped message with empty text, role:', role, 'keys:', Object.keys(raw).join(','), 'content-type:', typeof raw.content, Array.isArray(raw.content) ? `array[${(raw.content as unknown[]).length}]` : '');
+            console.log('[SubagentTracker] dropped message with empty text, role:', role, 'keys:', Object.keys(raw).join(','));
           }
           continue;
         }
@@ -332,11 +378,18 @@ export class SubagentTracker {
           const toolName = typeof raw.toolName === 'string' ? raw.toolName
             : typeof raw.tool_name === 'string' ? raw.tool_name
               : typeof raw.name === 'string' ? raw.name : '';
+          const toolUseId = typeof raw.tool_use_id === 'string' ? raw.tool_use_id
+            : typeof raw.toolCallId === 'string' ? raw.toolCallId : null;
           if (text) {
-            const prefix = toolName ? `[${toolName}] ` : '';
-            messages.push({ role: 'tool', content: `${prefix}${text}` });
+            messages.push({
+              id: crypto.randomUUID(),
+              type: 'tool_result',
+              content: text,
+              timestamp: ts++,
+              metadata: { toolName: toolName || undefined, toolResult: text, toolUseId },
+            });
           } else {
-            console.log('[SubagentTracker] dropped tool result with empty text, role:', role, 'keys:', Object.keys(raw).join(','), 'content-type:', typeof raw.content, Array.isArray(raw.content) ? `array[${(raw.content as unknown[]).length}]` : '', 'content-sample:', JSON.stringify(raw.content)?.slice(0, 200));
+            console.log('[SubagentTracker] dropped tool result with empty text, role:', role);
           }
           continue;
         }
@@ -348,9 +401,22 @@ export class SubagentTracker {
             const blockType = typeof block.type === 'string' ? block.type : '';
             if (blockType === 'tool_use' || blockType === 'tool_call' || blockType === 'toolCall') {
               const toolName = typeof block.name === 'string' ? block.name : 'tool';
-              messages.push({ role: 'tool', content: `[Calling ${toolName}]` });
+              const toolInput = isRecord(block.input) ? block.input as Record<string, unknown> : {};
+              const toolUseId = typeof block.id === 'string' ? block.id : null;
+              messages.push({
+                id: crypto.randomUUID(),
+                type: 'tool_use',
+                content: '',
+                timestamp: ts++,
+                metadata: { toolName, toolInput, toolUseId },
+              });
             } else if (blockType === 'text' && typeof block.text === 'string' && block.text.trim()) {
-              messages.push({ role: 'assistant', content: block.text.trim() });
+              messages.push({
+                id: crypto.randomUUID(),
+                type: 'assistant',
+                content: block.text.trim(),
+                timestamp: ts++,
+              });
             }
           }
           continue;

@@ -1,0 +1,282 @@
+import React from 'react';
+
+import { ContextCompactionStatus } from '../../../common/coworkSystemMessages';
+import { getScheduledReminderDisplayText } from '../../../scheduledTask/reminderText';
+import { i18nService } from '../../services/i18n';
+import type { Artifact } from '../../types/artifact';
+import type { CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
+import { ArtifactPreviewCard } from '../artifacts';
+import ExclamationTriangleIcon from '../icons/ExclamationTriangleIcon';
+import InformationCircleIcon from '../icons/InformationCircleIcon';
+import AssistantMessageItem from './AssistantMessageItem';
+import {
+  type ConversationTurn,
+  COWORK_DETAIL_CONTENT_CLASS,
+  COWORK_DETAIL_GUTTER_CLASS,
+  getContextCompactionMessageLabel,
+  getToolResultDisplay,
+  getToolResultLineCount,
+  getVisibleAssistantItems,
+  hasText,
+  isContextCompactionMessage,
+} from './messageDisplayUtils';
+import ThinkingBlock from './ThinkingBlock';
+import ToolCallGroup from './ToolCallGroup';
+
+// ── ContextCompressionIcon ───────────────────────────────────────────────────
+
+const ContextCompressionIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg viewBox="0 0 34 34" fill="none" aria-hidden="true" {...props}>
+    <path
+      d="M6 5V24C6 26.2091 7.79086 28 10 28H22.5M28 29V10C28 7.79086 26.2091 6 24 6H11.5"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+    />
+    <path
+      d="M11.5 13.5H21"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M11.5 19H17"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <circle cx="6" cy="5" r="2" fill="currentColor" />
+    <circle cx="28" cy="29" r="2" fill="currentColor" />
+  </svg>
+);
+
+// ── ContextCompactionDivider ─────────────────────────────────────────────────
+
+const ContextCompactionDivider: React.FC<{ label: string; active?: boolean }> = ({
+  label,
+  active = false,
+}) => (
+  <div
+    className="flex w-full items-center gap-3 py-3 text-secondary"
+    role={active ? 'status' : undefined}
+    aria-live={active ? 'polite' : undefined}
+  >
+    <div className="h-px min-w-0 flex-1 bg-border" />
+    <div className="flex max-w-[min(100%,360px)] flex-col items-center gap-1.5 bg-background px-2">
+      <div className="inline-flex max-w-full items-center gap-2 text-[14px] font-normal leading-[23px] text-foreground/90">
+        <ContextCompressionIcon className={`h-3.5 w-3.5 flex-shrink-0 text-foreground/70 ${active ? 'animate-pulse' : ''}`} />
+        <span className="truncate">{label}</span>
+      </div>
+      {active && (
+        <div className="context-compaction-progress w-44 max-w-full" aria-hidden="true" />
+      )}
+    </div>
+    <div className="h-px min-w-0 flex-1 bg-border" />
+  </div>
+);
+
+// ── TypingDots ───────────────────────────────────────────────────────────────
+
+const TypingDots: React.FC = () => (
+  <div className="flex items-center space-x-1.5 py-1">
+    <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+    <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
+    <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
+  </div>
+);
+
+// ── AssistantTurnBlock ───────────────────────────────────────────────────────
+
+const AssistantTurnBlock: React.FC<{
+  turn: ConversationTurn;
+  artifacts?: Artifact[];
+  resolveLocalFilePath?: (href: string, text: string) => string | null;
+  mapDisplayText?: (value: string) => string;
+  onOpenLocalService?: (artifact: Artifact) => void;
+  showTypingIndicator?: boolean;
+  showCopyButtons?: boolean;
+}> = ({
+  turn,
+  artifacts,
+  resolveLocalFilePath,
+  mapDisplayText,
+  onOpenLocalService,
+  showTypingIndicator = false,
+  showCopyButtons = true,
+}) => {
+  const visibleAssistantItems = getVisibleAssistantItems(turn.assistantItems);
+
+  const renderSystemMessage = (message: CoworkMessage) => {
+    const isError = !hasText(message.content) && typeof message.metadata?.error === 'string';
+    const rawContent = hasText(message.content)
+      ? message.content
+      : (typeof message.metadata?.error === 'string' ? message.metadata.error : '');
+    const normalizedContent = getScheduledReminderDisplayText(rawContent) ?? rawContent;
+    const content = mapDisplayText ? mapDisplayText(normalizedContent) : normalizedContent;
+    if (!content.trim() && !isContextCompactionMessage(message)) return null;
+
+    if (isContextCompactionMessage(message)) {
+      const status = message.metadata?.status;
+      return (
+        <ContextCompactionDivider
+          label={getContextCompactionMessageLabel(message, content)}
+          active={status === ContextCompactionStatus.Running}
+        />
+      );
+    }
+
+    return (
+      <div className="rounded-lg border border-border bg-background px-3 py-2">
+        <div className="flex items-center gap-2">
+          {isError
+            ? <ExclamationTriangleIcon className="h-4 w-4 text-secondary flex-shrink-0" />
+            : <InformationCircleIcon className="h-4 w-4 text-secondary flex-shrink-0" />
+          }
+          <div className="text-xs whitespace-pre-wrap text-secondary">
+            {content}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderOrphanToolResult = (message: CoworkMessage) => {
+    const toolResultDisplayRaw = getToolResultDisplay(message);
+    const toolResultDisplay = mapDisplayText ? mapDisplayText(toolResultDisplayRaw) : toolResultDisplayRaw;
+    const isToolError = Boolean(message.metadata?.isError || message.metadata?.error);
+    const hasToolResultText = hasText(toolResultDisplay);
+    const resultLineCount = hasToolResultText ? getToolResultLineCount(toolResultDisplay) : 0;
+    const showNoDetailError = isToolError && !hasToolResultText;
+    const fallbackText = showNoDetailError ? i18nService.t('coworkToolNoErrorDetail') : '';
+    const displayText = hasToolResultText ? toolResultDisplay : fallbackText;
+    return (
+      <div className="py-1">
+        <div className="flex items-start gap-2">
+          <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
+            isToolError ? 'bg-red-500' : 'bg-surface-raised'
+          }`} />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-secondary">
+              {i18nService.t('coworkToolResult')}
+            </div>
+            {resultLineCount > 0 && (
+              <div className="text-xs text-muted mt-0.5">
+                {resultLineCount} {resultLineCount === 1 ? 'line' : 'lines'} of output
+              </div>
+            )}
+            {resultLineCount === 0 && showNoDetailError && (
+              <div className={`text-xs mt-0.5 ${
+                isToolError
+                  ? 'text-red-500/80'
+                  : 'text-muted'
+              }`}>
+                {fallbackText}
+              </div>
+            )}
+            {(hasToolResultText || showNoDetailError) && (
+              <div className="mt-2 px-3 py-2 rounded-lg bg-surface-raised max-h-64 overflow-y-auto">
+                <pre className={`text-xs whitespace-pre-wrap break-words font-mono ${
+                  isToolError
+                    ? 'text-red-500'
+                    : hasToolResultText
+                      ? 'text-foreground'
+                      : 'text-secondary italic'
+                }`}>
+                  {displayText}
+                </pre>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className={`py-2 ${COWORK_DETAIL_GUTTER_CLASS}`}>
+      <div className={COWORK_DETAIL_CONTENT_CLASS}>
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0 py-3 space-y-3">
+            {visibleAssistantItems.map((item, index) => {
+              if (item.type === 'assistant') {
+                if (item.message.metadata?.isThinking) {
+                  return (
+                    <ThinkingBlock
+                      key={item.message.id}
+                      message={item.message}
+                      mapDisplayText={mapDisplayText}
+                    />
+                  );
+                }
+                const hasToolGroupAfter = visibleAssistantItems
+                  .slice(index + 1)
+                  .some(laterItem => laterItem.type === 'tool_group');
+                const isLastAssistant = showCopyButtons && !hasToolGroupAfter;
+
+                return (
+                  <AssistantMessageItem
+                    key={item.message.id}
+                    message={item.message}
+                    resolveLocalFilePath={resolveLocalFilePath}
+                    mapDisplayText={mapDisplayText}
+                    showCopyButton={isLastAssistant}
+                    turnMetadata={isLastAssistant ? (item.message.metadata as CoworkMessageMetadata) : undefined}
+                  />
+                );
+              }
+
+              if (item.type === 'tool_group') {
+                const nextItem = visibleAssistantItems[index + 1];
+                const isLastInSequence = !nextItem || nextItem.type !== 'tool_group';
+                return (
+                  <ToolCallGroup
+                    key={`tool-${item.group.toolUse.id}`}
+                    group={item.group}
+                    isLastInSequence={isLastInSequence}
+                    mapDisplayText={mapDisplayText}
+                  />
+                );
+              }
+
+              if (item.type === 'system') {
+                const systemMessage = renderSystemMessage(item.message);
+                if (!systemMessage) {
+                  return null;
+                }
+                return (
+                  <div key={item.message.id}>
+                    {systemMessage}
+                  </div>
+                );
+              }
+
+              return (
+                <div key={item.message.id}>
+                  {renderOrphanToolResult(item.message)}
+                </div>
+              );
+            })}
+            {showTypingIndicator && <TypingDots />}
+            {artifacts && artifacts.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {artifacts.map(artifact => (
+                  <ArtifactPreviewCard
+                    key={artifact.id}
+                    artifact={artifact}
+                    onOpenLocalService={onOpenLocalService}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export { ContextCompactionDivider };
+
+export default AssistantTurnBlock;
