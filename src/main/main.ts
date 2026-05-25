@@ -73,7 +73,7 @@ import { createOfficePreviewSession, createPreviewSession, destroyPreviewSession
 import { getKeyfromAttribution, initializeKeyfromAttribution } from './libs/keyfromAttribution';
 import { exportLogsZip } from './libs/logExport';
 import { McpBridgeServer, type MediaGenerationRequest, type MediaGenerationResponse } from './libs/mcpBridgeServer';
-import { persistGeneratedImageAssets, type PersistGeneratedImageAssetsResult, type PersistedGeneratedImageAsset, persistGeneratedVideoAssets, type RemoteGeneratedMediaAsset } from './libs/mediaAssetPersistence';
+import { type PersistedGeneratedImageAsset, persistGeneratedImageAssets, type PersistGeneratedImageAssetsResult, persistGeneratedVideoAssets, type RemoteGeneratedMediaAsset } from './libs/mediaAssetPersistence';
 import { parsePrimaryModelRef, resolveQualifiedAgentModelRef } from './libs/openclawAgentModels';
 import {
   buildManagedSessionKey,
