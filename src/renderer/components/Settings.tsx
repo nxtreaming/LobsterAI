@@ -1,8 +1,13 @@
-import { ChatBubbleLeftIcon, CpuChipIcon, CubeIcon, EnvelopeIcon, InformationCircleIcon, SunIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { ChatBubbleLeftIcon, CpuChipIcon, CubeIcon, EnvelopeIcon, GlobeAltIcon, InformationCircleIcon, SunIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useCallback,useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { type AppUpdateInfo,type AppUpdateRuntimeState,AppUpdateSource,AppUpdateStatus } from '../../shared/appUpdate/constants';
+import {
+  type BrowserWebAccessConfig,
+  defaultBrowserWebAccessConfig,
+  normalizeBrowserWebAccessConfig,
+} from '../../shared/browserWebAccess/constants';
 import { ProviderRegistry, resolveCodingPlanBaseUrl } from '../../shared/providers';
 import { type AppConfig, defaultConfig, getProviderDisplayName, getVisibleProviders } from '../config';
 import { APP_ID, EXPORT_FORMAT_TYPE, EXPORT_PASSWORD } from '../constants/app';
@@ -33,6 +38,7 @@ import PlugIcon from './icons/PlugIcon';
 import PlusCircleIcon from './icons/PlusCircleIcon';
 import IMSettings from './im/IMSettings';
 import PluginsSettings from './plugins/PluginsSettings';
+import BrowserWebAccessSettings from './settings/BrowserWebAccessSettings';
 import {
   buildOpenAICompatibleChatCompletionsUrl,
   buildOpenAIResponsesUrl,
@@ -56,11 +62,11 @@ import {
   shouldUseMaxCompletionTokensForOpenAI,
   shouldUseOpenAIResponsesForProvider,
 } from './settings/modelProviderUtils';
-import ModelSettingsSection from './settings/ModelSettingsSection';
+import ModelSettingsSection, { ModelEditorDialog } from './settings/ModelSettingsSection';
 import EmailSkillConfig from './skills/EmailSkillConfig';
 import ThemedSelect from './ui/ThemedSelect';
 
-type TabType = 'general' | 'appearance' | 'coworkAgentEngine' | 'model' | 'coworkMemory' | 'coworkDreaming' | 'shortcuts' | 'im' | 'email' | 'plugins' | 'about';
+type TabType = 'general' | 'appearance' | 'coworkAgentEngine' | 'model' | 'browserWebAccess' | 'coworkMemory' | 'coworkDreaming' | 'shortcuts' | 'im' | 'email' | 'plugins' | 'about';
 
 const SettingsSlidersIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg
@@ -400,6 +406,62 @@ const SendShortcutSelect: React.FC<{ value: string; onChange: (v: string) => voi
   );
 };
 
+const SettingsSwitch: React.FC<{
+  checked: boolean;
+  label: string;
+  disabled?: boolean;
+  onClick: () => void | Promise<void>;
+}> = ({ checked, label, disabled, onClick }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    aria-label={label}
+    onClick={() => {
+      void onClick();
+    }}
+    disabled={disabled}
+    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+      disabled ? 'opacity-50 cursor-not-allowed' : ''
+    } ${
+      checked
+        ? 'bg-primary'
+        : 'bg-gray-300 dark:bg-gray-600'
+    }`}
+  >
+    <span
+      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+        checked ? 'translate-x-6' : 'translate-x-1'
+      }`}
+    />
+  </button>
+);
+
+const SettingsToggleRow: React.FC<{
+  title: string;
+  description: string;
+  checked: boolean;
+  disabled?: boolean;
+  onToggle: () => void | Promise<void>;
+}> = ({ title, description, checked, disabled, onToggle }) => (
+  <div>
+    <div className="flex items-center justify-between gap-4">
+      <h4 className="min-w-0 flex-1 text-sm font-medium text-foreground">
+        {title}
+      </h4>
+      <SettingsSwitch
+        checked={checked}
+        label={title}
+        disabled={disabled}
+        onClick={onToggle}
+      />
+    </div>
+    <p className="mt-3 text-sm text-secondary">
+      {description}
+    </p>
+  </div>
+);
+
 const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, noticeI18nKey, noticeExtra, onUpdateFound, enterpriseConfig }) => {
   const dispatch = useDispatch();
   // 状态
@@ -410,6 +472,10 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
   const [autoLaunch, setAutoLaunchState] = useState(false);
   const [useSystemProxy, setUseSystemProxy] = useState(false);
   const [sqliteAutoBackupEnabled, setSqliteAutoBackupEnabled] = useState(false);
+  const [browserWebAccess, setBrowserWebAccess] = useState<BrowserWebAccessConfig>(() => ({
+    ...defaultBrowserWebAccessConfig,
+    webFetch: { ...defaultBrowserWebAccessConfig.webFetch },
+  }));
   const [isUpdatingAutoLaunch, setIsUpdatingAutoLaunch] = useState(false);
   const [preventSleep, setPreventSleepState] = useState(false);
   const [isUpdatingPreventSleep, setIsUpdatingPreventSleep] = useState(false);
@@ -496,6 +562,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
   const [newModelId, setNewModelId] = useState('');
   const [newModelSupportsImage, setNewModelSupportsImage] = useState(false);
   const [newModelContextWindow, setNewModelContextWindow] = useState<number | undefined>(undefined);
+  const [newModelCustomParams, setNewModelCustomParams] = useState<string>('');
   const [modelFormError, setModelFormError] = useState<string | null>(null);
 
   // About tab
@@ -778,6 +845,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
       setLanguage(config.language);
       setUseSystemProxy(config.useSystemProxy ?? false);
       setSqliteAutoBackupEnabled(config.sqliteAutoBackupEnabled === true);
+      setBrowserWebAccess(normalizeBrowserWebAccessConfig(config.browserWebAccess));
       const savedTestMode = config.app?.testMode ?? false;
       setTestMode(savedTestMode);
       if (savedTestMode) setTestModeUnlocked(true);
@@ -1475,9 +1543,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     || embeddingRemoteBaseUrl !== (coworkConfig.embeddingRemoteBaseUrl ?? '')
     || embeddingRemoteApiKey !== (coworkConfig.embeddingRemoteApiKey ?? '')
     || dreamingEnabled !== (coworkConfig.dreamingEnabled ?? false)
-    || dreamingFrequency !== (coworkConfig.dreamingFrequency ?? '0 3 * * *')
-    || dreamingModel !== (coworkConfig.dreamingModel ?? '')
-    || dreamingTimezone !== (coworkConfig.dreamingTimezone ?? '');
+    || dreamingFrequency !== (coworkConfig.dreamingFrequency ?? '0 3 * * *');
   const isOpenClawAgentEngine = coworkAgentEngine === 'openclaw';
 
   const openClawProgressPercent = useMemo(() => {
@@ -1739,6 +1805,20 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
       const primaryProvider = firstEnabledProvider
         ? firstEnabledProvider[1]
         : normalizedProviders[activeProvider];
+      const normalizedBrowserWebAccess = normalizeBrowserWebAccessConfig({
+        ...browserWebAccess,
+        browserEnabled: true,
+        profileMode: defaultBrowserWebAccessConfig.profileMode,
+        followGlobalProxy: defaultBrowserWebAccessConfig.followGlobalProxy,
+        snapshotMode: defaultBrowserWebAccessConfig.snapshotMode,
+        executablePath: undefined,
+        cdpUrl: undefined,
+        attachOnly: undefined,
+        remoteCdpTimeoutMs: undefined,
+        remoteCdpHandshakeTimeoutMs: undefined,
+        extraArgs: [],
+        webFetch: defaultBrowserWebAccessConfig.webFetch,
+      });
 
       await configService.updateConfig({
         api: {
@@ -1750,6 +1830,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
         language,
         useSystemProxy,
         sqliteAutoBackupEnabled,
+        browserWebAccess: normalizedBrowserWebAccess,
         shortcuts,
         app: {
           ...configService.getConfig().app,
@@ -1821,9 +1902,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
         }
       }
 
-      // Sync IM gateway config (regenerate openclaw.json and restart gateway if running).
-      // This is done on every save regardless of activeTab, because the user may have
-      // edited IM config then switched tabs before clicking Save.
+      // Ask main to sync IM/OpenClaw config. The main process skips this when
+      // the IM fingerprint has not changed, so unrelated settings saves do not
+      // restart the gateway.
       const syncSucceeded = await imService.saveAndSyncConfig();
       if (!syncSucceeded) {
         throw new Error(i18nService.t('settingsSavedButOpenClawSyncFailed'));
@@ -1893,10 +1974,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     setNewModelId('');
     setNewModelSupportsImage(false);
     setNewModelContextWindow(undefined);
+    setNewModelCustomParams('');
     setModelFormError(null);
   };
 
-  const handleEditModel = (modelId: string, modelName: string, supportsImage?: boolean, contextWindow?: number) => {
+  const handleEditModel = (modelId: string, modelName: string, supportsImage?: boolean, contextWindow?: number, customParams?: Record<string, unknown>) => {
     setIsAddingModel(false);
     setIsEditingModel(true);
     setEditingModelId(modelId);
@@ -1904,6 +1986,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     setNewModelId(modelId);
     setNewModelSupportsImage(!!supportsImage);
     setNewModelContextWindow(contextWindow);
+    setNewModelCustomParams(
+      customParams && Object.keys(customParams).length > 0
+        ? JSON.stringify(customParams, null, 2)
+        : '',
+    );
     setModelFormError(null);
   };
 
@@ -1954,6 +2041,22 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
       return;
     }
 
+    // Parse custom params JSON (validate before saving)
+    let parsedCustomParams: Record<string, unknown> | undefined;
+    const trimmedParams = newModelCustomParams.trim();
+    if (trimmedParams) {
+      try {
+        parsedCustomParams = JSON.parse(trimmedParams);
+        if (typeof parsedCustomParams !== 'object' || parsedCustomParams === null || Array.isArray(parsedCustomParams)) {
+          setModelFormError(i18nService.t('customParamsInvalidJson'));
+          return;
+        }
+      } catch {
+        setModelFormError(i18nService.t('customParamsInvalidJson'));
+        return;
+      }
+    }
+
     const nextModel = {
       id: modelId,
       name: modelName,
@@ -1963,6 +2066,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
         newModelSupportsImage,
       ),
       ...(newModelContextWindow !== undefined ? { contextWindow: newModelContextWindow } : {}),
+      ...(parsedCustomParams && Object.keys(parsedCustomParams).length > 0
+        ? { customParams: parsedCustomParams }
+        : {}),
     };
     const updatedModels = isEditingModel && editingModelId
       ? currentModels.map(model => (model.id === editingModelId ? nextModel : model))
@@ -1982,6 +2088,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     setNewModelName('');
     setNewModelId('');
     setNewModelSupportsImage(false);
+    setNewModelCustomParams('');
     setModelFormError(null);
   };
 
@@ -1993,6 +2100,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     setNewModelId('');
     setNewModelSupportsImage(false);
     setNewModelContextWindow(undefined);
+    setNewModelCustomParams('');
     setModelFormError(null);
   };
 
@@ -2470,8 +2578,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
       { key: 'general' as TabType,        label: i18nService.t('general'),        icon: <SettingsSlidersIcon className="h-5 w-5" /> },
       { key: 'appearance' as TabType,     label: i18nService.t('appearance'),     icon: <SunIcon className="h-5 w-5" /> },
       { key: 'coworkAgentEngine' as TabType, label: i18nService.t('coworkAgentEngine'), icon: <CpuChipIcon className="h-5 w-5" /> },
-      { key: 'model' as TabType,          label: i18nService.t('model'),          icon: <CubeIcon className="h-5 w-5" /> },
+      { key: 'model' as TabType,          label: i18nService.t('settingsCustomModel'), icon: <CubeIcon className="h-5 w-5" /> },
       { key: 'im' as TabType,             label: i18nService.t('imBot'),          icon: <ChatBubbleLeftIcon className="h-5 w-5" /> },
+      { key: 'browserWebAccess' as TabType, label: i18nService.t('browserWebAccessTab'), icon: <GlobeAltIcon className="h-5 w-5" /> },
       { key: 'email' as TabType,          label: i18nService.t('emailTab'),       icon: <EnvelopeIcon className="h-5 w-5" /> },
       { key: 'coworkMemory' as TabType,   label: i18nService.t('coworkMemoryTitle'), icon: <BrainIcon className="h-5 w-5" /> },
       { key: 'coworkDreaming' as TabType, label: i18nService.t('coworkMemoryTabDreaming'), icon: <DreamingTabIcon className="h-5 w-5" /> },
@@ -2687,195 +2796,82 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
               </div>
             </div>
 
-            {/* Auto-launch Section */}
-            <div>
-              <h4 className="text-sm font-medium text-foreground mb-3">
-                {i18nService.t('autoLaunch')}
-              </h4>
-              <label className="flex items-center justify-between cursor-pointer">
-                <span className="text-sm text-secondary">
-                  {i18nService.t('autoLaunchDescription')}
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoLaunch}
-                  onClick={async () => {
-                    if (isUpdatingAutoLaunch) return;
-                    const next = !autoLaunch;
-                    setIsUpdatingAutoLaunch(true);
-                    try {
-                      const result = await window.electron.autoLaunch.set(next);
-                      if (result.success) {
-                        setAutoLaunchState(next);
-                      } else {
-                        setError(result.error || 'Failed to update auto-launch setting');
-                      }
-                    } catch (err) {
-                      console.error('Failed to set auto-launch:', err);
-                      setError('Failed to update auto-launch setting');
-                    } finally {
-                      setIsUpdatingAutoLaunch(false);
-                    }
-                  }}
-                  disabled={isUpdatingAutoLaunch}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                    isUpdatingAutoLaunch ? 'opacity-50 cursor-not-allowed' : ''
-                  } ${
-                    autoLaunch
-                      ? 'bg-primary'
-                      : 'bg-gray-300 dark:bg-gray-600'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      autoLaunch ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </label>
-            </div>
+            <SettingsToggleRow
+              title={i18nService.t('autoLaunch')}
+              description={i18nService.t('autoLaunchDescription')}
+              checked={autoLaunch}
+              disabled={isUpdatingAutoLaunch}
+              onToggle={async () => {
+                if (isUpdatingAutoLaunch) return;
+                const next = !autoLaunch;
+                setIsUpdatingAutoLaunch(true);
+                try {
+                  const result = await window.electron.autoLaunch.set(next);
+                  if (result.success) {
+                    setAutoLaunchState(next);
+                  } else {
+                    setError(result.error || 'Failed to update auto-launch setting');
+                  }
+                } catch (err) {
+                  console.error('Failed to set auto-launch:', err);
+                  setError('Failed to update auto-launch setting');
+                } finally {
+                  setIsUpdatingAutoLaunch(false);
+                }
+              }}
+            />
 
-            {/* Prevent Sleep Section */}
-            <div>
-              <h4 className="text-sm font-medium text-foreground mb-3">
-                {i18nService.t('preventSleep')}
-              </h4>
-              <label className="flex items-center justify-between cursor-pointer">
-                <span className="text-sm text-secondary">
-                  {i18nService.t('preventSleepDescription')}
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={preventSleep}
-                  onClick={async () => {
-                    if (isUpdatingPreventSleep) return;
-                    const next = !preventSleep;
-                    setIsUpdatingPreventSleep(true);
-                    try {
-                      const result = await window.electron.preventSleep.set(next);
-                      if (result.success) {
-                        setPreventSleepState(next);
-                      } else {
-                        setError(result.error || 'Failed to update prevent-sleep setting');
-                      }
-                    } catch (err) {
-                      console.error('Failed to set prevent-sleep:', err);
-                      setError('Failed to update prevent-sleep setting');
-                    } finally {
-                      setIsUpdatingPreventSleep(false);
-                    }
-                  }}
-                  disabled={isUpdatingPreventSleep}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                    isUpdatingPreventSleep ? 'opacity-50 cursor-not-allowed' : ''
-                  } ${
-                    preventSleep
-                      ? 'bg-primary'
-                      : 'bg-gray-300 dark:bg-gray-600'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      preventSleep ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </label>
-            </div>
+            <SettingsToggleRow
+              title={i18nService.t('preventSleep')}
+              description={i18nService.t('preventSleepDescription')}
+              checked={preventSleep}
+              disabled={isUpdatingPreventSleep}
+              onToggle={async () => {
+                if (isUpdatingPreventSleep) return;
+                const next = !preventSleep;
+                setIsUpdatingPreventSleep(true);
+                try {
+                  const result = await window.electron.preventSleep.set(next);
+                  if (result.success) {
+                    setPreventSleepState(next);
+                  } else {
+                    setError(result.error || 'Failed to update prevent-sleep setting');
+                  }
+                } catch (err) {
+                  console.error('Failed to set prevent-sleep:', err);
+                  setError('Failed to update prevent-sleep setting');
+                } finally {
+                  setIsUpdatingPreventSleep(false);
+                }
+              }}
+            />
 
-            {/* System proxy Section */}
-            <div>
-              <h4 className="text-sm font-medium text-foreground mb-3">
-                {i18nService.t('useSystemProxy')}
-              </h4>
-              <label className="flex items-center justify-between cursor-pointer">
-                <span className="text-sm text-secondary">
-                  {i18nService.t('useSystemProxyDescription')}
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={useSystemProxy}
-                  onClick={() => {
-                    setUseSystemProxy((prev) => !prev);
-                  }}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                    useSystemProxy
-                      ? 'bg-primary'
-                      : 'bg-gray-300 dark:bg-gray-600'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      useSystemProxy ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </label>
-            </div>
+            <SettingsToggleRow
+              title={i18nService.t('useSystemProxy')}
+              description={i18nService.t('useSystemProxyDescription')}
+              checked={useSystemProxy}
+              onToggle={() => {
+                setUseSystemProxy((prev) => !prev);
+              }}
+            />
 
-            <div>
-              <h4 className="text-sm font-medium text-foreground mb-3">
-                {i18nService.t('sqliteAutoBackupEnabled')}
-              </h4>
-              <label className="flex items-center justify-between cursor-pointer">
-                <span className="text-sm text-secondary">
-                  {i18nService.t('sqliteAutoBackupEnabledDescription')}
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={sqliteAutoBackupEnabled}
-                  onClick={() => {
-                    setSqliteAutoBackupEnabled((prev) => !prev);
-                  }}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                    sqliteAutoBackupEnabled
-                      ? 'bg-primary'
-                      : 'bg-gray-300 dark:bg-gray-600'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      sqliteAutoBackupEnabled ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </label>
-            </div>
+            <SettingsToggleRow
+              title={i18nService.t('sqliteAutoBackupEnabled')}
+              description={i18nService.t('sqliteAutoBackupEnabledDescription')}
+              checked={sqliteAutoBackupEnabled}
+              onToggle={() => {
+                setSqliteAutoBackupEnabled((prev) => !prev);
+              }}
+            />
 
-            {/* Skip Missed Jobs Section */}
-            <div>
-              <h4 className="text-sm font-medium text-foreground mb-3">
-                {i18nService.t('skipMissedJobs')}
-              </h4>
-              <label className="flex items-center justify-between cursor-pointer">
-                <span className="text-sm text-secondary">
-                  {i18nService.t('skipMissedJobsDescription')}
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={skipMissedJobs}
-                  onClick={() => {
-                    setSkipMissedJobs((prev) => !prev);
-                  }}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                    skipMissedJobs
-                      ? 'bg-primary'
-                      : 'bg-gray-300 dark:bg-gray-600'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      skipMissedJobs ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </label>
-            </div>
+            <SettingsToggleRow
+              title={i18nService.t('skipMissedJobs')}
+              description={i18nService.t('skipMissedJobsDescription')}
+              checked={skipMissedJobs}
+              onToggle={() => {
+                setSkipMissedJobs((prev) => !prev);
+              }}
+            />
 
           </div>
         );
@@ -2945,15 +2941,21 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
         ];
         return (
           <div className="flex flex-col h-full space-y-4">
-            <div className="flex gap-1 border-b border-border shrink-0">
+            <div
+              className="flex flex-wrap gap-2 border-b border-border pb-3 shrink-0"
+              role="tablist"
+              aria-label={i18nService.t('coworkMemoryTitle')}
+            >
               {memoryTabs.map((tab) => (
                 <button
                   type="button"
                   key={tab.key}
+                  role="tab"
+                  aria-selected={memoryTab === tab.key}
                   onClick={() => setMemoryTab(tab.key)}
-                  className={`px-4 py-2 text-sm font-medium transition-colors rounded-t-lg ${
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                     memoryTab === tab.key
-                      ? 'bg-primary-muted text-primary border-b-2 border-primary'
+                      ? 'bg-primary-muted text-primary'
                       : 'text-secondary hover:text-foreground hover:bg-surface-raised'
                   }`}
                 >
@@ -3070,14 +3072,18 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
             <DreamingSettingsSection
               dreamingEnabled={dreamingEnabled}
               dreamingFrequency={dreamingFrequency}
-              dreamingModel={dreamingModel}
-              dreamingTimezone={dreamingTimezone}
               onDreamingEnabledChange={setDreamingEnabled}
               onDreamingFrequencyChange={setDreamingFrequency}
-              onDreamingModelChange={setDreamingModel}
-              onDreamingTimezoneChange={setDreamingTimezone}
             />
           </div>
+        );
+
+      case 'browserWebAccess':
+        return (
+          <BrowserWebAccessSettings
+            value={browserWebAccess}
+            onChange={setBrowserWebAccess}
+          />
         );
 
       case 'model':
@@ -3111,19 +3117,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
             setIsTestResultModalOpen={setIsTestResultModalOpen}
             pendingDeleteProvider={pendingDeleteProvider}
             setPendingDeleteProvider={setPendingDeleteProvider}
-            isAddingModel={isAddingModel}
-            isEditingModel={isEditingModel}
-            editingModelId={editingModelId}
-            newModelName={newModelName}
-            setNewModelName={setNewModelName}
-            newModelId={newModelId}
-            setNewModelId={setNewModelId}
-            newModelSupportsImage={newModelSupportsImage}
-            setNewModelSupportsImage={setNewModelSupportsImage}
-            newModelContextWindow={newModelContextWindow}
-            setNewModelContextWindow={setNewModelContextWindow}
-            modelFormError={modelFormError}
-            setModelFormError={setModelFormError}
             importInputRef={importInputRef}
             handleImportProvidersClick={handleImportProvidersClick}
             handleExportProviders={handleExportProviders}
@@ -3148,9 +3141,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
             handleAddModel={handleAddModel}
             handleEditModel={handleEditModel}
             handleDeleteModel={handleDeleteModel}
-            handleSaveNewModel={handleSaveNewModel}
-            handleCancelModelEdit={handleCancelModelEdit}
-            handleModelDialogKeyDown={handleModelDialogKeyDown}
           />
         );
 
@@ -3439,6 +3429,26 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
 
         </div>
 
+        <ModelEditorDialog
+          activeProvider={activeProvider}
+          isAddingModel={isAddingModel}
+          isEditingModel={isEditingModel}
+          newModelName={newModelName}
+          setNewModelName={setNewModelName}
+          newModelId={newModelId}
+          setNewModelId={setNewModelId}
+          newModelSupportsImage={newModelSupportsImage}
+          setNewModelSupportsImage={setNewModelSupportsImage}
+          newModelContextWindow={newModelContextWindow}
+          setNewModelContextWindow={setNewModelContextWindow}
+          newModelCustomParams={newModelCustomParams}
+          setNewModelCustomParams={setNewModelCustomParams}
+          modelFormError={modelFormError}
+          setModelFormError={setModelFormError}
+          handleSaveNewModel={handleSaveNewModel}
+          handleCancelModelEdit={handleCancelModelEdit}
+          handleModelDialogKeyDown={handleModelDialogKeyDown}
+        />
 
           {/* Memory Modal */}
           {showMemoryModal && (

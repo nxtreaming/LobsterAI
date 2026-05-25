@@ -209,6 +209,52 @@ export class SqliteStore {
       );
     `);
 
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS subagent_runs (
+        id TEXT PRIMARY KEY,
+        parent_session_id TEXT NOT NULL,
+        session_key TEXT,
+        agent_id TEXT,
+        task TEXT,
+        label TEXT,
+        status TEXT NOT NULL DEFAULT 'running',
+        created_at INTEGER NOT NULL,
+        ended_at INTEGER
+      );
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_subagent_runs_parent_session_id
+      ON subagent_runs(parent_session_id);
+    `);
+
+    // Subagent messages table — stores fetched conversation history locally
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS subagent_messages (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        metadata TEXT,
+        created_at INTEGER NOT NULL,
+        sequence INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_subagent_messages_run_id
+      ON subagent_messages(run_id);
+    `);
+
+    // Migration: add messages_persisted column to subagent_runs
+    try {
+      const subagentCols = this.db.pragma('table_info(subagent_runs)') as Array<{ name: string }>;
+      if (!subagentCols.some(c => c.name === 'messages_persisted')) {
+        this.db.exec('ALTER TABLE subagent_runs ADD COLUMN messages_persisted INTEGER NOT NULL DEFAULT 0;');
+        this.didRunMigration = true;
+      }
+    } catch {
+      // Migration not needed
+    }
+
     // Migration: add config column to user_plugins
     try {
       const pluginCols = this.db.pragma('table_info(user_plugins)') as Array<{ name: string }>;

@@ -5,7 +5,6 @@
 
 import { EyeIcon, EyeSlashIcon, XCircleIcon as XCircleIconSolid } from '@heroicons/react/20/solid';
 import { ArrowPathIcon, CheckCircleIcon, SignalIcon, XCircleIcon } from '@heroicons/react/24/outline';
-import { PlatformRegistry } from '@shared/platform';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useRef, useState } from 'react';
 
@@ -13,7 +12,6 @@ import { i18nService } from '../../services/i18n';
 import { NimQrLoginErrorCode, NimQrLoginStatus, pollQrLogin, startQrLogin } from '../../services/nimQrLogin';
 import type { IMConnectivityTestResult, NimInstanceConfig, NimInstanceStatus, NimOpenClawConfig } from '../../types/im';
 import Modal from '../common/Modal';
-import TrashIcon from '../icons/TrashIcon';
 import { NimDownloadPlatform, NimDownloadQrImage } from './constants';
 import type { UiHint } from './SchemaForm';
 import { SchemaForm } from './SchemaForm';
@@ -25,12 +23,10 @@ interface NimInstanceSettingsProps {
   onConfigChange: (update: Partial<NimOpenClawConfig>) => void;
   onSave: (override?: Partial<NimOpenClawConfig>) => Promise<void>;
   onRename: (newName: string) => void;
-  onDelete: () => void;
-  onToggleEnabled: () => void;
   onTestConnectivity: () => void;
   testingPlatform: string | null;
   connectivityResults: Record<string, IMConnectivityTestResult>;
-  language: 'zh' | 'en';
+  headerLeading?: React.ReactNode;
 }
 
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -73,12 +69,10 @@ const NimInstanceSettings: React.FC<NimInstanceSettingsProps> = ({
   onConfigChange,
   onSave,
   onRename,
-  onDelete,
-  onToggleEnabled,
   onTestConnectivity,
   testingPlatform,
   connectivityResults,
-  language,
+  headerLeading,
 }) => {
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [editingName, setEditingName] = useState(false);
@@ -248,19 +242,15 @@ const NimInstanceSettings: React.FC<NimInstanceSettingsProps> = ({
     { value: NimDownloadPlatform.Ios, label: i18nService.t('imNimDownloadPlatformIos') },
   ];
   const selectedPlatformLabel = downloadPlatformOptions.find((option) => option.value === downloadPlatform)?.label || downloadPlatform;
+  const hasCredentials = !!(instance.nimToken || (instance.appKey && instance.account && instance.token));
+  const shouldShowQrPanel = !hasCredentials || (qrStatus !== 'idle' && qrStatus !== 'success');
 
   return (
     <>
       <div className="space-y-3">
         <div className="flex items-center gap-3 pb-3 border-b border-border-subtle">
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-surface border border-border-subtle p-1">
-              <img
-                src={PlatformRegistry.logo('nim')}
-                alt="NIM"
-                className="w-4 h-4 object-contain rounded"
-              />
-            </div>
+            {headerLeading}
             {editingName ? (
               <input
                 type="text"
@@ -293,33 +283,9 @@ const NimInstanceSettings: React.FC<NimInstanceSettingsProps> = ({
             {instanceStatus?.connected ? i18nService.t('connected') : i18nService.t('disconnected')}
           </div>
 
-          <button
-            type="button"
-            onClick={onToggleEnabled}
-            disabled={!instance.enabled && !(instance.nimToken || (instance.appKey && instance.account && instance.token))}
-            className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-              instance.enabled
-                ? (instanceStatus?.connected ? 'bg-green-500' : 'bg-yellow-500')
-                : 'bg-gray-400 dark:bg-gray-600'
-            } ${!instance.enabled && !(instance.nimToken || (instance.appKey && instance.account && instance.token)) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-            title={instance.enabled ? i18nService.t('imNimDisableInstance') : (!(instance.nimToken || (instance.appKey && instance.account && instance.token)) ? i18nService.t('imInstanceFillCredentials') : i18nService.t('imNimEnableInstance'))}
-          >
-            <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-              instance.enabled ? 'translate-x-4' : 'translate-x-0'
-            }`} />
-          </button>
-
-          <button
-            type="button"
-            onClick={onDelete}
-            className="inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-500/10 rounded-lg transition-colors flex-shrink-0"
-            title={i18nService.t('imNimDeleteInstance')}
-          >
-            <TrashIcon className="h-4 w-4" />
-            {language === 'zh' ? '删除' : 'Delete'}
-          </button>
         </div>
 
+        {shouldShowQrPanel && (
         <div className="rounded-lg border border-dashed border-border-subtle p-4 text-center space-y-3">
           {(qrStatus === 'idle' || qrStatus === 'error') && (
             <>
@@ -408,10 +374,12 @@ const NimInstanceSettings: React.FC<NimInstanceSettingsProps> = ({
           {qrStatus === 'success' && (
             <div className="flex items-center justify-center gap-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-3 py-2 rounded-lg">
               <CheckCircleIcon className="h-4 w-4 flex-shrink-0" />
-              {i18nService.t('imNimQrSuccess')}
-            </div>
-          )}
+            {i18nService.t('imNimQrSuccess')}
+          </div>
+        )}
         </div>
+        )}
+        {shouldShowQrPanel && (
         <div className="relative flex items-center">
           <div className="flex-1 border-t border-border-subtle" />
           <span className="px-3 text-xs text-secondary whitespace-nowrap">
@@ -419,6 +387,7 @@ const NimInstanceSettings: React.FC<NimInstanceSettingsProps> = ({
           </span>
           <div className="flex-1 border-t border-border-subtle" />
         </div>
+        )}
 
         <div className="mb-3 p-3 rounded-lg border border-dashed border-border-subtle">
           <ol className="text-xs text-secondary space-y-1 list-decimal list-inside">

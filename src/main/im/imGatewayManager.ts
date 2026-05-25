@@ -118,7 +118,10 @@ export interface IMGatewayManagerOptions {
   coworkRuntime?: CoworkRuntime;
   coworkStore?: CoworkStore;
   ensureCoworkReady?: () => Promise<void>;
-  syncOpenClawConfig?: (reason?: string) => Promise<void>;
+  syncOpenClawConfig?: (
+    reason?: string,
+    options?: { restartGatewayIfRunning?: boolean },
+  ) => Promise<void>;
   ensureOpenClawGatewayConnected?: () => Promise<void>;
   getOpenClawGatewayClient?: () => GatewayClientLike | null;
   ensureOpenClawGatewayReady?: () => Promise<void>;
@@ -138,7 +141,9 @@ export class IMGatewayManager extends EventEmitter {
   private getLLMConfig: (() => Promise<any>) | null = null;
   private getSkillsPrompt: (() => Promise<string | null>) | null = null;
   private ensureCoworkReady: (() => Promise<void>) | null = null;
-  private syncOpenClawConfig: ((reason?: string) => Promise<void>) | null = null;
+  private syncOpenClawConfig:
+    | ((reason?: string, options?: { restartGatewayIfRunning?: boolean }) => Promise<void>)
+    | null = null;
   private ensureOpenClawGatewayConnected: (() => Promise<void>) | null = null;
   private getOpenClawGatewayClient: (() => GatewayClientLike | null) | null = null;
   private ensureOpenClawGatewayReady: (() => Promise<void>) | null = null;
@@ -390,7 +395,10 @@ export class IMGatewayManager extends EventEmitter {
     return this.imStore;
   }
 
-  setConfig(config: Partial<IMGatewayConfig>, options?: { syncGateway?: boolean }): void {
+  setConfig(
+    config: Partial<IMGatewayConfig>,
+    options?: { syncGateway?: boolean; restartGatewayIfRunning?: boolean },
+  ): void {
     const previousConfig = this.imStore.getConfig();
     this.imStore.setConfig(config);
 
@@ -417,7 +425,9 @@ export class IMGatewayManager extends EventEmitter {
         newNb.secret !== oldNb?.secret;
       if (credentialsChanged) {
         console.log('[IMGatewayManager] netease-bee credentials changed, syncing OpenClaw config...');
-        this.syncOpenClawConfig?.('im-config-change:netease-bee');
+        this.syncOpenClawConfig?.('im-config-change:netease-bee', {
+          restartGatewayIfRunning: options?.restartGatewayIfRunning,
+        });
       }
     }
 
@@ -591,12 +601,13 @@ export class IMGatewayManager extends EventEmitter {
 
       const configured = weixinAccount.configured === true;
       const running = weixinAccount.running === true;
-      const enabled = weixinAccount.enabled !== false;
+      const runtimeEnabled = weixinAccount.enabled !== false;
+      const localEnabled = this.getConfig().weixin?.enabled === true;
       const accountId = readString(weixinAccount.accountId) ?? status.weixin.accountId ?? null;
       status.weixin = {
         ...status.weixin,
         accountId,
-        connected: running || (enabled && configured && status.weixin.connected),
+        connected: Boolean(localEnabled && (running || (runtimeEnabled && configured && status.weixin.connected))),
         startedAt: readNumber(weixinAccount.lastStartAt),
         lastError: readString(weixinAccount.lastError),
         lastInboundAt: readNumber(weixinAccount.lastInboundAt),
@@ -1682,13 +1693,19 @@ export class IMGatewayManager extends EventEmitter {
         alreadyConnected,
         accountId: resolvedAccountId,
       }));
-      if (result.connected) {
-        // Sync config and restart gateway so the weixin channel starts with
-        // the newly saved account credentials. The gateway's web.login.wait
-        // handler called context.startChannel, but the channel may not fully
-        // initialize without a proper config-driven restart.
-        await this.syncOpenClawConfig?.('im-weixin-qr-login-connected');
-        await this.ensureOpenClawGatewayConnected?.();
+      if (result.connected || alreadyConnected) {
+        if (resolvedAccountId) {
+          this.setConfig({
+            weixin: {
+              ...this.getConfig().weixin,
+              enabled: true,
+              accountId: resolvedAccountId,
+            },
+          }, { syncGateway: false });
+        }
+        // Keep QR login consistent with Settings save semantics: persist the
+        // account locally, then let the global Save action apply IM config to
+        // OpenClaw and restart the gateway once if the fingerprint changed.
       }
       return {
         ...result,

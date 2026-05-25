@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { isInternalCompactionSystemText } from '../../common/coworkSystemMessages';
 import {
   buildScheduledReminderSystemMessage,
   extractGatewayHistoryEntries,
@@ -88,6 +89,33 @@ describe('openclawHistory', () => {
       content: [{ type: 'text', text: 'Reminder fired' }],
     });
     expect(entry).toEqual({ role: 'system', text: 'Reminder fired' });
+  });
+
+  test('filters internal compaction system labels', () => {
+    expect(isInternalCompactionSystemText('Compaction')).toBe(true);
+    expect(isInternalCompactionSystemText('--- COMPACTION ---')).toBe(true);
+    expect(
+      extractGatewayHistoryEntry({
+        role: 'system',
+        content: [{ type: 'text', text: 'Compaction' }],
+      })
+    ).toBeNull();
+    expect(
+      extractGatewayHistoryEntry({
+        role: 'system',
+        content: [{ type: 'text', text: '--- COMPACTION ---' }],
+      })
+    ).toBeNull();
+  });
+
+  test('keeps user-visible system messages that mention compaction', () => {
+    expect(isInternalCompactionSystemText('Context compaction completed')).toBe(false);
+    expect(
+      extractGatewayHistoryEntry({
+        role: 'system',
+        content: [{ type: 'text', text: 'Context compaction completed' }],
+      })
+    ).toEqual({ role: 'system', text: 'Context compaction completed' });
   });
 
   test('filters pure heartbeat ack assistant messages', () => {

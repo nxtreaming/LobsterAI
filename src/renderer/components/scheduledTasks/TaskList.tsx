@@ -1,5 +1,10 @@
-import { ClockIcon, EllipsisVerticalIcon } from '@heroicons/react/24/outline';
+import {
+  ClockIcon,
+  EllipsisVerticalIcon,
+  PlayIcon,
+} from '@heroicons/react/24/outline';
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
 import type { ScheduledTask } from '../../../scheduledTask/types';
@@ -7,6 +12,8 @@ import { i18nService } from '../../services/i18n';
 import { scheduledTaskService } from '../../services/scheduledTask';
 import { RootState } from '../../store';
 import { selectTask, setViewMode } from '../../store/slices/scheduledTaskSlice';
+import EditIcon from '../icons/EditIcon';
+import TrashIcon from '../icons/TrashIcon';
 import {
   formatNextRunRelative,
   formatScheduleLabel,
@@ -14,9 +21,23 @@ import {
   getStatusTone,
 } from './utils';
 
-const listPageClass = 'px-6 py-4 sm:px-8 lg:px-10';
-const listContentClass = 'mx-auto w-full max-w-[760px]';
+const listPageClass = 'px-6 py-5 sm:px-8 lg:px-10';
+const listContentClass = 'mx-auto w-full max-w-[980px]';
 const listGridClass = 'grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_112px_40px] items-center gap-3';
+const menuWidthPx = 144;
+const menuHeightEstimatePx = 156;
+const menuEdgeGapPx = 8;
+const menuTriggerGapPx = 4;
+const menuItemClassName =
+  'flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.05]';
+const destructiveMenuItemClassName =
+  'flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left text-[13px] text-red-500 transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.05]';
+const menuIconClassName = 'h-3.5 w-3.5';
+
+interface MenuPosition {
+  top: number;
+  left: number;
+}
 
 interface TaskListItemProps {
   task: ScheduledTask;
@@ -26,11 +47,50 @@ interface TaskListItemProps {
 const TaskListItem: React.FC<TaskListItemProps> = ({ task, onRequestDelete }) => {
   const dispatch = useDispatch();
   const [showMenu, setShowMenu] = React.useState(false);
+  const [menuPosition, setMenuPosition] = React.useState<MenuPosition | null>(null);
+  const menuButtonRef = React.useRef<HTMLButtonElement>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
+
+  const updateMenuPosition = React.useCallback(() => {
+    if (!menuButtonRef.current) return;
+
+    const rect = menuButtonRef.current.getBoundingClientRect();
+    const maxLeft = window.innerWidth - menuWidthPx - menuEdgeGapPx;
+    const left = Math.max(
+      menuEdgeGapPx,
+      Math.min(rect.right - menuWidthPx, maxLeft),
+    );
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const hasMoreSpaceAbove = rect.top > spaceBelow;
+    const openAbove = spaceBelow < menuHeightEstimatePx + menuTriggerGapPx && hasMoreSpaceAbove;
+    const preferredTop = openAbove
+      ? rect.top - menuHeightEstimatePx - menuTriggerGapPx
+      : rect.bottom + menuTriggerGapPx;
+    const maxTop = window.innerHeight - menuHeightEstimatePx - menuEdgeGapPx;
+
+    setMenuPosition({
+      top: Math.max(menuEdgeGapPx, Math.min(preferredTop, maxTop)),
+      left,
+    });
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (showMenu) {
+      updateMenuPosition();
+    } else {
+      setMenuPosition(null);
+    }
+  }, [showMenu, updateMenuPosition]);
 
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        menuButtonRef.current &&
+        !menuButtonRef.current.contains(target) &&
+        menuRef.current &&
+        !menuRef.current.contains(target)
+      ) {
         setShowMenu(false);
       }
     };
@@ -38,6 +98,19 @@ const TaskListItem: React.FC<TaskListItemProps> = ({ task, onRequestDelete }) =>
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
+
+  React.useEffect(() => {
+    if (!showMenu) return;
+
+    const handleViewportChange = () => setShowMenu(false);
+    window.addEventListener('resize', handleViewportChange);
+    document.addEventListener('scroll', handleViewportChange, true);
+
+    return () => {
+      window.removeEventListener('resize', handleViewportChange);
+      document.removeEventListener('scroll', handleViewportChange, true);
+    };
   }, [showMenu]);
 
   const statusLabel = i18nService.t(getStatusLabelKey(task.state.lastStatus));
@@ -87,8 +160,9 @@ const TaskListItem: React.FC<TaskListItemProps> = ({ task, onRequestDelete }) =>
       </div>
 
       <div className="flex justify-center">
-        <div className="relative" ref={menuRef}>
+        <div className="relative">
           <button
+            ref={menuButtonRef}
             type="button"
             onClick={event => {
               event.stopPropagation();
@@ -98,44 +172,55 @@ const TaskListItem: React.FC<TaskListItemProps> = ({ task, onRequestDelete }) =>
           >
             <EllipsisVerticalIcon className="w-5 h-5" />
           </button>
-          {showMenu && (
-            <div className="absolute right-0 top-full mt-1 w-32 rounded-lg shadow-lg bg-surface border border-border z-50 py-1">
-              <button
-                type="button"
-                onClick={event => {
-                  event.stopPropagation();
-                  setShowMenu(false);
-                  void scheduledTaskService.runManually(task.id);
-                }}
-                disabled={Boolean(task.state.runningAtMs)}
-                className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-surface-raised disabled:opacity-50"
+          {showMenu && menuPosition && (
+            createPortal(
+              <div
+                ref={menuRef}
+                onClick={event => event.stopPropagation()}
+                className="fixed w-32 rounded-lg shadow-lg bg-surface border border-border z-[9999] py-1"
+                style={{ top: menuPosition.top, left: menuPosition.left }}
               >
-                {i18nService.t('scheduledTasksRun')}
-              </button>
-              <button
-                type="button"
-                onClick={event => {
-                  event.stopPropagation();
-                  setShowMenu(false);
-                  dispatch(selectTask(task.id));
-                  dispatch(setViewMode('edit'));
-                }}
-                className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-surface-raised"
-              >
-                {i18nService.t('scheduledTasksEdit')}
-              </button>
-              <button
-                type="button"
-                onClick={event => {
-                  event.stopPropagation();
-                  setShowMenu(false);
-                  onRequestDelete(task.id, task.name);
-                }}
-                className="w-full text-left px-3 py-1.5 text-sm text-red-500 hover:bg-surface-raised"
-              >
-                {i18nService.t('scheduledTasksDelete')}
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={event => {
+                    event.stopPropagation();
+                    setShowMenu(false);
+                    void scheduledTaskService.runManually(task.id);
+                  }}
+                  disabled={Boolean(task.state.runningAtMs)}
+                  className={`${menuItemClassName} disabled:opacity-50`}
+                >
+                  <PlayIcon className={menuIconClassName} />
+                  {i18nService.t('scheduledTasksRun')}
+                </button>
+                <button
+                  type="button"
+                  onClick={event => {
+                    event.stopPropagation();
+                    setShowMenu(false);
+                    dispatch(selectTask(task.id));
+                    dispatch(setViewMode('edit'));
+                  }}
+                  className={menuItemClassName}
+                >
+                  <EditIcon className={menuIconClassName} />
+                  {i18nService.t('scheduledTasksEdit')}
+                </button>
+                <button
+                  type="button"
+                  onClick={event => {
+                    event.stopPropagation();
+                    setShowMenu(false);
+                    onRequestDelete(task.id, task.name);
+                  }}
+                  className={destructiveMenuItemClassName}
+                >
+                  <TrashIcon className={menuIconClassName} />
+                  {i18nService.t('scheduledTasksDelete')}
+                </button>
+              </div>,
+              document.body,
+            )
           )}
         </div>
       </div>
@@ -179,7 +264,7 @@ const TaskList: React.FC<TaskListProps> = ({ onRequestDelete }) => {
 
   return (
     <div className={listPageClass}>
-      <div className={`${listContentClass} overflow-hidden rounded-lg border border-border/60 bg-background`}>
+      <div className={`${listContentClass} overflow-hidden rounded-lg border border-border-subtle bg-surface`}>
         <div className={`${listGridClass} bg-surface/30 px-5 py-2.5`}>
           <div className="text-xs font-medium text-secondary">
             {i18nService.t('scheduledTasksListColTitle')}

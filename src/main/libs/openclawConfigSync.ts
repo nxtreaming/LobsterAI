@@ -6,6 +6,13 @@ import path from 'path';
 import { buildScheduledTaskEnginePrompt } from '../../scheduledTask/enginePrompt';
 import { AgentId, DefaultAgentProfile } from '../../shared/agent';
 import {
+  BrowserNetworkMode,
+  BrowserRuntimeProfile,
+  type BrowserWebAccessConfig,
+  normalizeBrowserHostnamePolicyList,
+  normalizeBrowserWebAccessConfig,
+} from '../../shared/browserWebAccess/constants';
+import {
   AuthType,
   OpenClawApi as OpenClawApiConst,
   OpenClawProviderId,
@@ -233,11 +240,22 @@ const MANAGED_WEB_SEARCH_POLICY_PROMPT = [
   '',
   'When you need live web information:',
   '- If you already have a specific URL, use `web_fetch`.',
+  '- Do not use `web_fetch` to fetch Google/Bing search result pages as a search substitute; use `browser` or an available search skill instead.',
   '- If you need search discovery, dynamic pages, or interactive browsing, use the built-in `browser` tool.',
+  '- For login-required, JavaScript-heavy, or anti-automation pages, use `browser` instead of `web_fetch`.',
   '- Only use the LobsterAI `web-search` skill when local command execution is available. Native channel sessions may deny `exec`, so prefer `browser` or `web_fetch` there.',
   '- Exception: the `imap-smtp-email` skill must always use `exec` to run its scripts, even in native channel sessions. Do not skip it because of exec restrictions.',
   '',
   'Do not claim you searched the web unless you actually used `browser`, `web_fetch`, or the LobsterAI `web-search` skill.',
+].join('\n');
+
+const MANAGED_BROWSER_POLICY_PROMPT = [
+  '## Browser Policy',
+  '',
+  'LobsterAI does not support sandbox browser execution in this version.',
+  '- For every `browser` tool call, set `target="host"` explicitly.',
+  '- Do not use `target="sandbox"` or `target="node"` unless a future LobsterAI version explicitly enables it.',
+  '- If a browser call fails because the sandbox browser is unavailable, retry the same action with `target="host"`.',
 ].join('\n');
 
 const MANAGED_EXEC_SAFETY_PROMPT = [
@@ -461,6 +479,10 @@ type OpenClawProviderSelection = {
       maxTokens?: number;
     }>;
   };
+};
+
+type OpenClawAgentModelDefault = {
+  params?: Record<string, unknown>;
 };
 
 const OPENAI_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
@@ -849,6 +871,44 @@ const buildProviderModelCatalog = (
   ]),
 );
 
+const cloneAgentModelDefault = (
+  entry: OpenClawAgentModelDefault,
+): OpenClawAgentModelDefault => (
+  entry.params ? { params: { ...entry.params } } : {}
+);
+
+const buildCompleteAgentModelDefaults = (
+  providers: Record<string, OpenClawProviderSelection['providerConfig']>,
+  customDefaults: Record<string, OpenClawAgentModelDefault>,
+): Record<string, OpenClawAgentModelDefault> => {
+  const modelDefaults: Record<string, OpenClawAgentModelDefault> = {};
+
+  for (const [providerId, providerConfig] of Object.entries(providers)) {
+    const normalizedProviderId = providerId.trim();
+    if (!normalizedProviderId) continue;
+
+    for (const model of providerConfig.models) {
+      const modelId = model.id?.trim();
+      if (!modelId) continue;
+
+      const modelKey = `${normalizedProviderId}/${modelId}`;
+      modelDefaults[modelKey] = customDefaults[modelKey]
+        ? cloneAgentModelDefault(customDefaults[modelKey])
+        : {};
+    }
+  }
+
+  // Defensive fallback: customDefaults is normally derived while inserting into
+  // providers, but preserve any entry if a future provider path diverges.
+  for (const [modelKey, entry] of Object.entries(customDefaults)) {
+    if (!modelDefaults[modelKey]) {
+      modelDefaults[modelKey] = cloneAgentModelDefault(entry);
+    }
+  }
+
+  return modelDefaults;
+};
+
 const upsertProviderModel = (
   providerConfig: OpenClawProviderSelection['providerConfig'],
   model: OpenClawProviderSelection['providerConfig']['models'][number],
@@ -989,6 +1049,7 @@ const buildStreamingModeConfig = (
 type OpenClawConfigSyncDeps = {
   engineManager: OpenClawEngineManager;
   getCoworkConfig: () => CoworkConfig;
+  getBrowserWebAccessConfig?: () => Partial<BrowserWebAccessConfig> | null | undefined;
   isEnterprise: () => boolean;
   getOpenClawSessionPolicy?: () => { keepAlive: OpenClawSessionKeepAlive };
   getTelegramInstances?: () => TelegramInstanceConfig[];
@@ -1016,6 +1077,7 @@ type OpenClawConfigSyncDeps = {
 export class OpenClawConfigSync {
   private readonly engineManager: OpenClawEngineManager;
   private readonly getCoworkConfig: () => CoworkConfig;
+  private readonly getBrowserWebAccessConfig: () => Partial<BrowserWebAccessConfig> | null | undefined;
   private readonly isEnterprise: () => boolean;
   private readonly getOpenClawSessionPolicy?: () => { keepAlive: OpenClawSessionKeepAlive };
   private readonly getTelegramInstances: () => TelegramInstanceConfig[];
@@ -1044,6 +1106,7 @@ export class OpenClawConfigSync {
   constructor(deps: OpenClawConfigSyncDeps) {
     this.engineManager = deps.engineManager;
     this.getCoworkConfig = deps.getCoworkConfig;
+    this.getBrowserWebAccessConfig = deps.getBrowserWebAccessConfig ?? (() => null);
     this.isEnterprise = deps.isEnterprise;
     this.getOpenClawSessionPolicy = deps.getOpenClawSessionPolicy;
     this.getTelegramInstances = deps.getTelegramInstances ?? (() => []);
@@ -1104,9 +1167,62 @@ export class OpenClawConfigSync {
     return buildOpenClawSessionConfig(policy);
   }
 
+  private buildBrowserConfig(browserWebAccess: BrowserWebAccessConfig): Record<string, unknown> {
+    const allowedHostnames = normalizeBrowserHostnamePolicyList(browserWebAccess.allowedHostnames);
+    const blockedHostnames = normalizeBrowserHostnamePolicyList(browserWebAccess.blockedHostnames);
+    const ssrfPolicy = browserWebAccess.networkMode === BrowserNetworkMode.Strict
+      ? {
+          dangerouslyAllowPrivateNetwork: false,
+          ...(allowedHostnames.length > 0
+            ? { allowedHostnames, hostnameAllowlist: allowedHostnames }
+            : {}),
+          ...(blockedHostnames.length > 0 ? { blockedHostnames } : {}),
+        }
+      : {
+          dangerouslyAllowPrivateNetwork: true,
+          ...(blockedHostnames.length > 0 ? { blockedHostnames } : {}),
+        };
+
+    return {
+      enabled: true,
+      defaultProfile: BrowserRuntimeProfile.Managed,
+      evaluateEnabled: browserWebAccess.evaluateEnabled,
+      ...(browserWebAccess.headless === true ? { headless: true } : {}),
+      ssrfPolicy,
+    };
+  }
+
+  private buildWebToolsConfig(browserWebAccess: BrowserWebAccessConfig): Record<string, unknown> {
+    const fetch = browserWebAccess.webFetch;
+    const fetchConfig = {
+      enabled: fetch.enabled,
+      readability: fetch.readability,
+      ...(fetch.timeoutSeconds ? { timeoutSeconds: fetch.timeoutSeconds } : {}),
+      ...(fetch.maxRedirects ? { maxRedirects: fetch.maxRedirects } : {}),
+      ...(fetch.maxChars ? { maxChars: fetch.maxChars } : {}),
+      ...(fetch.userAgent ? { userAgent: fetch.userAgent } : {}),
+      ...(fetch.allowRfc2544BenchmarkRange === true
+        ? { ssrfPolicy: { allowRfc2544BenchmarkRange: true } }
+        : {}),
+    };
+
+    return {
+      deny: [...MANAGED_TOOL_DENY,
+        ...(isSubscribed ? ['image_generate', 'video_generate'] : []),],
+      
+      web: {
+        search: {
+          enabled: false,
+        },
+        fetch: fetchConfig,
+      },
+    };
+  }
+
   sync(reason: string): OpenClawConfigSyncResult {
     const configPath = this.engineManager.getConfigPath();
     const coworkConfig = this.getCoworkConfig();
+    const browserWebAccess = normalizeBrowserWebAccessConfig(this.getBrowserWebAccessConfig());
     const apiResolution = resolveRawApiConfig();
 
     if (!apiResolution.config) {
@@ -1134,6 +1250,7 @@ export class OpenClawConfigSync {
     }
 
     let allProvidersMap: Record<string, OpenClawProviderSelection['providerConfig']> = {};
+    const perModelCustomDefaults: Record<string, OpenClawAgentModelDefault> = {};
     let primaryModel = '';
     let providerSelection: OpenClawProviderSelection | null = null;
 
@@ -1185,6 +1302,13 @@ export class OpenClawConfigSync {
           if (!alreadyHas && sel.providerConfig.models.length > 0) {
             existing.models.push(...sel.providerConfig.models);
           }
+          // Collect per-model custom params for agents.defaults.models.
+          // Wrap in extra_body so OpenClaw's streamWithPayloadPatch merges them
+          // directly into the outgoing API request body, bypassing the whitelist.
+          if (m.customParams && Object.keys(m.customParams).length > 0) {
+            const modelKey = `${sel.providerId}/${sel.sessionModelId}`;
+            perModelCustomDefaults[modelKey] = { params: { extra_body: { ...m.customParams } } };
+          }
         }
       }
 
@@ -1234,6 +1358,7 @@ export class OpenClawConfigSync {
                 providerName: ProviderName.LobsteraiServer,
                 supportsImage: sm.supportsImage,
                 modelName: sm.modelId,
+                contextWindow: sm.contextWindow,
               });
               upsertProviderModel(lobsteraiProviderConfig, serverSel.providerConfig.models[0]);
             }
@@ -1247,6 +1372,9 @@ export class OpenClawConfigSync {
       this.isEnterprise(),
     );
     const availableProviders = buildProviderModelCatalog(allProvidersMap);
+    const agentModelDefaults = Object.keys(perModelCustomDefaults).length > 0
+      ? buildCompleteAgentModelDefaults(allProvidersMap, perModelCustomDefaults)
+      : {};
     console.log(
       `[OpenClawConfigSync] sandbox mode: ${sandboxMode} (executionMode: ${coworkConfig.executionMode || 'local'}, enterprise: ${this.isEnterprise()})`,
     );
@@ -1397,6 +1525,9 @@ export class OpenClawConfigSync {
             lightContext: true,
             isolatedSession: true,
           },
+          ...(Object.keys(agentModelDefaults).length > 0
+            ? { models: agentModelDefaults }
+            : {}),
         },
         ...this.buildAgentsList(primaryModel, this.engineManager.getStateDir(), availableProviders, agents),
       },
@@ -1405,20 +1536,8 @@ export class OpenClawConfigSync {
       commands: {
         ownerAllowFrom: MANAGED_OWNER_ALLOW_FROM,
       },
-      tools: {
-        deny: [
-          ...MANAGED_TOOL_DENY,
-          ...(isSubscribed ? ['image_generate', 'video_generate'] : []),
-        ],
-        web: {
-          search: {
-            enabled: false,
-          },
-        },
-      },
-      browser: {
-        enabled: true,
-      },
+      tools: this.buildWebToolsConfig(browserWebAccess),
+      browser: this.buildBrowserConfig(browserWebAccess),
       skills: {
         entries: {
           ...this.buildSkillEntries(),
@@ -1595,8 +1714,6 @@ export class OpenClawConfigSync {
             dreaming: {
               enabled: true,
               frequency: coworkConfig.dreamingFrequency || '0 3 * * *',
-              ...(coworkConfig.dreamingTimezone ? { timezone: coworkConfig.dreamingTimezone } : {}),
-              ...(coworkConfig.dreamingModel ? { model: coworkConfig.dreamingModel } : {}),
             },
           },
         };
@@ -2610,6 +2727,7 @@ export class OpenClawConfigSync {
       // in openclaw.json, so we no longer embed the skills routing prompt here.
 
       sections.push(MANAGED_WEB_SEARCH_POLICY_PROMPT);
+      sections.push(MANAGED_BROWSER_POLICY_PROMPT);
       sections.push(MANAGED_EXEC_SAFETY_PROMPT);
       sections.push(MANAGED_MEMORY_POLICY_PROMPT);
       sections.push(buildManagedSkillCreationPrompt(resolveSkillCreationPath()));

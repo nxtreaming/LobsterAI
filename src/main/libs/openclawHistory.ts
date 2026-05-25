@@ -1,3 +1,4 @@
+import { isInternalCompactionSystemText } from '../../common/coworkSystemMessages';
 import {
   parseScheduledReminderPrompt,
   parseSimpleScheduledReminderText,
@@ -53,6 +54,8 @@ const collectTextChunks = (value: unknown): string[] => {
       chunks.push(text);
     }
   }
+  // Skip thinking blocks from regular text extraction (handled separately)
+  // if (value.type === 'thinking') → see collectThinkingChunks()
 
   if (value.content !== undefined) {
     chunks.push(...collectTextChunks(value.content));
@@ -119,6 +122,43 @@ export const extractGatewayMessageText = (message: unknown): string => {
   }
   if (typeof message.text === 'string') {
     return message.text;
+  }
+  return '';
+};
+
+const collectThinkingChunks = (value: unknown): string[] => {
+  if (typeof value === 'string') return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectThinkingChunks(item));
+  }
+  if (!isRecord(value)) return [];
+
+  const chunks: string[] = [];
+  if (value.type === 'thinking' && typeof value.thinking === 'string') {
+    const thinking = value.thinking.trim();
+    if (thinking) {
+      chunks.push(thinking);
+    }
+  }
+  if (value.content !== undefined) {
+    chunks.push(...collectThinkingChunks(value.content));
+  }
+  if (value.parts !== undefined) {
+    chunks.push(...collectThinkingChunks(value.parts));
+  }
+  return chunks;
+};
+
+export const extractGatewayMessageThinking = (message: unknown): string => {
+  if (!isRecord(message)) return '';
+  const content = message.content;
+  if (Array.isArray(content)) {
+    const chunks = collectThinkingChunks(content);
+    return chunks.join('\n\n').trim();
+  }
+  if (isRecord(content)) {
+    const chunks = collectThinkingChunks(content);
+    return chunks.join('\n\n').trim();
   }
   return '';
 };
@@ -220,6 +260,9 @@ export const extractGatewayHistoryEntry = (message: unknown): GatewayHistoryEntr
     }
   }
   if (shouldSuppressHeartbeatText(role, text)) {
+    return null;
+  }
+  if (role === 'system' && isInternalCompactionSystemText(text)) {
     return null;
   }
 

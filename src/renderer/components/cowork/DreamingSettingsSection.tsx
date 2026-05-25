@@ -7,12 +7,8 @@ import type { DreamDiaryData, DreamingEntry, DreamingPhaseInfo, DreamingStatusDa
 interface DreamingSettingsSectionProps {
   dreamingEnabled: boolean;
   dreamingFrequency: string;
-  dreamingModel: string;
-  dreamingTimezone: string;
   onDreamingEnabledChange: (value: boolean) => void;
   onDreamingFrequencyChange: (value: string) => void;
-  onDreamingModelChange: (value: string) => void;
-  onDreamingTimezoneChange: (value: string) => void;
 }
 
 const FREQUENCY_PRESETS = [
@@ -524,24 +520,14 @@ function AdvancedMemorySignals({ status }: { status: DreamingStatusData }) {
 
 function AdvancedSettingsPanel({
   dreamingFrequency,
-  dreamingModel,
-  dreamingTimezone,
   customMode,
-  localTimezone,
   onSelectFrequency,
   onDreamingFrequencyChange,
-  onDreamingModelChange,
-  onDreamingTimezoneChange,
 }: {
   dreamingFrequency: string;
-  dreamingModel: string;
-  dreamingTimezone: string;
   customMode: boolean;
-  localTimezone: string;
   onSelectFrequency: (value: string) => void;
   onDreamingFrequencyChange: (value: string) => void;
-  onDreamingModelChange: (value: string) => void;
-  onDreamingTimezoneChange: (value: string) => void;
 }) {
   return (
     <div className="rounded-xl border border-border bg-surface px-4 py-4">
@@ -550,7 +536,7 @@ function AdvancedSettingsPanel({
         <p className="mt-1 text-xs text-secondary">{i18nService.t('coworkMemoryDreamingEnabledHint')}</p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="space-y-4">
         <div>
           <label className="mb-1.5 block text-xs font-medium text-foreground">
             {i18nService.t('coworkMemoryDreamingFrequency')}
@@ -574,22 +560,6 @@ function AdvancedSettingsPanel({
           </div>
         </div>
 
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-foreground">
-            {i18nService.t('coworkMemoryDreamingTimezone')}
-          </label>
-          <input
-            type="text"
-            value={dreamingTimezone}
-            onChange={(e) => onDreamingTimezoneChange(e.target.value)}
-            placeholder={localTimezone}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-secondary/50 focus:border-primary"
-          />
-          <div className="mt-1.5 text-xs text-secondary">
-            {i18nService.t('coworkMemoryDreamingTimezoneHint')}
-          </div>
-        </div>
-
         {customMode && (
           <div>
             <label className="mb-1.5 block text-xs font-medium text-foreground">
@@ -604,22 +574,6 @@ function AdvancedSettingsPanel({
             />
           </div>
         )}
-
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-foreground">
-            {i18nService.t('coworkMemoryDreamingModel')}
-          </label>
-          <input
-            type="text"
-            value={dreamingModel}
-            onChange={(e) => onDreamingModelChange(e.target.value)}
-            placeholder="claude-sonnet-4-20250514"
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-secondary/50 focus:border-primary"
-          />
-          <div className="mt-1.5 text-xs text-secondary">
-            {i18nService.t('coworkMemoryDreamingModelHint')}
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -630,12 +584,8 @@ function AdvancedSettingsPanel({
 const DreamingSettingsSection: React.FC<DreamingSettingsSectionProps> = ({
   dreamingEnabled,
   dreamingFrequency,
-  dreamingModel,
-  dreamingTimezone,
   onDreamingEnabledChange,
   onDreamingFrequencyChange,
-  onDreamingModelChange,
-  onDreamingTimezoneChange,
 }) => {
   const [contentTab, setContentTab] = useState<DreamingContentTab>('scene');
 
@@ -662,7 +612,7 @@ const DreamingSettingsSection: React.FC<DreamingSettingsSectionProps> = ({
 
   const fallbackDreamingStatus = useMemo<DreamingStatusData>(() => ({
     enabled: dreamingEnabled,
-    timezone: dreamingTimezone || localTimezone,
+    timezone: localTimezone,
     shortTermCount: 0,
     groundedSignalCount: 0,
     totalSignalCount: 0,
@@ -675,7 +625,7 @@ const DreamingSettingsSection: React.FC<DreamingSettingsSectionProps> = ({
       deep: { enabled: dreamingEnabled, cron: dreamingFrequency },
       rem: { enabled: dreamingEnabled, cron: dreamingFrequency },
     },
-  }), [dreamingEnabled, dreamingFrequency, dreamingTimezone, localTimezone]);
+  }), [dreamingEnabled, dreamingFrequency, localTimezone]);
 
   const visualStatus = useMemo<DreamingStatusData>(() => {
     const base = dreamingStatus ?? fallbackDreamingStatus;
@@ -817,14 +767,9 @@ const DreamingSettingsSection: React.FC<DreamingSettingsSectionProps> = ({
           <div className="space-y-6">
             <AdvancedSettingsPanel
               dreamingFrequency={dreamingFrequency}
-              dreamingModel={dreamingModel}
-              dreamingTimezone={dreamingTimezone}
               customMode={customMode}
-              localTimezone={localTimezone}
               onSelectFrequency={handleSelectChange}
               onDreamingFrequencyChange={onDreamingFrequencyChange}
-              onDreamingModelChange={onDreamingModelChange}
-              onDreamingTimezoneChange={onDreamingTimezoneChange}
             />
             <AdvancedMemorySignals status={visualStatus} />
           </div>

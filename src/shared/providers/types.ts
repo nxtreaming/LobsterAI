@@ -10,6 +10,7 @@ export interface ProviderConfig {
     name: string;
     supportsImage?: boolean;
     contextWindow?: number;
+    customParams?: Record<string, unknown>;
   }>;
   displayName?: string;
   codingPlanEnabled?: boolean;

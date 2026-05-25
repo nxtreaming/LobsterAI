@@ -1,7 +1,30 @@
-export type ArtifactType = 'html' | 'svg' | 'image' | 'video' | 'mermaid' | 'code' | 'markdown' | 'text' | 'document';
-export type ArtifactSource = 'inline' | 'tool' | 'file';
+export const ArtifactTypeValue = {
+  Html: 'html',
+  Svg: 'svg',
+  Image: 'image',
+  Video: 'video',
+  Mermaid: 'mermaid',
+  Code: 'code',
+  Markdown: 'markdown',
+  Text: 'text',
+  Document: 'document',
+  LocalService: 'local-service',
+} as const;
 
-export const PREVIEWABLE_ARTIFACT_TYPES = new Set<ArtifactType>(['html', 'svg', 'mermaid', 'image', 'video', 'markdown', 'text', 'document']);
+export type ArtifactSource = 'inline' | 'tool' | 'file';
+export type ArtifactType = typeof ArtifactTypeValue[keyof typeof ArtifactTypeValue];
+
+export const PREVIEWABLE_ARTIFACT_TYPES = new Set<ArtifactType>([
+  ArtifactTypeValue.Html,
+  ArtifactTypeValue.Svg,
+  ArtifactTypeValue.Mermaid,
+  ArtifactTypeValue.Image,
+  ArtifactTypeValue.Video,
+  ArtifactTypeValue.Markdown,
+  ArtifactTypeValue.Text,
+  ArtifactTypeValue.Document,
+  ArtifactTypeValue.LocalService,
+]);
 
 export interface Artifact {
   id: string;
@@ -13,6 +36,8 @@ export interface Artifact {
   language?: string;
   fileName?: string;
   filePath?: string;
+  url?: string;
+  contentVersion?: number;
   remoteUrl?: string;
   source?: ArtifactSource;
   createdAt: number;

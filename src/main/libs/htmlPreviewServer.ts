@@ -343,13 +343,19 @@ export async function stopHtmlPreviewServer(): Promise<void> {
 }
 
 export async function createPreviewSession(filePath: string): Promise<{ sessionId: string; url: string }> {
+  const resolvedFilePath = path.resolve(filePath);
+  const stat = await fs.promises.stat(resolvedFilePath);
+  if (!stat.isFile()) {
+    throw new Error('Preview target is not a file');
+  }
+
   const port = await startHtmlPreviewServer();
   const sessionId = crypto.randomBytes(16).toString('hex');
   const token = crypto.randomBytes(24).toString('hex');
-  const rootDir = path.dirname(path.resolve(filePath)) + path.sep;
-  const fileName = path.basename(filePath);
+  const rootDir = path.dirname(resolvedFilePath) + path.sep;
+  const fileName = path.basename(resolvedFilePath);
 
-  sessions.set(sessionId, { rootDir, token, filePath: path.resolve(filePath), kind: 'html' });
+  sessions.set(sessionId, { rootDir, token, filePath: resolvedFilePath, kind: 'html' });
 
   const url = `http://127.0.0.1:${port}/${sessionId}/${encodeURIComponent(fileName)}?token=${token}`;
   return { sessionId, url };

@@ -27,7 +27,7 @@ export interface PermissionRequest {
 }
 
 export interface CoworkRuntimeEvents {
-  message: (sessionId: string, message: CoworkMessage) => void;
+  message: (sessionId: string, message: CoworkMessage, beforeMessageId?: string) => void;
   messageUpdate: (sessionId: string, messageId: string, content: string, metadata?: Record<string, unknown>) => void;
   sessionStatus: (sessionId: string, status: CoworkSessionStatus) => void;
   contextUsageUpdate: (sessionId: string, usage: CoworkContextUsage) => void;

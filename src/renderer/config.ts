@@ -1,5 +1,10 @@
 import { type ProviderConfig,ProviderRegistry } from '@shared/providers';
 
+import {
+  type BrowserWebAccessConfig,
+  defaultBrowserWebAccessConfig,
+} from '../shared/browserWebAccess/constants';
+
 // 配置类型定义
 export interface AppConfig {
   // API 配置
@@ -26,6 +31,8 @@ export interface AppConfig {
   useSystemProxy: boolean;
   // 是否启用 SQLite 自动备份与恢复
   sqliteAutoBackupEnabled?: boolean;
+  // 浏览器与网页访问配置
+  browserWebAccess: BrowserWebAccessConfig;
   // 语言初始化标记 (用于判断是否是首次启动)
   language_initialized?: boolean;
   // 应用配置
@@ -80,6 +87,7 @@ export const defaultConfig: AppConfig = {
   language: 'zh',
   useSystemProxy: false,
   sqliteAutoBackupEnabled: false,
+  browserWebAccess: defaultBrowserWebAccessConfig,
   app: {
     port: 3000,
     isDevelopment: process.env.NODE_ENV === 'development',

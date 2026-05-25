@@ -32,7 +32,7 @@ export interface DingTalkGatewayStatus {
 
 // ==================== DingTalk Multi-Instance Types ====================
 
-export const MAX_DINGTALK_INSTANCES = 5;
+export const MAX_DINGTALK_INSTANCES = 20;
 
 export interface DingTalkInstanceConfig extends DingTalkOpenClawConfig {
   instanceId: string;
@@ -106,7 +106,7 @@ export interface FeishuGatewayStatus {
 
 // ==================== Feishu Multi-Instance Types ====================
 
-export const MAX_FEISHU_INSTANCES = 5;
+export const MAX_FEISHU_INSTANCES = 20;
 
 export interface FeishuInstanceConfig extends FeishuOpenClawConfig {
   instanceId: string;
@@ -164,7 +164,7 @@ export interface TelegramGatewayStatus {
 
 // ==================== Telegram Multi-Instance Types ====================
 
-export const MAX_TELEGRAM_INSTANCES = 5;
+export const MAX_TELEGRAM_INSTANCES = 20;
 
 export interface TelegramInstanceConfig extends TelegramOpenClawConfig {
   instanceId: string;
@@ -217,7 +217,7 @@ export interface DiscordGatewayStatus {
   lastOutboundAt: number | null;
 }
 
-export const MAX_DISCORD_INSTANCES = 5;
+export const MAX_DISCORD_INSTANCES = 20;
 
 export interface DiscordInstanceConfig extends DiscordOpenClawConfig {
   instanceId: string;
@@ -413,7 +413,7 @@ export interface WecomGatewayStatus {
 
 // ==================== WeCom Multi-Instance Types ====================
 
-export const MAX_WECOM_INSTANCES = 5;
+export const MAX_WECOM_INSTANCES = 20;
 
 export interface WecomInstanceConfig extends WecomOpenClawConfig {
   instanceId: string;
@@ -462,7 +462,7 @@ export interface PopoGatewayStatus {
   lastOutboundAt: number | null;
 }
 
-export const MAX_POPO_INSTANCES = 5;
+export const MAX_POPO_INSTANCES = 20;
 
 export interface PopoInstanceConfig extends PopoOpenClawConfig {
   instanceId: string;
@@ -574,7 +574,7 @@ export const DEFAULT_EMAIL_MULTI_INSTANCE_CONFIG: EmailMultiInstanceConfig = {
   instances: [],
 };
 
-export const MAX_EMAIL_INSTANCES = 5;
+export const MAX_EMAIL_INSTANCES = 20;
 
 // ==================== Common IM Types ====================
 
@@ -683,6 +683,7 @@ export interface IMStatusResult {
 
 export interface IMGatewayResult {
   success: boolean;
+  skipped?: boolean;
   error?: string;
 }
 

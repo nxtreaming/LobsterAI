@@ -4,7 +4,7 @@
  */
 
 import { EyeIcon, EyeSlashIcon, XCircleIcon as XCircleIconSolid } from '@heroicons/react/20/solid';
-import { CheckCircleIcon, ExclamationTriangleIcon,SignalIcon, XCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, CheckCircleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, EllipsisVerticalIcon, ExclamationTriangleIcon, PlusIcon, SignalIcon, XCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
 import type { Platform } from '@shared/platform';
 import { PlatformRegistry } from '@shared/platform';
@@ -21,6 +21,8 @@ import type { EmailInstanceConfig, IMConnectivityCheck, IMConnectivityTestResult
 import { MAX_DINGTALK_INSTANCES, MAX_DISCORD_INSTANCES, MAX_EMAIL_INSTANCES, MAX_FEISHU_INSTANCES, MAX_NIM_INSTANCES, MAX_POPO_INSTANCES, MAX_QQ_INSTANCES, MAX_TELEGRAM_INSTANCES, MAX_WECOM_INSTANCES } from '../../types/im';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 import Modal from '../common/Modal';
+import ComposeIcon from '../icons/ComposeIcon';
+import EditIcon from '../icons/EditIcon';
 import TrashIcon from '../icons/TrashIcon';
 import DingTalkInstanceSettings from './DingTalkInstanceSettings';
 import DiscordInstanceSettings from './DiscordInstanceSettings';
@@ -73,11 +75,75 @@ const verdictColorClass: Record<IMConnectivityTestResult['verdict'], string> = {
   fail: 'bg-red-500/15 text-red-600 dark:text-red-400',
 };
 
+const IM_AUTH_RESTART_ON_SAVE_OPTIONS = {
+  markRestartOnSave: true,
+} as const;
+
 const checkLevelColorClass: Record<IMConnectivityCheck['level'], string> = {
   pass: 'text-green-600 dark:text-green-400',
   info: 'text-sky-600 dark:text-sky-400',
   warn: 'text-yellow-700 dark:text-yellow-300',
   fail: 'text-red-600 dark:text-red-400',
+};
+
+const MULTI_INSTANCE_PLATFORMS = new Set<Platform>([
+  'dingtalk',
+  'feishu',
+  'qq',
+  'email',
+  'nim',
+  'wecom',
+  'telegram',
+  'discord',
+  'popo',
+]);
+
+const WeixinRuntimeLastError = {
+  Disabled: 'disabled',
+} as const;
+
+const IMSaveReminderTarget = {
+  Platform: 'platform',
+} as const;
+
+const IMRuntimeDisplayState = {
+  Disabled: 'disabled',
+  PendingSave: 'pendingSave',
+  Connecting: 'connecting',
+  Starting: 'starting',
+  Connected: 'connected',
+  Failed: 'failed',
+} as const;
+type IMRuntimeDisplayState = typeof IMRuntimeDisplayState[keyof typeof IMRuntimeDisplayState];
+
+type IMInstanceConfigCard = {
+  instanceId: string;
+  instanceName: string;
+  enabled: boolean;
+  [key: string]: unknown;
+};
+
+type IMInstanceStatusCard = {
+  instanceId: string;
+  instanceName?: string;
+  connected?: boolean;
+  starting?: boolean;
+  lastError?: string | null;
+  error?: string | null;
+  botAccount?: string | null;
+  botOpenId?: string | null;
+  botUsername?: string | null;
+  botId?: string | null;
+  email?: string | null;
+};
+
+type IMInstanceTarget = {
+  platform: Platform;
+  instanceId: string;
+};
+
+type IMInstanceRenameTarget = IMInstanceTarget & {
+  value: string;
 };
 
 // Map of backend error messages to i18n keys
@@ -100,23 +166,14 @@ const IMSettings: React.FC = () => {
   const { config, status, isLoading } = useSelector((state: RootState) => state.im);
   const [activePlatform, setActivePlatform] = useState<Platform>('weixin');
   const [activeQQInstanceId, setActiveQQInstanceId] = useState<string | null>(null);
-  const [qqExpanded, setQqExpanded] = useState(false);
   const [activeFeishuInstanceId, setActiveFeishuInstanceId] = useState<string | null>(null);
-  const [feishuExpanded, setFeishuExpanded] = useState(false);
   const [activeDingTalkInstanceId, setActiveDingTalkInstanceId] = useState<string | null>(null);
-  const [dingtalkExpanded, setDingtalkExpanded] = useState(false);
-  const [emailExpanded, setEmailExpanded] = useState(false);
   const [activeEmailInstanceId, setActiveEmailInstanceId] = useState<string | null>(null);
   const [activeWecomInstanceId, setActiveWecomInstanceId] = useState<string | null>(null);
-  const [wecomExpanded, setWecomExpanded] = useState(false);
   const [activeNimInstanceId, setActiveNimInstanceId] = useState<string | null>(null);
-  const [nimExpanded, setNimExpanded] = useState(false);
   const [activeTelegramInstanceId, setActiveTelegramInstanceId] = useState<string | null>(null);
-  const [telegramExpanded, setTelegramExpanded] = useState(false);
   const [activeDiscordInstanceId, setActiveDiscordInstanceId] = useState<string | null>(null);
-  const [discordExpanded, setDiscordExpanded] = useState(false);
   const [activePopoInstanceId, setActivePopoInstanceId] = useState<string | null>(null);
-  const [popoExpanded, setPopoExpanded] = useState(false);
   const [testingPlatform, setTestingPlatform] = useState<Platform | null>(null);
   const [connectivityResults, setConnectivityResults] = useState<Partial<Record<Platform, IMConnectivityTestResult>>>({});
   const [connectivityModalPlatform, setConnectivityModalPlatform] = useState<Platform | null>(null);
@@ -129,6 +186,11 @@ const IMSettings: React.FC = () => {
   const [emailDrafts, setEmailDrafts] = useState<Record<string, { allowFrom?: string; a2aAgentDomains?: string }>>({});
   // Track visibility of password fields (eye toggle)
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
+  const [instanceMenuTarget, setInstanceMenuTarget] = useState<IMInstanceTarget | null>(null);
+  const [renamingInstance, setRenamingInstance] = useState<IMInstanceRenameTarget | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<IMInstanceTarget | null>(null);
+  const [saveReminderTargets, setSaveReminderTargets] = useState<Record<string, boolean>>({});
+  const [isDeletingInstance, setIsDeletingInstance] = useState(false);
   // WeCom quick setup state
   const [wecomQuickSetupStatus, setWecomQuickSetupStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
   const [wecomQuickSetupError, setWecomQuickSetupError] = useState<string>('');
@@ -137,7 +199,9 @@ const IMSettings: React.FC = () => {
   const [weixinQrUrl, setWeixinQrUrl] = useState<string>('');
   const [weixinQrError, setWeixinQrError] = useState<string>('');
   const [weixinAllowFromInput, setWeixinAllowFromInput] = useState<string>('');
+  const [isWeixinDmPolicyMenuOpen, setIsWeixinDmPolicyMenuOpen] = useState(false);
   const weixinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const weixinDmPolicyMenuRef = useRef<HTMLDivElement>(null);
   const [_localIp, setLocalIp] = useState<string>('');
   const isMountedRef = useRef(true);
 
@@ -157,6 +221,40 @@ const IMSettings: React.FC = () => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
+
+  useEffect(() => {
+    if (!instanceMenuTarget) return undefined;
+    const closeInstanceMenu = () => setInstanceMenuTarget(null);
+    document.addEventListener('pointerdown', closeInstanceMenu);
+    return () => document.removeEventListener('pointerdown', closeInstanceMenu);
+  }, [instanceMenuTarget]);
+
+  useEffect(() => {
+    if (!isWeixinDmPolicyMenuOpen) return undefined;
+
+    const closeWeixinDmPolicyMenu = (event: PointerEvent) => {
+      if (weixinDmPolicyMenuRef.current?.contains(event.target as Node)) return;
+      setIsWeixinDmPolicyMenuOpen(false);
+    };
+
+    const handleWeixinDmPolicyMenuKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsWeixinDmPolicyMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', closeWeixinDmPolicyMenu);
+    document.addEventListener('keydown', handleWeixinDmPolicyMenuKeydown);
+    return () => {
+      document.removeEventListener('pointerdown', closeWeixinDmPolicyMenu);
+      document.removeEventListener('keydown', handleWeixinDmPolicyMenuKeydown);
+    };
+  }, [isWeixinDmPolicyMenuOpen]);
+
+  useEffect(() => {
+    setInstanceMenuTarget(null);
+    setRenamingInstance(null);
+    setDeleteConfirmTarget(null);
+    setIsWeixinDmPolicyMenuOpen(false);
+  }, [activePlatform]);
 
   // Fetch local IP for POPO webhook placeholder
   useEffect(() => {
@@ -230,9 +328,8 @@ const IMSettings: React.FC = () => {
                 appId: pollResult.appId,
                 appSecret: pollResult.appSecret,
                 enabled: true,
-              });
+              }, IM_AUTH_RESTART_ON_SAVE_OPTIONS);
               setActiveFeishuInstanceId(inst.instanceId);
-              setFeishuExpanded(true);
             }
             if (!isMountedRef.current) return;   // re-check after async updateConfig
             setFeishuQrStatus('success');
@@ -399,12 +496,24 @@ const IMSettings: React.FC = () => {
   const weixinOpenClawConfig = config.weixin;
   const weixinRuntimeAccountId = status.weixin?.accountId || '';
   const weixinAccountId = weixinOpenClawConfig.accountId || weixinRuntimeAccountId;
+  const weixinDmPolicyOptions: Array<{ value: WeixinOpenClawConfig['dmPolicy']; label: string }> = [
+    { value: 'open', label: i18nService.t('imDmPolicyOpen') },
+    { value: 'pairing', label: i18nService.t('imDmPolicyPairing') },
+    { value: 'allowlist', label: i18nService.t('imDmPolicyAllowlist') },
+    { value: 'disabled', label: i18nService.t('imDmPolicyDisabled') },
+  ];
+
+  const updateWeixinDmPolicy = (dmPolicy: WeixinOpenClawConfig['dmPolicy']) => {
+    setIsWeixinDmPolicyMenuOpen(false);
+    if (dmPolicy === weixinOpenClawConfig.dmPolicy) return;
+    void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, dmPolicy } });
+  };
 
   const persistConnectedWeixinConfig = async (accountId: string) => {
-    const nextConfig = { ...weixinOpenClawConfig, enabled: true, accountId };
     dispatch(setWeixinConfig({ enabled: true, accountId }));
+    setSaveReminderTarget('weixin', null, true);
     dispatch(clearError());
-    await imService.updateConfig({ weixin: nextConfig });
+    await imService.loadConfig();
     await imService.loadStatus();
   };
 
@@ -567,42 +676,63 @@ const IMSettings: React.FC = () => {
     return result;
   };
 
-  // Toggle gateway on/off and persist enabled state
+  const getSaveReminderTargetKey = (platform: Platform, instanceId?: string | null): string => (
+    `${platform}:${instanceId ?? IMSaveReminderTarget.Platform}`
+  );
+
+  const setSaveReminderTarget = (platform: Platform, instanceId: string | null, enabled: boolean) => {
+    const key = getSaveReminderTargetKey(platform, instanceId);
+    setSaveReminderTargets((current) => {
+      const next = { ...current };
+      if (enabled) {
+        next[key] = true;
+      } else {
+        delete next[key];
+      }
+      return next;
+    });
+  };
+
+  const hasSaveReminderTarget = (platform: Platform, instanceId?: string | null): boolean => (
+    saveReminderTargets[getSaveReminderTargetKey(platform, instanceId)] === true
+  );
+
+  // Toggle IM enabled state as pending settings config. Gateway runtime is
+  // applied by the global Save action.
   const toggleGateway = async (platform: Platform) => {
     // Re-entrancy guard: if a toggle is already in progress for this platform, bail out.
-    // This prevents rapid ON→OFF→ON clicks from causing concurrent native SDK init/uninit.
+    // This prevents rapid ON→OFF→ON clicks from racing local config writes.
     if (togglingPlatform === platform) return;
     setTogglingPlatform(platform);
 
     try {
-      // All OpenClaw platforms: im:config:set handler already calls
-      // syncOpenClawConfig({ restartGatewayIfRunning: true }), so no startGateway/stopGateway needed.
-      // Only updateConfig + loadStatus is required.
+      // Settings toggles are saved as pending config changes. The global Save
+      // button later asks main to diff IM config and restart the gateway once
+      // when the change affects channel runtime.
       // Pessimistic UI update: wait for IPC to complete before updating Redux state.
-      // This prevents UI/backend state divergence when rapidly toggling, since the
-      // backend debounces syncOpenClawConfig calls with a 600ms window.
+      // This prevents UI/backend state divergence when rapidly toggling.
       if (platform === 'telegram') {
-        // Telegram multi-instance: toggle is handled per-instance in TelegramInstanceSettings
+        // Telegram multi-instance: toggle is handled from the instance overview cards.
         return;
       }
 
       if (platform === 'dingtalk') {
-        // DingTalk multi-instance: toggle is handled per-instance in DingTalkInstanceSettings
+        // DingTalk multi-instance: toggle is handled from the instance overview cards.
         return;
       }
 
       if (platform === 'feishu') {
-        // Feishu multi-instance: toggle is handled per-instance in FeishuInstanceSettings
+        // Feishu multi-instance: toggle is handled from the instance overview cards.
         return;
       }
 
       if (platform === 'discord') {
-        // Discord multi-instance: toggle is handled per-instance in DiscordInstanceSettings
+        // Discord multi-instance: toggle is handled from the instance overview cards.
         return;
       }
 
       if (platform === 'qq' || platform === 'email' || platform === 'wecom' || platform === 'nim') {
-        // Multi-instance platforms toggle per instance in their detail panels
+        // Multi-instance platforms toggle per instance from their overview cards or account detail.
         return;
       }
 
@@ -611,6 +741,7 @@ const IMSettings: React.FC = () => {
         const success = await imService.updateConfig({ weixin: { ...weixinOpenClawConfig, enabled: newEnabled } });
         if (success) {
           dispatch(setWeixinConfig({ enabled: newEnabled }));
+          setSaveReminderTarget(platform, null, newEnabled);
           if (newEnabled) dispatch(clearError());
           await imService.loadStatus();
         }
@@ -618,7 +749,7 @@ const IMSettings: React.FC = () => {
       }
 
       if (platform === 'popo') {
-        // POPO multi-instance: toggle is handled per-instance in PopoInstanceSettings
+        // POPO multi-instance: toggle is handled from the instance overview cards.
         return;
       }
 
@@ -628,26 +759,13 @@ const IMSettings: React.FC = () => {
       // Map platform to its Redux action
       const setConfigAction = getSetConfigAction(platform);
 
-      // Update Redux state
-      dispatch(setConfigAction({ enabled: newEnabled }));
-
       // Persist the updated config (construct manually since Redux state hasn't re-rendered yet)
-      await imService.updateConfig({ [platform]: { ...config[platform], enabled: newEnabled } });
-
-      if (newEnabled) {
-        dispatch(clearError());
-        const success = await imService.startGateway(platform);
-        if (!success) {
-          // Rollback enabled state on failure
-          dispatch(setConfigAction({ enabled: false }));
-          await imService.updateConfig({ [platform]: { ...config[platform], enabled: false } });
-        } else {
-          await runConnectivityTest(platform, {
-            [platform]: { ...config[platform], enabled: true },
-          } as Partial<IMGatewayConfig>);
-        }
-      } else {
-        await imService.stopGateway(platform);
+      const success = await imService.updateConfig({ [platform]: { ...config[platform], enabled: newEnabled } });
+      if (success) {
+        dispatch(setConfigAction({ enabled: newEnabled }));
+        setSaveReminderTarget(platform, null, newEnabled);
+        if (newEnabled) dispatch(clearError());
+        await imService.loadStatus();
       }
     } finally {
       setTogglingPlatform(null);
@@ -662,7 +780,11 @@ const IMSettings: React.FC = () => {
   const neteaseBeeChanConnected = status['netease-bee']?.connected ?? false;
   const qqConnected = status.qq?.instances?.some(i => i.connected) ?? false;
   const wecomConnected = status.wecom?.instances?.some(i => i.connected) ?? false;
-  const weixinConnected = status.weixin?.connected ?? false;
+  const weixinConnected = Boolean(weixinOpenClawConfig.enabled && status.weixin?.connected);
+  const weixinLastError = status.weixin?.lastError ?? null;
+  const shouldShowWeixinError = Boolean(
+    weixinLastError && weixinLastError.trim().toLowerCase() !== WeixinRuntimeLastError.Disabled
+  );
   const popoConnected = status.popo?.instances?.some(i => i.connected) ?? false;
   const emailConnected = status.email.instances.some(i => i.connected);
 
@@ -764,6 +886,143 @@ const IMSettings: React.FC = () => {
     return false;
   };
 
+  const getPlatformDisplayState = (platform: Platform): IMRuntimeDisplayState => {
+    if (hasSaveReminderTarget(platform)) return IMRuntimeDisplayState.PendingSave;
+    if (!isPlatformEnabled(platform)) return IMRuntimeDisplayState.Disabled;
+    if (getPlatformConnected(platform)) return IMRuntimeDisplayState.Connected;
+    if (getPlatformStarting(platform)) return IMRuntimeDisplayState.Starting;
+    if (platform === 'weixin' && shouldShowWeixinError) return IMRuntimeDisplayState.Failed;
+    return IMRuntimeDisplayState.Connecting;
+  };
+
+  const getPlatformStatusLabel = (platform: Platform): string => {
+    const displayState = getPlatformDisplayState(platform);
+    if (displayState === IMRuntimeDisplayState.PendingSave) return i18nService.t('pendingSave');
+    if (displayState === IMRuntimeDisplayState.Connecting) return i18nService.t('connecting');
+    if (displayState === IMRuntimeDisplayState.Starting) return i18nService.t('starting');
+    if (displayState === IMRuntimeDisplayState.Connected) return i18nService.t('connected');
+    if (displayState === IMRuntimeDisplayState.Failed) return i18nService.t('connectionFailed');
+    return i18nService.t('disconnected');
+  };
+
+  const getPlatformStatusColorClass = (platform: Platform): string => {
+    const displayState = getPlatformDisplayState(platform);
+    if (displayState === IMRuntimeDisplayState.Connected) {
+      return 'bg-green-500/15 text-green-600 dark:text-green-400';
+    }
+    if (displayState === IMRuntimeDisplayState.Connecting || displayState === IMRuntimeDisplayState.Starting) {
+      return 'bg-sky-500/15 text-sky-600 dark:text-sky-400';
+    }
+    if (displayState === IMRuntimeDisplayState.PendingSave) {
+      return 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-300';
+    }
+    if (displayState === IMRuntimeDisplayState.Failed) {
+      return 'bg-red-500/15 text-red-600 dark:text-red-400';
+    }
+    return 'bg-gray-500/15 text-gray-500 dark:text-gray-400';
+  };
+
+  const getPlatformSwitchColorClass = (platform: Platform): string => {
+    const displayState = getPlatformDisplayState(platform);
+    if (displayState === IMRuntimeDisplayState.Connected) return 'bg-green-500';
+    if (displayState === IMRuntimeDisplayState.Connecting || displayState === IMRuntimeDisplayState.Starting) return 'bg-sky-500';
+    if (displayState === IMRuntimeDisplayState.Failed) return 'bg-red-500';
+    if (displayState === IMRuntimeDisplayState.PendingSave) return 'bg-yellow-500';
+    return 'bg-gray-300 dark:bg-gray-600';
+  };
+
+  const getPlatformStatusDotClass = (platform: Platform): string | null => {
+    const displayState = getPlatformDisplayState(platform);
+    if (displayState === IMRuntimeDisplayState.Connected) return 'bg-green-500';
+    if (displayState === IMRuntimeDisplayState.Connecting || displayState === IMRuntimeDisplayState.Starting) {
+      return 'animate-pulse bg-sky-500';
+    }
+    if (displayState === IMRuntimeDisplayState.PendingSave) return 'bg-yellow-500';
+    if (displayState === IMRuntimeDisplayState.Failed) return 'bg-red-500';
+    return null;
+  };
+
+  const renderSaveReminder = (platform: Platform) => (
+    <div className="rounded-lg bg-yellow-500/10 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-300">
+      {i18nService.t('imChannelEnabledPendingSave').replace('{platform}', i18nService.t(platform))}
+    </div>
+  );
+
+  const shouldShowInstanceSaveReminder = (
+    platform: Platform,
+    instance: IMInstanceConfigCard,
+    _instanceStatus?: IMInstanceStatusCard,
+  ): boolean => (
+    hasSaveReminderTarget(platform, instance.instanceId)
+  );
+
+  const renderInstanceSaveReminder = (
+    platform: Platform,
+    instance: IMInstanceConfigCard,
+    _instanceStatus?: IMInstanceStatusCard,
+  ) => (
+    shouldShowInstanceSaveReminder(platform, instance, _instanceStatus) ? renderSaveReminder(platform) : null
+  );
+
+  const renderPlatformRuntimeNotice = (platform: Platform) => {
+    const displayState = getPlatformDisplayState(platform);
+    if (displayState === IMRuntimeDisplayState.PendingSave) return renderSaveReminder(platform);
+
+    if (displayState === IMRuntimeDisplayState.Connecting || displayState === IMRuntimeDisplayState.Starting) {
+      return (
+        <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
+          <ArrowPathIcon className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+          <span>{i18nService.t('imChannelConnecting').replace('{platform}', i18nService.t(platform))}</span>
+        </div>
+      );
+    }
+
+    if (displayState === IMRuntimeDisplayState.Failed) {
+      return (
+        <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+          {i18nService.t('imChannelConnectionFailed').replace('{platform}', i18nService.t(platform))}
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  const shouldPollWeixinRuntimeStatus = Boolean(
+    configLoaded
+    && weixinOpenClawConfig.enabled
+    && !weixinConnected
+    && !hasSaveReminderTarget('weixin')
+  );
+
+  useEffect(() => {
+    if (!shouldPollWeixinRuntimeStatus) return undefined;
+
+    let stopped = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const schedulePoll = (delayMs: number) => {
+      timer = setTimeout(() => {
+        void pollStatus();
+      }, delayMs);
+    };
+
+    const pollStatus = async () => {
+      attempts += 1;
+      await imService.loadStatus();
+      if (stopped || attempts >= 18) return;
+      schedulePoll(attempts < 8 ? 2000 : 5000);
+    };
+
+    schedulePoll(1500);
+
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [shouldPollWeixinRuntimeStatus]);
+
   const handleConnectivityTest = async (platform: Platform) => {
     // Re-entrancy guard: if a test is already running, do nothing.
     if (testingPlatform) return;
@@ -785,6 +1044,7 @@ const IMSettings: React.FC = () => {
           if (authCheck && authCheck.level === 'pass') {
             dispatch(setTelegramInstanceConfig({ instanceId: activeTelegramInstanceId, config: { enabled: true } }));
             await imService.updateTelegramInstanceConfig(activeTelegramInstanceId, { enabled: true });
+            setSaveReminderTarget('telegram', activeTelegramInstanceId, true);
           }
         }
       }
@@ -805,6 +1065,7 @@ const IMSettings: React.FC = () => {
           if (authCheck && authCheck.level === 'pass') {
             dispatch(setDingTalkInstanceConfig({ instanceId: activeDingTalkInstanceId, config: { enabled: true } }));
             await imService.updateDingTalkInstanceConfig(activeDingTalkInstanceId, { enabled: true });
+            setSaveReminderTarget('dingtalk', activeDingTalkInstanceId, true);
           }
         }
       }
@@ -825,6 +1086,7 @@ const IMSettings: React.FC = () => {
           if (authCheck && authCheck.level === 'pass') {
             dispatch(setQQInstanceConfig({ instanceId: activeQQInstanceId, config: { enabled: true } }));
             await imService.updateQQInstanceConfig(activeQQInstanceId, { enabled: true });
+            setSaveReminderTarget('qq', activeQQInstanceId, true);
           }
         }
       }
@@ -859,6 +1121,7 @@ const IMSettings: React.FC = () => {
           if (authCheck && authCheck.level === 'pass') {
             dispatch(setWecomInstanceConfig({ instanceId: activeWecomInstanceId, config: { enabled: true } }));
             await imService.updateWecomInstanceConfig(activeWecomInstanceId, { enabled: true });
+            setSaveReminderTarget('wecom', activeWecomInstanceId, true);
           }
         }
       }
@@ -894,6 +1157,7 @@ const IMSettings: React.FC = () => {
           if (authCheck && authCheck.level === 'pass') {
             dispatch(setFeishuInstanceConfig({ instanceId: activeFeishuInstanceId, config: { enabled: true } }));
             await imService.updateFeishuInstanceConfig(activeFeishuInstanceId, { enabled: true });
+            setSaveReminderTarget('feishu', activeFeishuInstanceId, true);
           }
         }
       }
@@ -914,6 +1178,7 @@ const IMSettings: React.FC = () => {
           if (authCheck && authCheck.level === 'pass') {
             dispatch(setNimInstanceConfig({ instanceId: activeNimInstanceId, config: { enabled: true } }));
             await imService.updateNimInstanceConfig(activeNimInstanceId, { enabled: true });
+            setSaveReminderTarget('nim', activeNimInstanceId, true);
           }
         }
       }
@@ -933,6 +1198,7 @@ const IMSettings: React.FC = () => {
           if (authCheck && authCheck.level === 'pass') {
             dispatch(setDiscordInstanceConfig({ instanceId: activeDiscordInstanceId, config: { enabled: true } }));
             await imService.updateDiscordInstanceConfig(activeDiscordInstanceId, { enabled: true });
+            setSaveReminderTarget('discord', activeDiscordInstanceId, true);
           }
         }
       }
@@ -1007,7 +1273,7 @@ const IMSettings: React.FC = () => {
       type="button"
       onClick={() => handleConnectivityTest(platform)}
       disabled={isLoading || testingPlatform === platform}
-      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-xl border border-border text-foreground hover:bg-surface-raised disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98]"
+      className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
     >
       <SignalIcon className="h-3.5 w-3.5 mr-1.5" />
       {testingPlatform === platform
@@ -1082,822 +1348,675 @@ const IMSettings: React.FC = () => {
     </div>
   );
 
-  return (
-    <div className="flex h-full gap-4">
-      {/* Platform List - Left Side */}
-      <div className="w-48 flex-shrink-0 border-r border-border pr-3 space-y-2 overflow-y-auto">
-        {platforms.map((platform) => {
-                const logo = PlatformRegistry.logo(platform);
-           const isEnabled = isPlatformEnabled(platform);
-          const isConnected = getPlatformConnected(platform) || getPlatformStarting(platform);
-          const canToggle = isEnabled || canStart(platform);
+  const isMultiInstancePlatform = (platform: Platform) => MULTI_INSTANCE_PLATFORMS.has(platform);
 
-          if (platform === 'dingtalk') {
-            return (
-              <div key="dingtalk">
-                {/* DingTalk Platform Header - clickable to expand/collapse */}
-                <div
-                  onClick={() => { setActivePlatform('dingtalk'); setActiveDingTalkInstanceId(null); setDingtalkExpanded(!dingtalkExpanded); }}
-                  className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
-                    activePlatform === 'dingtalk'
-                      ? 'bg-primary-muted border border-primary shadow-subtle'
-                      : 'bg-surface hover:bg-surface-raised border border-transparent'
-                  }`}
-                >
-                  <div className="flex flex-1 items-center">
-                    <div className="mr-2 flex h-7 w-7 items-center justify-center">
-                      <img src={PlatformRegistry.logo('dingtalk')} alt="DingTalk" className="w-6 h-6 object-contain rounded-md" />
-                    </div>
-                    <span className={`text-sm font-medium truncate ${activePlatform === 'dingtalk' ? 'text-primary' : 'text-foreground'}`}>
-                      {i18nService.t('dingtalk')}
-                    </span>
-                  </div>
-                  <span className="text-xs opacity-50">{dingtalkExpanded ? '\u25BC' : '\u25B6'}</span>
-                </div>
-                {/* DingTalk Instance Sub-items */}
-                {dingtalkExpanded && (
-                  <div className="ml-5 mt-1 space-y-1">
-                    {config.dingtalk.instances.map((inst) => {
-                      const instStatus = status.dingtalk?.instances?.find(s => s.instanceId === inst.instanceId);
-                      const isSelected = activePlatform === 'dingtalk' && activeDingTalkInstanceId === inst.instanceId;
-                      const dotColor = !inst.enabled ? 'bg-gray-400' : (instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500');
-                      return (
-                        <div
-                          key={inst.instanceId}
-                          onClick={() => { setActivePlatform('dingtalk'); setActiveDingTalkInstanceId(inst.instanceId); }}
-                          className={`flex items-center p-1.5 pl-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                            isSelected
-                              ? 'bg-primary/10 dark:bg-primary/20'
-                              : 'hover:bg-surface-raised'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full ${dotColor} mr-2 flex-shrink-0`} />
-                          <span className={`truncate flex-1 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                            {inst.instanceName}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
+  const setActiveInstanceForPlatform = (platform: Platform, instanceId: string | null) => {
+    if (platform === 'dingtalk') setActiveDingTalkInstanceId(instanceId);
+    if (platform === 'feishu') setActiveFeishuInstanceId(instanceId);
+    if (platform === 'qq') setActiveQQInstanceId(instanceId);
+    if (platform === 'email') setActiveEmailInstanceId(instanceId);
+    if (platform === 'nim') setActiveNimInstanceId(instanceId);
+    if (platform === 'wecom') setActiveWecomInstanceId(instanceId);
+    if (platform === 'telegram') setActiveTelegramInstanceId(instanceId);
+    if (platform === 'discord') setActiveDiscordInstanceId(instanceId);
+    if (platform === 'popo') setActivePopoInstanceId(instanceId);
+  };
 
-          if (platform === 'feishu') {
-            return (
-              <div key="feishu">
-                {/* Feishu Platform Header - clickable to expand/collapse */}
-                <div
-                  onClick={() => { setActivePlatform('feishu'); setActiveFeishuInstanceId(null); setFeishuExpanded(!feishuExpanded); }}
-                  className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
-                    activePlatform === 'feishu'
-                      ? 'bg-primary-muted border border-primary shadow-subtle'
-                      : 'bg-surface hover:bg-surface-raised border border-transparent'
-                  }`}
-                >
-                  <div className="flex flex-1 items-center">
-                    <div className="mr-2 flex h-7 w-7 items-center justify-center">
-                      <img src={PlatformRegistry.logo('feishu')} alt="Feishu" className="w-6 h-6 object-contain rounded-md" />
-                    </div>
-                    <span className={`text-sm font-medium truncate ${activePlatform === 'feishu' ? 'text-primary' : 'text-foreground'}`}>
-                      {i18nService.t('feishu')}
-                    </span>
-                  </div>
-                  <span className="text-xs opacity-50">{feishuExpanded ? '\u25BC' : '\u25B6'}</span>
-                </div>
-                {/* Feishu Instance Sub-items */}
-                {feishuExpanded && (
-                  <div className="ml-5 mt-1 space-y-1">
-                    {config.feishu.instances.map((inst) => {
-                      const instStatus = status.feishu?.instances?.find(s => s.instanceId === inst.instanceId);
-                      const isSelected = activePlatform === 'feishu' && activeFeishuInstanceId === inst.instanceId;
-                      const dotColor = !inst.enabled ? 'bg-gray-400' : (instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500');
-                      return (
-                        <div
-                          key={inst.instanceId}
-                          onClick={() => { setActivePlatform('feishu'); setActiveFeishuInstanceId(inst.instanceId); }}
-                          className={`flex items-center p-1.5 pl-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                            isSelected
-                              ? 'bg-primary/10 dark:bg-primary/20'
-                              : 'hover:bg-surface-raised'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full ${dotColor} mr-2 flex-shrink-0`} />
-                          <span className={`truncate flex-1 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                            {inst.instanceName}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
+  const getInstancesForPlatform = (platform: Platform): IMInstanceConfigCard[] => {
+    if (platform === 'dingtalk') return config.dingtalk.instances as unknown as IMInstanceConfigCard[];
+    if (platform === 'feishu') return config.feishu.instances as unknown as IMInstanceConfigCard[];
+    if (platform === 'qq') return config.qq.instances as unknown as IMInstanceConfigCard[];
+    if (platform === 'email') return config.email.instances as unknown as IMInstanceConfigCard[];
+    if (platform === 'nim') return config.nim.instances as unknown as IMInstanceConfigCard[];
+    if (platform === 'wecom') return config.wecom.instances as unknown as IMInstanceConfigCard[];
+    if (platform === 'telegram') return config.telegram.instances as unknown as IMInstanceConfigCard[];
+    if (platform === 'discord') return config.discord.instances as unknown as IMInstanceConfigCard[];
+    if (platform === 'popo') return config.popo.instances as unknown as IMInstanceConfigCard[];
+    return [];
+  };
 
-          if (platform === 'qq') {
-            return (
-              <div key="qq">
-                {/* QQ Platform Header - clickable to expand/collapse */}
-                <div
-                  onClick={() => { setActivePlatform('qq'); setActiveQQInstanceId(null); setQqExpanded(!qqExpanded); }}
-                  className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
-                    activePlatform === 'qq'
-                      ? 'bg-primary-muted border border-primary shadow-subtle'
-                      : 'bg-surface hover:bg-surface-raised border border-transparent'
-                  }`}
-                >
-                  <div className="flex flex-1 items-center">
-                    <div className="mr-2 flex h-7 w-7 items-center justify-center">
-                      <img src={PlatformRegistry.logo('qq')} alt="QQ" className="w-6 h-6 object-contain rounded-md" />
-                    </div>
-                    <span className={`text-sm font-medium truncate ${activePlatform === 'qq' ? 'text-primary' : 'text-foreground'}`}>
-                      {i18nService.t('qq')}
-                    </span>
-                  </div>
-                  <span className="text-xs opacity-50">{qqExpanded ? '\u25BC' : '\u25B6'}</span>
-                </div>
-                {/* QQ Instance Sub-items */}
-                {qqExpanded && (
-                  <div className="ml-5 mt-1 space-y-1">
-                    {config.qq.instances.map((inst) => {
-                      const instStatus = status.qq?.instances?.find(s => s.instanceId === inst.instanceId);
-                      const isSelected = activePlatform === 'qq' && activeQQInstanceId === inst.instanceId;
-                      const dotColor = !inst.enabled ? 'bg-gray-400' : (instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500');
-                      return (
-                        <div
-                          key={inst.instanceId}
-                          onClick={() => { setActivePlatform('qq'); setActiveQQInstanceId(inst.instanceId); }}
-                          className={`flex items-center p-1.5 pl-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                            isSelected
-                              ? 'bg-primary/10 dark:bg-primary/20'
-                              : 'hover:bg-surface-raised'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full ${dotColor} mr-2 flex-shrink-0`} />
-                          <span className={`truncate flex-1 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                            {inst.instanceName}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
+  const getStatusesForPlatform = (platform: Platform): IMInstanceStatusCard[] => {
+    if (platform === 'dingtalk') return status.dingtalk?.instances ?? [];
+    if (platform === 'feishu') return status.feishu?.instances ?? [];
+    if (platform === 'qq') return status.qq?.instances ?? [];
+    if (platform === 'email') return status.email?.instances ?? [];
+    if (platform === 'nim') return status.nim?.instances ?? [];
+    if (platform === 'wecom') return status.wecom?.instances ?? [];
+    if (platform === 'telegram') return status.telegram?.instances ?? [];
+    if (platform === 'discord') return status.discord?.instances ?? [];
+    if (platform === 'popo') return status.popo?.instances ?? [];
+    return [];
+  };
 
-          if (platform === 'email') {
+  const getMaxInstancesForPlatform = (platform: Platform): number => {
+    if (platform === 'dingtalk') return MAX_DINGTALK_INSTANCES;
+    if (platform === 'feishu') return MAX_FEISHU_INSTANCES;
+    if (platform === 'qq') return MAX_QQ_INSTANCES;
+    if (platform === 'email') return MAX_EMAIL_INSTANCES;
+    if (platform === 'nim') return MAX_NIM_INSTANCES;
+    if (platform === 'wecom') return MAX_WECOM_INSTANCES;
+    if (platform === 'telegram') return MAX_TELEGRAM_INSTANCES;
+    if (platform === 'discord') return MAX_DISCORD_INSTANCES;
+    if (platform === 'popo') return MAX_POPO_INSTANCES;
+    return 0;
+  };
+
+  const getStringField = (instance: IMInstanceConfigCard, field: string): string => {
+    const value = instance[field];
+    return typeof value === 'string' ? value : '';
+  };
+
+  const hasInstanceCredentials = (platform: Platform, instance: IMInstanceConfigCard): boolean => {
+    if (platform === 'dingtalk') return !!(getStringField(instance, 'clientId') && getStringField(instance, 'clientSecret'));
+    if (platform === 'feishu') return !!(getStringField(instance, 'appId') && getStringField(instance, 'appSecret'));
+    if (platform === 'qq') return !!(getStringField(instance, 'appId') && getStringField(instance, 'appSecret'));
+    if (platform === 'email') return !!(getStringField(instance, 'email') && getStringField(instance, 'apiKey'));
+    if (platform === 'nim') {
+      return !!(
+        getStringField(instance, 'nimToken')
+        || (getStringField(instance, 'appKey') && getStringField(instance, 'account') && getStringField(instance, 'token'))
+      );
+    }
+    if (platform === 'wecom') return !!(getStringField(instance, 'botId') && getStringField(instance, 'secret'));
+    if (platform === 'telegram') return !!getStringField(instance, 'botToken');
+    if (platform === 'discord') return !!getStringField(instance, 'botToken');
+    if (platform === 'popo') return !!(getStringField(instance, 'appKey') && getStringField(instance, 'appSecret') && getStringField(instance, 'aesKey'));
+    return false;
+  };
+
+  const getDmPolicyLabel = (policy?: string): string => {
+    if (policy === 'pairing') return i18nService.t('imDmPolicyPairing');
+    if (policy === 'allowlist') return i18nService.t('imDmPolicyAllowlist');
+    if (policy === 'disabled') return i18nService.t('imDmPolicyDisabled');
+    return i18nService.t('imDmPolicyOpen');
+  };
+
+  const addInstanceForPlatform = async (platform: Platform) => {
+    const count = getInstancesForPlatform(platform).length;
+    let instance: IMInstanceConfigCard | null = null;
+
+    if (platform === 'dingtalk') instance = await imService.addDingTalkInstance(`DingTalk Bot ${count + 1}`) as unknown as IMInstanceConfigCard | null;
+    if (platform === 'feishu') instance = await imService.addFeishuInstance(`Feishu Bot ${count + 1}`) as unknown as IMInstanceConfigCard | null;
+    if (platform === 'qq') instance = await imService.addQQInstance(`QQ Bot ${count + 1}`) as unknown as IMInstanceConfigCard | null;
+    if (platform === 'email') instance = await imService.addEmailInstance(`Email ${count + 1}`) as unknown as IMInstanceConfigCard | null;
+    if (platform === 'nim') instance = await imService.addNimInstance(`NIM Bot ${count + 1}`) as unknown as IMInstanceConfigCard | null;
+    if (platform === 'wecom') instance = await imService.addWecomInstance(`WeCom Bot ${count + 1}`) as unknown as IMInstanceConfigCard | null;
+    if (platform === 'telegram') instance = await imService.addTelegramInstance(`Telegram Bot ${count + 1}`) as unknown as IMInstanceConfigCard | null;
+    if (platform === 'discord') instance = await imService.addDiscordInstance(`Discord Bot ${count + 1}`) as unknown as IMInstanceConfigCard | null;
+    if (platform === 'popo') instance = await imService.addPopoInstance(`POPO Bot ${count + 1}`) as unknown as IMInstanceConfigCard | null;
+
+    if (instance) {
+      setActivePlatform(platform);
+      setActiveInstanceForPlatform(platform, instance.instanceId);
+    }
+  };
+
+  const isSameInstanceTarget = (target: IMInstanceTarget | null, platform: Platform, instanceId: string): boolean => (
+    target?.platform === platform && target.instanceId === instanceId
+  );
+
+  const renameInstanceFromCard = async (platform: Platform, instanceId: string, instanceName: string) => {
+    const update = { instanceName } as any;
+    let success = false;
+
+    if (platform === 'dingtalk') success = await imService.persistDingTalkInstanceConfig(instanceId, update);
+    if (platform === 'feishu') success = await imService.persistFeishuInstanceConfig(instanceId, update);
+    if (platform === 'qq') success = await imService.persistQQInstanceConfig(instanceId, update);
+    if (platform === 'email') success = await imService.persistEmailInstanceConfig(instanceId, update);
+    if (platform === 'nim') success = await imService.persistNimInstanceConfig(instanceId, update);
+    if (platform === 'wecom') success = await imService.persistWecomInstanceConfig(instanceId, update);
+    if (platform === 'telegram') success = await imService.persistTelegramInstanceConfig(instanceId, update);
+    if (platform === 'discord') success = await imService.persistDiscordInstanceConfig(instanceId, update);
+    if (platform === 'popo') success = await imService.persistPopoInstanceConfig(instanceId, update);
+
+    return success;
+  };
+
+  const deleteInstanceFromCard = async (platform: Platform, instanceId: string) => {
+    setInstanceMenuTarget(null);
+    if (isSameInstanceTarget(renamingInstance, platform, instanceId)) {
+      setRenamingInstance(null);
+    }
+
+    let success = false;
+    if (platform === 'dingtalk') success = await imService.deleteDingTalkInstance(instanceId);
+    if (platform === 'feishu') success = await imService.deleteFeishuInstance(instanceId);
+    if (platform === 'qq') success = await imService.deleteQQInstance(instanceId);
+    if (platform === 'email') success = await imService.deleteEmailInstance(instanceId);
+    if (platform === 'nim') success = await imService.deleteNimInstance(instanceId);
+    if (platform === 'wecom') success = await imService.deleteWecomInstance(instanceId);
+    if (platform === 'telegram') success = await imService.deleteTelegramInstance(instanceId);
+    if (platform === 'discord') success = await imService.deleteDiscordInstance(instanceId);
+    if (platform === 'popo') success = await imService.deletePopoInstance(instanceId);
+
+    if (success) {
+      await imService.loadStatus();
+    }
+
+    return success;
+  };
+
+  const confirmDeleteInstanceFromCard = async () => {
+    if (!deleteConfirmTarget || isDeletingInstance) return;
+
+    setIsDeletingInstance(true);
+    try {
+      const deleted = await deleteInstanceFromCard(deleteConfirmTarget.platform, deleteConfirmTarget.instanceId);
+      if (deleted) {
+        setDeleteConfirmTarget(null);
+      }
+    } finally {
+      setIsDeletingInstance(false);
+    }
+  };
+
+  const finishRenamingInstanceFromCard = async (platform: Platform, instance: IMInstanceConfigCard) => {
+    const currentRenamingInstance = renamingInstance;
+    if (!currentRenamingInstance || !isSameInstanceTarget(currentRenamingInstance, platform, instance.instanceId)) return;
+
+    const nextName = currentRenamingInstance.value.trim();
+    setRenamingInstance(null);
+    if (!nextName || nextName === instance.instanceName) return;
+
+    await renameInstanceFromCard(platform, instance.instanceId, nextName);
+  };
+
+  const toggleInstanceFromCard = async (platform: Platform, instance: IMInstanceConfigCard) => {
+    const enabled = !instance.enabled;
+    if (enabled && !hasInstanceCredentials(platform, instance)) return;
+
+    let success = false;
+    const reloadStatusOptions = { reloadStatus: true };
+    if (platform === 'dingtalk') success = await imService.updateDingTalkInstanceConfig(instance.instanceId, { enabled }, reloadStatusOptions);
+    if (platform === 'feishu') success = await imService.updateFeishuInstanceConfig(instance.instanceId, { enabled }, reloadStatusOptions);
+    if (platform === 'qq') success = await imService.updateQQInstanceConfig(instance.instanceId, { enabled }, reloadStatusOptions);
+    if (platform === 'email') success = await imService.updateEmailInstanceConfig(instance.instanceId, { enabled }, reloadStatusOptions);
+    if (platform === 'nim') success = await imService.updateNimInstanceConfig(instance.instanceId, { enabled }, reloadStatusOptions);
+    if (platform === 'wecom') success = await imService.updateWecomInstanceConfig(instance.instanceId, { enabled }, reloadStatusOptions);
+    if (platform === 'telegram') success = await imService.updateTelegramInstanceConfig(instance.instanceId, { enabled }, reloadStatusOptions);
+    if (platform === 'discord') success = await imService.updateDiscordInstanceConfig(instance.instanceId, { enabled }, reloadStatusOptions);
+    if (platform === 'popo') success = await imService.updatePopoInstanceConfig(instance.instanceId, { enabled }, reloadStatusOptions);
+
+    if (!success) return;
+    if (platform === 'dingtalk') dispatch(setDingTalkInstanceConfig({ instanceId: instance.instanceId, config: { enabled } }));
+    if (platform === 'feishu') dispatch(setFeishuInstanceConfig({ instanceId: instance.instanceId, config: { enabled } }));
+    if (platform === 'qq') dispatch(setQQInstanceConfig({ instanceId: instance.instanceId, config: { enabled } }));
+    if (platform === 'email') dispatch(setEmailInstanceConfig({ instanceId: instance.instanceId, config: { enabled } }));
+    if (platform === 'nim') dispatch(setNimInstanceConfig({ instanceId: instance.instanceId, config: { enabled } }));
+    if (platform === 'wecom') dispatch(setWecomInstanceConfig({ instanceId: instance.instanceId, config: { enabled } }));
+    if (platform === 'telegram') dispatch(setTelegramInstanceConfig({ instanceId: instance.instanceId, config: { enabled } }));
+    if (platform === 'discord') dispatch(setDiscordInstanceConfig({ instanceId: instance.instanceId, config: { enabled } }));
+    if (platform === 'popo') dispatch(setPopoInstanceConfig({ instanceId: instance.instanceId, config: { enabled } }));
+    setSaveReminderTarget(platform, instance.instanceId, enabled);
+    if (enabled) dispatch(clearError());
+  };
+
+  const renderInstanceToggle = (platform: Platform, instance: IMInstanceConfigCard, connected: boolean) => {
+    const canEnable = instance.enabled || hasInstanceCredentials(platform, instance);
+    return (
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          void toggleInstanceFromCard(platform, instance);
+        }}
+        disabled={!canEnable}
+        className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+          instance.enabled
+            ? (connected ? 'bg-green-500' : 'bg-yellow-500')
+            : 'bg-gray-300 dark:bg-gray-600'
+        } ${canEnable ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}
+        aria-label={instance.enabled ? i18nService.t('stop') : i18nService.t('start')}
+      >
+        <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+          instance.enabled ? 'translate-x-4' : 'translate-x-0'
+        }`} />
+      </button>
+    );
+  };
+
+  const renderMultiInstanceOverview = (platform: Platform) => {
+    const instances = getInstancesForPlatform(platform);
+    const instanceStatuses = getStatusesForPlatform(platform);
+    const connectedCount = instanceStatuses.filter((item) => item.connected).length;
+    const maxInstances = getMaxInstancesForPlatform(platform);
+    const canAdd = instances.length < maxInstances;
+    const hasInstancesNeedingSave = instances.some((instance) => {
+      const instanceStatus = instanceStatuses.find((item) => item.instanceId === instance.instanceId);
+      return shouldShowInstanceSaveReminder(platform, instance, instanceStatus);
+    });
+
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center gap-3 border-b border-border-subtle pb-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate text-[15px] font-medium leading-5 text-foreground">
+                {i18nService.t('imChannelBotsTitle').replace('{platform}', i18nService.t(platform))}
+              </h3>
+              <p className="mt-0.5 whitespace-nowrap text-xs text-green-600 dark:text-green-400">
+                {i18nService.t('imInstanceSummary')
+                  .replace('{connected}', String(connectedCount))
+                  .replace('{total}', String(instances.length))}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(154px,1fr))] gap-3">
+          {instances.map((instance) => {
+            const instanceStatus = instanceStatuses.find((item) => item.instanceId === instance.instanceId);
+            const connected = !!instanceStatus?.connected;
+            const lastError = instanceStatus?.lastError || instanceStatus?.error || null;
+            const isMenuOpen = isSameInstanceTarget(instanceMenuTarget, platform, instance.instanceId);
+            const isRenaming = isSameInstanceTarget(renamingInstance, platform, instance.instanceId);
             return (
-              <div key="email">
-                {/* Email Platform Header - clickable to expand/collapse */}
-                <div
-                  onClick={() => { setActivePlatform('email'); setActiveEmailInstanceId(null); setEmailExpanded(!emailExpanded); }}
-                  className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
-                    activePlatform === 'email'
-                      ? 'bg-primary-muted border border-primary shadow-subtle'
-                      : 'bg-surface hover:bg-surface-raised border border-transparent'
-                  }`}
-                >
-                  <div className="flex flex-1 items-center">
-                    <div className="mr-2 flex h-7 w-7 items-center justify-center">
-                      <img src={PlatformRegistry.logo('email')} alt="Email" className="w-6 h-6 object-contain rounded-md" />
-                    </div>
-                    <span className={`text-sm font-medium truncate ${activePlatform === 'email' ? 'text-primary' : 'text-foreground'}`}>
-                      {i18nService.t('email')}
-                    </span>
-                  </div>
-                  <span className="text-xs opacity-50">{emailExpanded ? '\u25BC' : '\u25B6'}</span>
-                </div>
-                {/* Email Instance Sub-items */}
-                {emailExpanded && (
-                  <div className="ml-5 mt-1 space-y-1">
-                    {config.email.instances.map((inst) => {
-                      const instStatus = status.email.instances.find(s => s.instanceId === inst.instanceId);
-                      const isSelected = activePlatform === 'email' && activeEmailInstanceId === inst.instanceId;
-                      const dotColor = !inst.enabled ? 'bg-gray-400' : (instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500');
-                      return (
-                        <div
-                          key={inst.instanceId}
-                          onClick={() => { setActivePlatform('email'); setActiveEmailInstanceId(inst.instanceId); }}
-                          className={`flex items-center p-1.5 pl-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                            isSelected
-                              ? 'bg-primary/10 dark:bg-primary/20'
-                              : 'hover:bg-surface-raised'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full ${dotColor} mr-2 flex-shrink-0`} />
-                          <span className={`truncate flex-1 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                            {inst.instanceName}
-                          </span>
-                        </div>
-                      );
-                    })}
-                    {/* Add account button */}
+              <div
+                key={instance.instanceId}
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveInstanceForPlatform(platform, instance.instanceId)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setActiveInstanceForPlatform(platform, instance.instanceId);
+                  }
+                }}
+                className="group relative flex min-h-[82px] flex-col rounded-lg border border-border-subtle bg-surface p-3 text-left transition-colors hover:border-primary/40 hover:bg-surface-raised"
+              >
+                {isMenuOpen && (
+                  <div
+                    className="absolute right-3 top-10 z-20 min-w-[108px] overflow-hidden rounded-lg border border-border-subtle bg-surface py-1 shadow-popover"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <button
                       type="button"
-                      disabled={config.email.instances.length >= MAX_EMAIL_INSTANCES}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        const inst = await imService.addEmailInstance(`Email ${config.email.instances.length + 1}`);
-                        if (inst) { setActivePlatform('email'); setActiveEmailInstanceId(inst.instanceId); setEmailExpanded(true); }
+                      onClick={() => {
+                        setInstanceMenuTarget(null);
+                        setActiveInstanceForPlatform(platform, instance.instanceId);
                       }}
-                      className="w-full flex items-center p-1.5 pl-2 rounded-lg text-sm text-secondary hover:bg-surface-raised disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-surface-raised"
                     >
-                      <span className="mr-1">+</span>
-                      {i18nService.t('imEmailAddInstance')}
+                      <ComposeIcon className="h-3.5 w-3.5" />
+                      {i18nService.t('edit')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInstanceMenuTarget(null);
+                        setRenamingInstance({ platform, instanceId: instance.instanceId, value: instance.instanceName });
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-surface-raised"
+                    >
+                      <EditIcon className="h-3.5 w-3.5" />
+                      {i18nService.t('rename')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInstanceMenuTarget(null);
+                        setDeleteConfirmTarget({ platform, instanceId: instance.instanceId });
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-red-500 transition-colors hover:bg-red-500/10"
+                    >
+                      <TrashIcon className="h-3.5 w-3.5" />
+                      {i18nService.t('delete')}
                     </button>
                   </div>
                 )}
-              </div>
-            );
-          }
-
-          if (platform === 'nim') {
-            return (
-              <div key="nim">
-                <div
-                  onClick={() => { setActivePlatform('nim'); setActiveNimInstanceId(null); setNimExpanded(!nimExpanded); }}
-                  className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
-                    activePlatform === 'nim'
-                      ? 'bg-primary-muted border border-primary shadow-subtle'
-                      : 'bg-surface hover:bg-surface-raised border border-transparent'
-                  }`}
-                >
-                  <div className="flex flex-1 items-center">
-                    <div className="mr-2 flex h-7 w-7 items-center justify-center">
-                      <img src={PlatformRegistry.logo('nim')} alt="NIM" className="w-6 h-6 object-contain rounded-md" />
-                    </div>
-                    <span className={`text-sm font-medium truncate ${activePlatform === 'nim' ? 'text-primary' : 'text-foreground'}`}>
-                      {i18nService.t('nim')}
-                    </span>
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 p-1">
+                    <img
+                      src={PlatformRegistry.logo(platform)}
+                      alt={i18nService.t(platform)}
+                      className="h-6 w-6 rounded-md object-contain"
+                    />
                   </div>
-                  <span className="text-xs opacity-50">{nimExpanded ? '\u25BC' : '\u25B6'}</span>
-                </div>
-                {nimExpanded && (
-                  <div className="ml-5 mt-1 space-y-1">
-                    {config.nim.instances.map((inst) => {
-                      const instStatus = status.nim?.instances?.find(s => s.instanceId === inst.instanceId);
-                      const isSelected = activePlatform === 'nim' && activeNimInstanceId === inst.instanceId;
-                      const dotColor = !inst.enabled ? 'bg-gray-400' : (instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500');
-                      return (
-                        <div
-                          key={inst.instanceId}
-                          onClick={() => { setActivePlatform('nim'); setActiveNimInstanceId(inst.instanceId); }}
-                          className={`flex items-center p-1.5 pl-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                            isSelected
-                              ? 'bg-primary/10 dark:bg-primary/20'
-                              : 'hover:bg-surface-raised'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full ${dotColor} mr-2 flex-shrink-0`} />
-                          <span className={`truncate flex-1 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                            {inst.instanceName}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          if (platform === 'wecom') {
-            return (
-              <div key="wecom">
-                {/* WeCom Platform Header - clickable to expand/collapse */}
-                <div
-                  onClick={() => { setActivePlatform('wecom'); setActiveWecomInstanceId(null); setWecomExpanded(!wecomExpanded); }}
-                  className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
-                    activePlatform === 'wecom'
-                      ? 'bg-primary-muted border border-primary shadow-subtle'
-                      : 'bg-surface hover:bg-surface-raised border border-transparent'
-                  }`}
-                >
-                  <div className="flex flex-1 items-center">
-                    <div className="mr-2 flex h-7 w-7 items-center justify-center">
-                      <img src={PlatformRegistry.logo('wecom')} alt="WeCom" className="w-6 h-6 object-contain rounded-md" />
-                    </div>
-                    <span className={`text-sm font-medium truncate ${activePlatform === 'wecom' ? 'text-primary' : 'text-foreground'}`}>
-                      {i18nService.t('wecom')}
-                    </span>
-                  </div>
-                  <span className="text-xs opacity-50">{wecomExpanded ? '\u25BC' : '\u25B6'}</span>
-                </div>
-                {/* WeCom Instance Sub-items */}
-                {wecomExpanded && (
-                  <div className="ml-5 mt-1 space-y-1">
-                    {config.wecom.instances.map((inst) => {
-                      const instStatus = status.wecom?.instances?.find(s => s.instanceId === inst.instanceId);
-                      const isSelected = activePlatform === 'wecom' && activeWecomInstanceId === inst.instanceId;
-                      const dotColor = !inst.enabled ? 'bg-gray-400' : (instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500');
-                      return (
-                        <div
-                          key={inst.instanceId}
-                          onClick={() => { setActivePlatform('wecom'); setActiveWecomInstanceId(inst.instanceId); }}
-                          className={`flex items-center p-1.5 pl-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                            isSelected
-                              ? 'bg-primary/10 dark:bg-primary/20'
-                              : 'hover:bg-surface-raised'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full ${dotColor} mr-2 flex-shrink-0`} />
-                          <span className={`truncate flex-1 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                            {inst.instanceName}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          if (platform === 'telegram') {
-            return (
-              <div key="telegram">
-                {/* Telegram Platform Header - clickable to expand/collapse */}
-                <div
-                  onClick={() => { setActivePlatform('telegram'); setActiveTelegramInstanceId(null); setTelegramExpanded(!telegramExpanded); }}
-                  className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
-                    activePlatform === 'telegram'
-                      ? 'bg-primary-muted border border-primary shadow-subtle'
-                      : 'bg-surface hover:bg-surface-raised border border-transparent'
-                  }`}
-                >
-                  <div className="flex flex-1 items-center">
-                    <div className="mr-2 flex h-7 w-7 items-center justify-center">
-                      <img src={PlatformRegistry.logo('telegram')} alt="Telegram" className="w-6 h-6 object-contain rounded-md" />
-                    </div>
-                    <span className={`text-sm font-medium truncate ${activePlatform === 'telegram' ? 'text-primary' : 'text-foreground'}`}>
-                      {i18nService.t('telegram')}
-                    </span>
-                  </div>
-                  <span className="text-xs opacity-50">{telegramExpanded ? '▼' : '▶'}</span>
-                </div>
-                {/* Telegram Instance Sub-items */}
-                {telegramExpanded && (
-                  <div className="ml-5 mt-1 space-y-1">
-                    {config.telegram.instances.map((inst) => {
-                      const instStatus = status.telegram?.instances?.find(s => s.instanceId === inst.instanceId);
-                      const isSelected = activePlatform === 'telegram' && activeTelegramInstanceId === inst.instanceId;
-                      const dotColor = !inst.enabled ? 'bg-gray-400' : (instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500');
-                      return (
-                        <div
-                          key={inst.instanceId}
-                          onClick={() => { setActivePlatform('telegram'); setActiveTelegramInstanceId(inst.instanceId); }}
-                          className={`flex items-center p-1.5 pl-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                            isSelected
-                              ? 'bg-primary/10 dark:bg-primary/20'
-                              : 'hover:bg-surface-raised'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full ${dotColor} mr-2 flex-shrink-0`} />
-                          <span className={`truncate flex-1 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                            {inst.instanceName}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          if (platform === 'discord') {
-            return (
-              <div key="discord">
-                {/* Discord Platform Header - clickable to expand/collapse */}
-                <div
-                  onClick={() => { setActivePlatform('discord'); setActiveDiscordInstanceId(null); setDiscordExpanded(!discordExpanded); }}
-                  className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
-                    activePlatform === 'discord'
-                      ? 'bg-primary-muted border border-primary shadow-subtle'
-                      : 'bg-surface hover:bg-surface-raised border border-transparent'
-                  }`}
-                >
-                  <div className="flex flex-1 items-center">
-                    <div className="mr-2 flex h-7 w-7 items-center justify-center">
-                      <img src={PlatformRegistry.logo('discord')} alt="Discord" className="w-6 h-6 object-contain rounded-md" />
-                    </div>
-                    <span className={`text-sm font-medium truncate ${activePlatform === 'discord' ? 'text-primary' : 'text-foreground'}`}>
-                      {i18nService.t('discord')}
-                    </span>
-                  </div>
-                  <span className="text-xs opacity-50">{discordExpanded ? '▼' : '▶'}</span>
-                </div>
-                {/* Discord Instance Sub-items */}
-                {discordExpanded && (
-                  <div className="ml-5 mt-1 space-y-1">
-                    {config.discord.instances.map((inst) => {
-                      const instStatus = status.discord?.instances?.find(s => s.instanceId === inst.instanceId);
-                      const isSelected = activePlatform === 'discord' && activeDiscordInstanceId === inst.instanceId;
-                      const dotColor = !inst.enabled ? 'bg-gray-400' : (instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500');
-                      return (
-                        <div
-                          key={inst.instanceId}
-                          onClick={() => { setActivePlatform('discord'); setActiveDiscordInstanceId(inst.instanceId); }}
-                          className={`flex items-center p-1.5 pl-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                            isSelected
-                              ? 'bg-primary/10 dark:bg-primary/20'
-                              : 'hover:bg-surface-raised'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full ${dotColor} mr-2 flex-shrink-0`} />
-                          <span className={`truncate flex-1 ${isSelected ? 'text-primary font-medium' : 'text-foreground'}`}>
-                            {inst.instanceName}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          if (platform === 'popo') {
-            return (
-              <div key="popo">
-                <div
-                  onClick={() => { setActivePlatform('popo'); setActivePopoInstanceId(null); setPopoExpanded(!popoExpanded); }}
-                  className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
-                    activePlatform === 'popo'
-                      ? 'bg-primary-muted border border-primary shadow-subtle'
-                      : 'bg-surface hover:bg-surface-raised border border-transparent'
-                  }`}
-                >
-                  <div className="flex flex-1 items-center">
-                    <div className="mr-2 flex h-7 w-7 items-center justify-center">
-                      <img src={PlatformRegistry.logo('popo')} alt="POPO" className="w-6 h-6 object-contain rounded-md" />
-                    </div>
-                    <span className={`text-sm font-medium truncate ${activePlatform === 'popo' ? 'text-primary' : 'text-foreground'}`}>
-                      {i18nService.t('popo')}
-                    </span>
-                  </div>
-                  <span className="text-xs opacity-50">{popoExpanded ? '\u25BC' : '\u25B6'}</span>
-                </div>
-                {popoExpanded && (
-                  <div className="ml-5 mt-1 space-y-1">
-                    {config.popo.instances.map((inst) => {
-                      const instStatus = status.popo?.instances?.find(s => s.instanceId === inst.instanceId);
-                      const isSelected = activePlatform === 'popo' && activePopoInstanceId === inst.instanceId;
-                      const dotColor = !inst.enabled ? 'bg-gray-400' : (instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500');
-                      return (
-                        <div
-                          key={inst.instanceId}
-                          onClick={() => { setActivePlatform('popo'); setActivePopoInstanceId(inst.instanceId); }}
-                          className={`flex items-center p-1.5 pl-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                            isSelected ? 'bg-primary/10 dark:bg-primary/20' : 'hover:bg-surface-raised'
-                          }`}
-                        >
-                          <div className={`w-2 h-2 rounded-full mr-2 flex-shrink-0 ${dotColor}`} />
-                          <span className="truncate">{inst.instanceName}</span>
-                        </div>
-                      );
-                    })}
-                    {config.popo.instances.length < MAX_POPO_INSTANCES && (
-                      <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          const inst = await imService.addPopoInstance(`POPO Bot ${config.popo.instances.length + 1}`);
-                          if (inst) { setActivePopoInstanceId(inst.instanceId); setPopoExpanded(true); }
+                  <div className="min-w-0 flex-1">
+                    {isRenaming ? (
+                      <input
+                        type="text"
+                        value={renamingInstance?.value ?? instance.instanceName}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          setRenamingInstance((current) => (
+                            current && isSameInstanceTarget(current, platform, instance.instanceId)
+                              ? { ...current, value: nextValue }
+                              : current
+                          ));
                         }}
-                        className="w-full text-left p-1.5 pl-2 rounded-lg text-xs text-secondary hover:text-primary hover:bg-surface-raised transition-colors"
-                      >
-                        + {language === 'zh' ? '添加实例' : 'Add Instance'}
-                      </button>
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          event.stopPropagation();
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            event.currentTarget.blur();
+                          }
+                          if (event.key === 'Escape') {
+                            event.preventDefault();
+                            setRenamingInstance(null);
+                          }
+                        }}
+                        onBlur={() => void finishRenamingInstanceFromCard(platform, instance)}
+                        className="block w-full rounded-md border border-primary/50 bg-surface px-1.5 py-0.5 text-sm font-medium leading-5 text-foreground outline-none"
+                        autoFocus
+                      />
+                    ) : (
+                      <div className="truncate text-sm font-medium leading-5 text-foreground">
+                        {instance.instanceName}
+                      </div>
+                    )}
+                    <div className={`mt-0.5 flex items-center gap-1 text-xs ${
+                      connected ? 'text-green-600 dark:text-green-400' : 'text-secondary'
+                    }`}>
+                      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
+                        connected ? 'bg-green-500' : instance.enabled ? 'bg-yellow-500' : 'bg-gray-400'
+                      }`} />
+                      <span className="truncate">
+                        {connected ? i18nService.t('connected') : i18nService.t('disconnected')}
+                      </span>
+                    </div>
+                    {lastError && (
+                      <p className="mt-1 line-clamp-1 text-xs text-red-500">
+                        {translateIMError(lastError)}
+                      </p>
                     )}
                   </div>
-                )}
+                  <div className="flex flex-shrink-0 items-center gap-1 pl-1">
+                    {renderInstanceToggle(platform, instance, connected)}
+                    <button
+                      type="button"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setInstanceMenuTarget(isMenuOpen ? null : { platform, instanceId: instance.instanceId });
+                      }}
+                      className="rounded-md p-1 text-secondary opacity-70 transition-colors hover:bg-surface-raised hover:text-foreground group-hover:opacity-100"
+                      aria-label={i18nService.t('imInstanceActionMenu')}
+                      title={i18nService.t('imInstanceActionMenu')}
+                    >
+                      <EllipsisVerticalIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
             );
-          }
+          })}
+
+          {canAdd && (
+            <button
+              type="button"
+              onClick={() => void addInstanceForPlatform(platform)}
+              className="flex min-h-[82px] flex-col items-center justify-center rounded-lg border border-dashed border-border-subtle bg-surface text-secondary transition-colors hover:border-primary/50 hover:bg-surface-raised hover:text-primary"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-raised">
+                <PlusIcon className="h-4 w-4" />
+              </span>
+              <span className="mt-2 text-sm font-medium">
+                {i18nService.t('imAddBot')}
+              </span>
+            </button>
+          )}
+        </div>
+
+        {hasInstancesNeedingSave && renderSaveReminder(platform)}
+      </div>
+    );
+  };
+
+  const renderBackToInstanceList = (platform: Platform) => (
+    <button
+      type="button"
+      onClick={() => setActiveInstanceForPlatform(platform, null)}
+      className="-ml-1 inline-flex h-7 flex-shrink-0 items-center gap-1 rounded-md px-1.5 text-xs font-medium text-secondary transition-colors hover:bg-surface-raised hover:text-foreground focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/25"
+      aria-label={i18nService.t('imBackToBotList').replace('{platform}', i18nService.t(platform))}
+      title={i18nService.t('imBackToBotList').replace('{platform}', i18nService.t(platform))}
+    >
+      <ArrowLeftIcon className="h-3.5 w-3.5 flex-shrink-0" />
+      <span>{i18nService.t('back')}</span>
+    </button>
+  );
+
+  const deleteConfirmInstance = deleteConfirmTarget
+    ? getInstancesForPlatform(deleteConfirmTarget.platform).find((instance) => instance.instanceId === deleteConfirmTarget.instanceId)
+    : null;
+
+  return (
+    <div className="flex h-full gap-3">
+      {/* Platform List - Left Side */}
+      <div className="w-44 flex-shrink-0 space-y-1.5 overflow-y-auto border-r border-border pr-3">
+        {platforms.map((platform) => {
+          const logo = PlatformRegistry.logo(platform);
+          const isActive = activePlatform === platform;
+          const isEnabled = isPlatformEnabled(platform);
+          const statusDotClass = getPlatformStatusDotClass(platform);
+          const canToggle = isEnabled || canStart(platform);
 
           return (
-            <div
+            <button
+              type="button"
               key={platform}
-              onClick={() => setActivePlatform(platform)}
-              className={`flex items-center p-2 rounded-xl cursor-pointer transition-colors ${
-                activePlatform === platform
-                  ? 'bg-primary-muted border border-primary shadow-subtle'
-                  : 'bg-surface hover:bg-surface-raised border border-transparent'
+              onClick={() => {
+                setActivePlatform(platform);
+                if (isMultiInstancePlatform(platform)) {
+                  setActiveInstanceForPlatform(platform, null);
+                }
+              }}
+              className={`flex w-full items-center rounded-xl border p-2 text-left transition-colors ${
+                isActive
+                  ? 'border-primary bg-primary-muted shadow-subtle'
+                  : 'border-transparent bg-surface hover:bg-surface-raised'
               }`}
             >
-              <div className="flex flex-1 items-center">
-                <div className="mr-2 flex h-7 w-7 items-center justify-center">
-                  <img
-                    src={logo}
-                    alt={i18nService.t(platform)}
-                    className="w-6 h-6 object-contain rounded-md"
-                  />
-                </div>
-                <span className={`text-sm font-medium truncate ${
-                  activePlatform === platform
-                    ? 'text-primary'
-                    : 'text-foreground'
-                }`}>
-                  {i18nService.t(platform)}
+              <div className="mr-2 flex h-7 w-7 flex-shrink-0 items-center justify-center">
+                <img
+                  src={logo}
+                  alt={i18nService.t(platform)}
+                  className="h-6 w-6 rounded-md object-contain"
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-[14px] font-normal leading-5 text-foreground/80">
+                    {i18nService.t(platform)}
+                  </span>
+                  {statusDotClass && (
+                    <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${statusDotClass}`} />
+                  )}
                 </span>
               </div>
-              <div className="flex items-center ml-2">
-                <div
-                  className={`w-7 h-4 rounded-full flex items-center transition-colors ${
-                    isEnabled
-                      ? (isConnected ? 'bg-green-500' : 'bg-yellow-500')
-                      : 'bg-gray-400 dark:bg-gray-600'
-                  } ${(!canToggle || togglingPlatform === platform) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
+              {!isMultiInstancePlatform(platform) && (
+                <span
+                  className={`ml-2 flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors ${
+                    isEnabled ? getPlatformSwitchColorClass(platform) : 'bg-gray-300 dark:bg-gray-600'
+                  } ${(!canToggle || togglingPlatform === platform) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
                     handlePlatformToggle(platform);
                   }}
                 >
-                  <div
-                    className={`w-3 h-3 rounded-full bg-white shadow-md transform transition-transform ${
+                  <span
+                    className={`h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
                       isEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
                     }`}
                   />
-                </div>
-              </div>
-            </div>
+                </span>
+              )}
+            </button>
           );
         })}
       </div>
 
       {/* Platform Settings - Right Side */}
-      <div className="flex-1 min-w-0 pl-4 pr-2 space-y-4 overflow-y-auto [scrollbar-gutter:stable]">
+      <div className="min-w-0 flex-1 space-y-4 overflow-y-auto pl-3 pr-4 [scrollbar-gutter:stable]">
         {/* Header with status (only for single-instance platforms without per-instance headers) */}
         {(activePlatform === 'weixin' || activePlatform === 'netease-bee') && (
-        <div className="flex items-center gap-3 pb-3 border-b border-border-subtle">
-          <div className="flex items-center gap-2">
-             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-surface border border-border-subtle p-1">
-               <img
-                src={PlatformRegistry.logo(activePlatform)}
-                 alt={i18nService.t(activePlatform)}
-                 className="w-4 h-4 object-contain rounded"
-               />
+          <div className="flex items-center gap-3 border-b border-border-subtle pb-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-medium text-foreground">
+                {`${i18nService.t(activePlatform)}${i18nService.t('settings')}`}
+              </h3>
             </div>
-            <h3 className="text-sm font-medium text-foreground">
-              {`${i18nService.t(activePlatform)}${i18nService.t('settings')}`}
-            </h3>
+            <div className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${getPlatformStatusColorClass(activePlatform)}`}>
+              {(() => {
+                const displayState = getPlatformDisplayState(activePlatform);
+                return (displayState === IMRuntimeDisplayState.Connecting || displayState === IMRuntimeDisplayState.Starting) ? (
+                  <ArrowPathIcon className="h-3 w-3 animate-spin" />
+                ) : null;
+              })()}
+              {getPlatformStatusLabel(activePlatform)}
+            </div>
+            {activePlatform === 'weixin' && (
+              <div className="ml-auto flex items-center gap-2">
+                {renderConnectivityTestButton('weixin')}
+                <button
+                  type="button"
+                  onClick={() => void handleWeixinQrLogin()}
+                  disabled={weixinQrStatus === 'loading' || weixinQrStatus === 'waiting'}
+                  className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {weixinAccountId ? i18nService.t('imRescan') : i18nService.t('imWeixinScanBtn')}
+                </button>
+              </div>
+            )}
           </div>
-          <div className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-            getPlatformConnected(activePlatform) || getPlatformStarting(activePlatform)
-              ? 'bg-green-500/15 text-green-600 dark:text-green-400'
-              : 'bg-gray-500/15 text-gray-500 dark:text-gray-400'
-          }`}>
-            {getPlatformConnected(activePlatform)
-              ? i18nService.t('connected')
-              : getPlatformStarting(activePlatform)
-                ? (i18nService.t('starting') || '启动中')
-                : i18nService.t('disconnected')}
-          </div>
-        </div>
         )}
 
 
         {/* DingTalk Settings (multi-instance) */}
-        {activePlatform === 'dingtalk' && !activeDingTalkInstanceId && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <img src={PlatformRegistry.logo('dingtalk')} alt="DingTalk" className="w-12 h-12 object-contain rounded-md mb-4 opacity-50" />
-            <p className="text-sm text-secondary mb-4">
-              {config.dingtalk.instances.length === 0
-                ? (language === 'zh' ? '尚未添加钉钉实例，点击下方按钮添加' : 'No DingTalk instances yet. Click below to add one.')
-                : (language === 'zh' ? '请在左侧选择一个钉钉实例' : 'Select a DingTalk instance from the sidebar.')}
-            </p>
-            {config.dingtalk.instances.length < MAX_DINGTALK_INSTANCES && (
-              <button
-                type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  const inst = await imService.addDingTalkInstance(`DingTalk Bot ${config.dingtalk.instances.length + 1}`);
-                  if (inst) { setActiveDingTalkInstanceId(inst.instanceId); setDingtalkExpanded(true); }
-                }}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              >
-                + {i18nService.t('imDingTalkAddInstance')}
-              </button>
-            )}
-          </div>
-        )}
+        {activePlatform === 'dingtalk' && !activeDingTalkInstanceId && renderMultiInstanceOverview('dingtalk')}
         {activePlatform === 'dingtalk' && activeDingTalkInstanceId && (() => {
           const selectedInstance = config.dingtalk.instances.find(i => i.instanceId === activeDingTalkInstanceId);
           if (!selectedInstance) return null;
           const selectedStatus = status.dingtalk?.instances?.find(s => s.instanceId === activeDingTalkInstanceId);
           return (
-            <DingTalkInstanceSettings
-              instance={selectedInstance}
-              instanceStatus={selectedStatus}
-              onConfigChange={(update) => {
-                dispatch(setDingTalkInstanceConfig({ instanceId: activeDingTalkInstanceId, config: update }));
-              }}
-              onSave={async (override) => {
-                const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
-                if (selectedInstance.enabled) {
-                  await imService.updateDingTalkInstanceConfig(activeDingTalkInstanceId, configToSave);
-                } else {
-                  await imService.persistDingTalkInstanceConfig(activeDingTalkInstanceId, configToSave);
-                }
-              }}
-              onRename={async (newName) => {
-                dispatch(setDingTalkInstanceConfig({ instanceId: activeDingTalkInstanceId, config: { instanceName: newName } as any }));
-                await imService.persistDingTalkInstanceConfig(activeDingTalkInstanceId, { instanceName: newName } as any);
-              }}
-              onDelete={async () => {
-                await imService.deleteDingTalkInstance(activeDingTalkInstanceId);
-                const remaining = config.dingtalk.instances.filter(i => i.instanceId !== activeDingTalkInstanceId);
-                setActiveDingTalkInstanceId(remaining.length > 0 ? remaining[0].instanceId : null);
-              }}
-              onToggleEnabled={async () => {
-                const newEnabled = !selectedInstance.enabled;
-                if (newEnabled && !(selectedInstance.clientId && selectedInstance.clientSecret)) return;
-                const success = await imService.updateDingTalkInstanceConfig(activeDingTalkInstanceId, { enabled: newEnabled });
-                if (success) {
-                  dispatch(setDingTalkInstanceConfig({ instanceId: activeDingTalkInstanceId, config: { enabled: newEnabled } }));
-                  if (newEnabled) dispatch(clearError());
-                }
-              }}
-              onTestConnectivity={() => {
-                void handleConnectivityTest('dingtalk');
-              }}
-              testingPlatform={testingPlatform}
-              connectivityResults={connectivityResults}
-              language={language}
-            />
+            <div className="space-y-4">
+              <DingTalkInstanceSettings
+                instance={selectedInstance}
+                instanceStatus={selectedStatus}
+                headerLeading={renderBackToInstanceList('dingtalk')}
+                onConfigChange={(update) => {
+                  dispatch(setDingTalkInstanceConfig({ instanceId: activeDingTalkInstanceId, config: update }));
+                }}
+                onSave={async (override) => {
+                  const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
+                  const restartOnSaveOptions = override?.enabled === true && !!override.clientId && !!override.clientSecret
+                    ? IM_AUTH_RESTART_ON_SAVE_OPTIONS
+                    : undefined;
+                  if (selectedInstance.enabled || restartOnSaveOptions) {
+                    await imService.updateDingTalkInstanceConfig(activeDingTalkInstanceId, configToSave, restartOnSaveOptions);
+                  } else {
+                    await imService.persistDingTalkInstanceConfig(activeDingTalkInstanceId, configToSave);
+                  }
+                  if (typeof override?.enabled === 'boolean') {
+                    setSaveReminderTarget('dingtalk', activeDingTalkInstanceId, override.enabled);
+                  }
+                }}
+                onRename={async (newName) => {
+                  dispatch(setDingTalkInstanceConfig({ instanceId: activeDingTalkInstanceId, config: { instanceName: newName } as any }));
+                  await imService.persistDingTalkInstanceConfig(activeDingTalkInstanceId, { instanceName: newName } as any);
+                }}
+                onTestConnectivity={() => {
+                  void handleConnectivityTest('dingtalk');
+                }}
+                testingPlatform={testingPlatform}
+                connectivityResults={connectivityResults}
+                language={language}
+              />
+              {renderInstanceSaveReminder('dingtalk', selectedInstance as unknown as IMInstanceConfigCard, selectedStatus)}
+            </div>
           );
         })()}
 
         {/* Feishu Settings (multi-instance) */}
-        {activePlatform === 'feishu' && !activeFeishuInstanceId && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <img src={PlatformRegistry.logo('feishu')} alt="Feishu" className="w-12 h-12 object-contain rounded-md mb-4 opacity-50" />
-            <p className="text-sm text-secondary mb-4">
-              {config.feishu.instances.length === 0
-                ? (language === 'zh' ? '尚未添加飞书实例，点击下方按钮添加' : 'No Feishu instances yet. Click below to add one.')
-                : (language === 'zh' ? '请在左侧选择一个飞书实例' : 'Select a Feishu instance from the sidebar.')}
-            </p>
-            {config.feishu.instances.length < MAX_FEISHU_INSTANCES && (
-              <button
-                type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  const inst = await imService.addFeishuInstance(`Feishu Bot ${config.feishu.instances.length + 1}`);
-                  if (inst) { setActiveFeishuInstanceId(inst.instanceId); setFeishuExpanded(true); }
-                }}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              >
-                + {i18nService.t('imFeishuAddInstance')}
-              </button>
-            )}
-          </div>
-        )}
+        {activePlatform === 'feishu' && !activeFeishuInstanceId && renderMultiInstanceOverview('feishu')}
         {activePlatform === 'feishu' && activeFeishuInstanceId && (() => {
           const selectedInstance = config.feishu.instances.find(i => i.instanceId === activeFeishuInstanceId);
           if (!selectedInstance) return null;
           const selectedStatus = status.feishu?.instances?.find(s => s.instanceId === activeFeishuInstanceId);
           return (
-            <FeishuInstanceSettings
-              instance={selectedInstance}
-              instanceStatus={selectedStatus}
-              onConfigChange={(update) => {
-                dispatch(setFeishuInstanceConfig({ instanceId: activeFeishuInstanceId, config: update }));
-              }}
-              onSave={async (override) => {
-                const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
-                if (selectedInstance.enabled) {
-                  await imService.updateFeishuInstanceConfig(activeFeishuInstanceId, configToSave);
-                } else {
-                  await imService.persistFeishuInstanceConfig(activeFeishuInstanceId, configToSave);
-                }
-              }}
-              onRename={async (newName) => {
-                dispatch(setFeishuInstanceConfig({ instanceId: activeFeishuInstanceId, config: { instanceName: newName } as any }));
-                await imService.persistFeishuInstanceConfig(activeFeishuInstanceId, { instanceName: newName } as any);
-              }}
-              onDelete={async () => {
-                await imService.deleteFeishuInstance(activeFeishuInstanceId);
-                const remaining = config.feishu.instances.filter(i => i.instanceId !== activeFeishuInstanceId);
-                setActiveFeishuInstanceId(remaining.length > 0 ? remaining[0].instanceId : null);
-              }}
-              onToggleEnabled={async () => {
-                const newEnabled = !selectedInstance.enabled;
-                if (newEnabled && !(selectedInstance.appId && selectedInstance.appSecret)) return;
-                const success = await imService.updateFeishuInstanceConfig(activeFeishuInstanceId, { enabled: newEnabled });
-                if (success) {
-                  dispatch(setFeishuInstanceConfig({ instanceId: activeFeishuInstanceId, config: { enabled: newEnabled } }));
-                  if (newEnabled) dispatch(clearError());
-                }
-              }}
-              onTestConnectivity={() => {
-                void handleConnectivityTest('feishu');
-              }}
-              testingPlatform={testingPlatform}
-              connectivityResults={connectivityResults}
-              language={language}
-            />
+            <div className="space-y-4">
+              <FeishuInstanceSettings
+                instance={selectedInstance}
+                instanceStatus={selectedStatus}
+                headerLeading={renderBackToInstanceList('feishu')}
+                onConfigChange={(update) => {
+                  dispatch(setFeishuInstanceConfig({ instanceId: activeFeishuInstanceId, config: update }));
+                }}
+                onSave={async (override) => {
+                  const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
+                  const restartOnSaveOptions = override?.enabled === true && !!override.appId && !!override.appSecret
+                    ? IM_AUTH_RESTART_ON_SAVE_OPTIONS
+                    : undefined;
+                  if (selectedInstance.enabled || restartOnSaveOptions) {
+                    await imService.updateFeishuInstanceConfig(activeFeishuInstanceId, configToSave, restartOnSaveOptions);
+                  } else {
+                    await imService.persistFeishuInstanceConfig(activeFeishuInstanceId, configToSave);
+                  }
+                  if (typeof override?.enabled === 'boolean') {
+                    setSaveReminderTarget('feishu', activeFeishuInstanceId, override.enabled);
+                  }
+                }}
+                onRename={async (newName) => {
+                  dispatch(setFeishuInstanceConfig({ instanceId: activeFeishuInstanceId, config: { instanceName: newName } as any }));
+                  await imService.persistFeishuInstanceConfig(activeFeishuInstanceId, { instanceName: newName } as any);
+                }}
+                onTestConnectivity={() => {
+                  void handleConnectivityTest('feishu');
+                }}
+                testingPlatform={testingPlatform}
+                connectivityResults={connectivityResults}
+                language={language}
+              />
+              {renderInstanceSaveReminder('feishu', selectedInstance as unknown as IMInstanceConfigCard, selectedStatus)}
+            </div>
           );
         })()}
 
         {/* QQ Settings (multi-instance) */}
-        {activePlatform === 'qq' && !activeQQInstanceId && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <img src={PlatformRegistry.logo('qq')} alt="QQ" className="w-12 h-12 object-contain rounded-md mb-4 opacity-50" />
-            <p className="text-sm text-secondary mb-4">
-              {config.qq.instances.length === 0
-                ? (language === 'zh' ? '尚未添加 QQ 实例，点击下方按钮添加' : 'No QQ instances yet. Click below to add one.')
-                : (language === 'zh' ? '请在左侧选择一个 QQ 实例' : 'Select a QQ instance from the sidebar.')}
-            </p>
-            {config.qq.instances.length < MAX_QQ_INSTANCES && (
-              <button
-                type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  const inst = await imService.addQQInstance(`QQ Bot ${config.qq.instances.length + 1}`);
-                  if (inst) { setActiveQQInstanceId(inst.instanceId); setQqExpanded(true); }
-                }}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              >
-                + {i18nService.t('imQQAddInstance')}
-              </button>
-            )}
-          </div>
-        )}
+        {activePlatform === 'qq' && !activeQQInstanceId && renderMultiInstanceOverview('qq')}
         {activePlatform === 'qq' && activeQQInstanceId && (() => {
           const selectedInstance = config.qq.instances.find(i => i.instanceId === activeQQInstanceId);
           if (!selectedInstance) return null;
           const selectedStatus = status.qq?.instances?.find(s => s.instanceId === activeQQInstanceId);
           return (
-            <QQInstanceSettings
-              instance={selectedInstance}
-              instanceStatus={selectedStatus}
-              onConfigChange={(update) => {
-                dispatch(setQQInstanceConfig({ instanceId: activeQQInstanceId, config: update }));
-              }}
-              onSave={async (override) => {
-                const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
-                if (selectedInstance.enabled) {
-                  await imService.updateQQInstanceConfig(activeQQInstanceId, configToSave);
-                } else {
-                  await imService.persistQQInstanceConfig(activeQQInstanceId, configToSave);
-                }
-              }}
-              onRename={async (newName) => {
-                dispatch(setQQInstanceConfig({ instanceId: activeQQInstanceId, config: { instanceName: newName } as any }));
-                await imService.persistQQInstanceConfig(activeQQInstanceId, { instanceName: newName } as any);
-              }}
-              onDelete={async () => {
-                await imService.deleteQQInstance(activeQQInstanceId);
-                const remaining = config.qq.instances.filter(i => i.instanceId !== activeQQInstanceId);
-                setActiveQQInstanceId(remaining.length > 0 ? remaining[0].instanceId : null);
-              }}
-              onToggleEnabled={async () => {
-                const newEnabled = !selectedInstance.enabled;
-                if (newEnabled && !(selectedInstance.appId && selectedInstance.appSecret)) return;
-                const success = await imService.updateQQInstanceConfig(activeQQInstanceId, { enabled: newEnabled });
-                if (success) {
-                  dispatch(setQQInstanceConfig({ instanceId: activeQQInstanceId, config: { enabled: newEnabled } }));
-                  if (newEnabled) dispatch(clearError());
-                }
-              }}
-              onTestConnectivity={() => {
-                void handleConnectivityTest('qq');
-              }}
-              testingPlatform={testingPlatform}
-              connectivityResults={connectivityResults}
-              language={language}
-            />
+            <div className="space-y-4">
+              <QQInstanceSettings
+                instance={selectedInstance}
+                instanceStatus={selectedStatus}
+                headerLeading={renderBackToInstanceList('qq')}
+                onConfigChange={(update) => {
+                  dispatch(setQQInstanceConfig({ instanceId: activeQQInstanceId, config: update }));
+                }}
+                onSave={async (override) => {
+                  const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
+                  if (selectedInstance.enabled) {
+                    await imService.updateQQInstanceConfig(activeQQInstanceId, configToSave);
+                  } else {
+                    await imService.persistQQInstanceConfig(activeQQInstanceId, configToSave);
+                  }
+                  if (typeof override?.enabled === 'boolean') {
+                    setSaveReminderTarget('qq', activeQQInstanceId, override.enabled);
+                  }
+                }}
+                onRename={async (newName) => {
+                  dispatch(setQQInstanceConfig({ instanceId: activeQQInstanceId, config: { instanceName: newName } as any }));
+                  await imService.persistQQInstanceConfig(activeQQInstanceId, { instanceName: newName } as any);
+                }}
+                onTestConnectivity={() => {
+                  void handleConnectivityTest('qq');
+                }}
+                testingPlatform={testingPlatform}
+                connectivityResults={connectivityResults}
+              />
+              {renderInstanceSaveReminder('qq', selectedInstance as unknown as IMInstanceConfigCard, selectedStatus)}
+            </div>
           );
         })()}
 
         {/* Email Settings (multi-instance, inline form like feishu/qq) */}
-        {activePlatform === 'email' && !activeEmailInstanceId && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <img src={PlatformRegistry.logo('email')} alt="Email" className="w-12 h-12 object-contain rounded-md mb-4 opacity-50" />
-            <p className="text-sm text-secondary mb-4">
-              {config.email.instances.length === 0
-                ? i18nService.t('imEmailNoInstances')
-                : i18nService.t('imEmailSelectInstance')}
-            </p>
-            {config.email.instances.length < MAX_EMAIL_INSTANCES && (
-              <button
-                type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  const inst = await imService.addEmailInstance(`Email ${config.email.instances.length + 1}`);
-                  if (inst) { setActivePlatform('email'); setActiveEmailInstanceId(inst.instanceId); setEmailExpanded(true); }
-                }}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              >
-                + {i18nService.t('imEmailAddInstance')}
-              </button>
-            )}
-          </div>
-        )}
+        {activePlatform === 'email' && !activeEmailInstanceId && renderMultiInstanceOverview('email')}
         {activePlatform === 'email' && activeEmailInstanceId && (() => {
           const inst = config.email.instances.find(i => i.instanceId === activeEmailInstanceId);
           if (!inst) return null;
@@ -1909,9 +2028,7 @@ const IMSettings: React.FC = () => {
               {/* Instance Header: Name, Status, Enable Toggle, Delete */}
               <div className="flex items-center gap-3 pb-3 border-b border-border-subtle">
                 <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-surface border border-border-subtle p-1">
-                    <img src={PlatformRegistry.logo('email')} alt="Email" className="w-4 h-4 object-contain rounded" />
-                  </div>
+                  {renderBackToInstanceList('email')}
                   <h3 className="text-sm font-medium text-foreground truncate">{inst.instanceName}</h3>
                 </div>
 
@@ -1936,6 +2053,7 @@ const IMSettings: React.FC = () => {
                       const success = await imService.updateEmailInstanceConfig(inst.instanceId, { enabled: false });
                       if (success) {
                         dispatch(setEmailInstanceConfig({ instanceId: inst.instanceId, config: { enabled: false } }));
+                        setSaveReminderTarget('email', inst.instanceId, false);
                       }
                       return;
                     }
@@ -1951,6 +2069,7 @@ const IMSettings: React.FC = () => {
                         const success = await imService.updateEmailInstanceConfig(inst.instanceId, { enabled: true });
                         if (success) {
                           dispatch(setEmailInstanceConfig({ instanceId: inst.instanceId, config: { enabled: true } }));
+                          setSaveReminderTarget('email', inst.instanceId, true);
                           dispatch(clearError());
                         }
                       } else {
@@ -1996,6 +2115,8 @@ const IMSettings: React.FC = () => {
                   {i18nService.t('delete')}
                 </button>
               </div>
+
+              {renderInstanceSaveReminder('email', inst as unknown as IMInstanceConfigCard, instStatus)}
 
               {/* Email Address */}
               <div>
@@ -2216,216 +2337,132 @@ const IMSettings: React.FC = () => {
         })()}
 
         {/* Telegram Settings (multi-instance) */}
-        {activePlatform === 'telegram' && !activeTelegramInstanceId && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <img src={PlatformRegistry.logo('telegram')} alt="Telegram" className="w-12 h-12 object-contain rounded-md mb-4 opacity-50" />
-            <p className="text-sm text-secondary mb-4">
-              {config.telegram.instances.length === 0
-                ? (language === 'zh' ? '尚未添加 Telegram 实例，点击下方按钮添加' : 'No Telegram instances yet. Click below to add one.')
-                : (language === 'zh' ? '请在左侧选择一个 Telegram 实例' : 'Select a Telegram instance from the sidebar.')}
-            </p>
-            {config.telegram.instances.length < MAX_TELEGRAM_INSTANCES && (
-              <button
-                type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  const inst = await imService.addTelegramInstance(`Telegram Bot ${config.telegram.instances.length + 1}`);
-                  if (inst) { setActiveTelegramInstanceId(inst.instanceId); setTelegramExpanded(true); }
-                }}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              >
-                + {i18nService.t('imTelegramAddInstance')}
-              </button>
-            )}
-          </div>
-        )}
+        {activePlatform === 'telegram' && !activeTelegramInstanceId && renderMultiInstanceOverview('telegram')}
         {activePlatform === 'telegram' && activeTelegramInstanceId && (() => {
           const selectedInstance = config.telegram.instances.find(i => i.instanceId === activeTelegramInstanceId);
           if (!selectedInstance) return null;
           const selectedStatus = status.telegram?.instances?.find(s => s.instanceId === activeTelegramInstanceId);
           return (
-            <TelegramInstanceSettings
-              instance={selectedInstance}
-              instanceStatus={selectedStatus}
-              onConfigChange={(update) => {
-                dispatch(setTelegramInstanceConfig({ instanceId: activeTelegramInstanceId, config: update }));
-              }}
-              onSave={async (override) => {
-                const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
-                if (selectedInstance.enabled) {
-                  await imService.updateTelegramInstanceConfig(activeTelegramInstanceId, configToSave);
-                } else {
-                  await imService.persistTelegramInstanceConfig(activeTelegramInstanceId, configToSave);
-                }
-              }}
-              onRename={async (newName) => {
-                dispatch(setTelegramInstanceConfig({ instanceId: activeTelegramInstanceId, config: { instanceName: newName } as any }));
-                await imService.persistTelegramInstanceConfig(activeTelegramInstanceId, { instanceName: newName } as any);
-              }}
-              onDelete={async () => {
-                await imService.deleteTelegramInstance(activeTelegramInstanceId);
-                const remaining = config.telegram.instances.filter(i => i.instanceId !== activeTelegramInstanceId);
-                setActiveTelegramInstanceId(remaining.length > 0 ? remaining[0].instanceId : null);
-              }}
-              onToggleEnabled={async () => {
-                const newEnabled = !selectedInstance.enabled;
-                if (newEnabled && !selectedInstance.botToken) return;
-                const success = await imService.updateTelegramInstanceConfig(activeTelegramInstanceId, { enabled: newEnabled });
-                if (success) {
-                  dispatch(setTelegramInstanceConfig({ instanceId: activeTelegramInstanceId, config: { enabled: newEnabled } }));
-                  if (newEnabled) dispatch(clearError());
-                }
-              }}
-              onTestConnectivity={() => {
-                void handleConnectivityTest('telegram');
-              }}
-              testingPlatform={testingPlatform}
-              connectivityResults={connectivityResults}
-              language={language}
-            />
+            <div className="space-y-4">
+              <TelegramInstanceSettings
+                instance={selectedInstance}
+                instanceStatus={selectedStatus}
+                headerLeading={renderBackToInstanceList('telegram')}
+                onConfigChange={(update) => {
+                  dispatch(setTelegramInstanceConfig({ instanceId: activeTelegramInstanceId, config: update }));
+                }}
+                onSave={async (override) => {
+                  const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
+                  if (selectedInstance.enabled) {
+                    await imService.updateTelegramInstanceConfig(activeTelegramInstanceId, configToSave);
+                  } else {
+                    await imService.persistTelegramInstanceConfig(activeTelegramInstanceId, configToSave);
+                  }
+                  if (typeof override?.enabled === 'boolean') {
+                    setSaveReminderTarget('telegram', activeTelegramInstanceId, override.enabled);
+                  }
+                }}
+                onRename={async (newName) => {
+                  dispatch(setTelegramInstanceConfig({ instanceId: activeTelegramInstanceId, config: { instanceName: newName } as any }));
+                  await imService.persistTelegramInstanceConfig(activeTelegramInstanceId, { instanceName: newName } as any);
+                }}
+                onTestConnectivity={() => {
+                  void handleConnectivityTest('telegram');
+                }}
+                testingPlatform={testingPlatform}
+                connectivityResults={connectivityResults}
+                language={language}
+              />
+              {renderInstanceSaveReminder('telegram', selectedInstance as unknown as IMInstanceConfigCard, selectedStatus)}
+            </div>
           );
         })()}
 
         {/* Discord Settings */}
-        {activePlatform === 'discord' && !activeDiscordInstanceId && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <img src={PlatformRegistry.logo('discord')} alt="Discord" className="w-12 h-12 object-contain rounded-md mb-4 opacity-50" />
-            <p className="text-sm text-secondary mb-4">
-              {config.discord.instances.length === 0
-                ? (language === 'zh' ? '尚未添加 Discord 实例，点击下方按钮添加' : 'No Discord instances yet. Click below to add one.')
-                : (language === 'zh' ? '请在左侧选择一个 Discord 实例' : 'Select a Discord instance from the sidebar.')}
-            </p>
-            {config.discord.instances.length < MAX_DISCORD_INSTANCES && (
-              <button
-                type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  const inst = await imService.addDiscordInstance(`Discord Bot ${config.discord.instances.length + 1}`);
-                  if (inst) { setActiveDiscordInstanceId(inst.instanceId); setDiscordExpanded(true); }
-                }}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              >
-                + {language === 'zh' ? '添加 Discord 实例' : 'Add Discord Instance'}
-              </button>
-            )}
-          </div>
-        )}
+        {activePlatform === 'discord' && !activeDiscordInstanceId && renderMultiInstanceOverview('discord')}
         {activePlatform === 'discord' && activeDiscordInstanceId && (() => {
           const selectedInstance = config.discord.instances.find(i => i.instanceId === activeDiscordInstanceId);
           if (!selectedInstance) return null;
           const selectedStatus = status.discord?.instances?.find(s => s.instanceId === activeDiscordInstanceId);
           return (
-            <DiscordInstanceSettings
-              instance={selectedInstance}
-              instanceStatus={selectedStatus}
-              onConfigChange={(update) => {
-                dispatch(setDiscordInstanceConfig({ instanceId: activeDiscordInstanceId, config: update }));
-              }}
-              onSave={async (override) => {
-                const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
-                if (selectedInstance.enabled) {
-                  await imService.updateDiscordInstanceConfig(activeDiscordInstanceId, configToSave);
-                } else {
-                  await imService.persistDiscordInstanceConfig(activeDiscordInstanceId, configToSave);
-                }
-              }}
-              onRename={async (newName) => {
-                dispatch(setDiscordInstanceConfig({ instanceId: activeDiscordInstanceId, config: { instanceName: newName } as any }));
-                await imService.persistDiscordInstanceConfig(activeDiscordInstanceId, { instanceName: newName } as any);
-              }}
-              onDelete={async () => {
-                await imService.deleteDiscordInstance(activeDiscordInstanceId);
-                const remaining = config.discord.instances.filter(i => i.instanceId !== activeDiscordInstanceId);
-                setActiveDiscordInstanceId(remaining.length > 0 ? remaining[0].instanceId : null);
-              }}
-              onToggleEnabled={async () => {
-                const newEnabled = !selectedInstance.enabled;
-                if (newEnabled && !selectedInstance.botToken) return;
-                const success = await imService.updateDiscordInstanceConfig(activeDiscordInstanceId, { enabled: newEnabled });
-                if (success) {
-                  dispatch(setDiscordInstanceConfig({ instanceId: activeDiscordInstanceId, config: { enabled: newEnabled } }));
-                  if (newEnabled) dispatch(clearError());
-                }
-              }}
-              onTestConnectivity={() => {
-                void handleConnectivityTest('discord');
-              }}
-              testingPlatform={testingPlatform}
-              connectivityResults={connectivityResults}
-              language={language}
-            />
+            <div className="space-y-4">
+              <DiscordInstanceSettings
+                instance={selectedInstance}
+                instanceStatus={selectedStatus}
+                headerLeading={renderBackToInstanceList('discord')}
+                onConfigChange={(update) => {
+                  dispatch(setDiscordInstanceConfig({ instanceId: activeDiscordInstanceId, config: update }));
+                }}
+                onSave={async (override) => {
+                  const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
+                  if (selectedInstance.enabled) {
+                    await imService.updateDiscordInstanceConfig(activeDiscordInstanceId, configToSave);
+                  } else {
+                    await imService.persistDiscordInstanceConfig(activeDiscordInstanceId, configToSave);
+                  }
+                  if (typeof override?.enabled === 'boolean') {
+                    setSaveReminderTarget('discord', activeDiscordInstanceId, override.enabled);
+                  }
+                }}
+                onRename={async (newName) => {
+                  dispatch(setDiscordInstanceConfig({ instanceId: activeDiscordInstanceId, config: { instanceName: newName } as any }));
+                  await imService.persistDiscordInstanceConfig(activeDiscordInstanceId, { instanceName: newName } as any);
+                }}
+                onTestConnectivity={() => {
+                  void handleConnectivityTest('discord');
+                }}
+                testingPlatform={testingPlatform}
+                connectivityResults={connectivityResults}
+                language={language}
+              />
+              {renderInstanceSaveReminder('discord', selectedInstance as unknown as IMInstanceConfigCard, selectedStatus)}
+            </div>
           );
         })()}
 
         {/* NIM (NetEase IM) Settings */}
-        {activePlatform === 'nim' && !activeNimInstanceId && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <img src={PlatformRegistry.logo('nim')} alt="NIM" className="w-12 h-12 object-contain rounded-md mb-4 opacity-50" />
-            <p className="text-sm text-secondary mb-4">
-              {config.nim.instances.length === 0
-                ? (language === 'zh' ? '尚未添加云信实例，点击下方按钮添加' : 'No NIM instances yet. Click below to add one.')
-                : (language === 'zh' ? '请在左侧选择一个云信实例' : 'Select a NIM instance from the sidebar.')}
-            </p>
-            {config.nim.instances.length < MAX_NIM_INSTANCES && (
-              <button
-                type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  const inst = await imService.addNimInstance(`NIM Bot ${config.nim.instances.length + 1}`);
-                  if (inst) { setActiveNimInstanceId(inst.instanceId); setNimExpanded(true); }
-                }}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              >
-                + {i18nService.t('imNimAddInstance')}
-              </button>
-            )}
-          </div>
-        )}
+        {activePlatform === 'nim' && !activeNimInstanceId && renderMultiInstanceOverview('nim')}
         {activePlatform === 'nim' && activeNimInstanceId && (() => {
           const selectedInstance = config.nim.instances.find(i => i.instanceId === activeNimInstanceId);
           if (!selectedInstance) return null;
           const selectedStatus = status.nim?.instances?.find(s => s.instanceId === activeNimInstanceId);
           return (
-            <NimInstanceSettings
-              instance={selectedInstance}
-              instanceStatus={selectedStatus}
-              schemaData={nimSchemaData}
-              onConfigChange={(update) => {
-                dispatch(setNimInstanceConfig({ instanceId: activeNimInstanceId, config: update }));
-              }}
-              onSave={async (override) => {
-                const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
-                if (selectedInstance.enabled) {
-                  await imService.updateNimInstanceConfig(activeNimInstanceId, configToSave);
-                } else {
-                  await imService.persistNimInstanceConfig(activeNimInstanceId, configToSave);
-                }
-              }}
-              onRename={async (newName) => {
-                dispatch(setNimInstanceConfig({ instanceId: activeNimInstanceId, config: { instanceName: newName } as any }));
-                await imService.persistNimInstanceConfig(activeNimInstanceId, { instanceName: newName } as any);
-              }}
-              onDelete={async () => {
-                await imService.deleteNimInstance(activeNimInstanceId);
-                const remaining = config.nim.instances.filter(i => i.instanceId !== activeNimInstanceId);
-                setActiveNimInstanceId(remaining.length > 0 ? remaining[0].instanceId : null);
-              }}
-              onToggleEnabled={async () => {
-                const newEnabled = !selectedInstance.enabled;
-                if (newEnabled && !(selectedInstance.nimToken || (selectedInstance.appKey && selectedInstance.account && selectedInstance.token))) return;
-                const success = await imService.updateNimInstanceConfig(activeNimInstanceId, { enabled: newEnabled });
-                if (success) {
-                  dispatch(setNimInstanceConfig({ instanceId: activeNimInstanceId, config: { enabled: newEnabled } }));
-                  if (newEnabled) dispatch(clearError());
-                }
-              }}
-              onTestConnectivity={() => {
-                void handleConnectivityTest('nim');
-              }}
-              testingPlatform={testingPlatform}
-              connectivityResults={connectivityResults}
-              language={language}
-            />
+            <div className="space-y-4">
+              <NimInstanceSettings
+                instance={selectedInstance}
+                instanceStatus={selectedStatus}
+                schemaData={nimSchemaData}
+                headerLeading={renderBackToInstanceList('nim')}
+                onConfigChange={(update) => {
+                  dispatch(setNimInstanceConfig({ instanceId: activeNimInstanceId, config: update }));
+                }}
+                onSave={async (override) => {
+                  const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
+                  const restartOnSaveOptions = override?.enabled === true
+                    && (!!override.nimToken || !!(override.appKey && override.account && override.token))
+                    ? IM_AUTH_RESTART_ON_SAVE_OPTIONS
+                    : undefined;
+                  if (selectedInstance.enabled || restartOnSaveOptions) {
+                    await imService.updateNimInstanceConfig(activeNimInstanceId, configToSave, restartOnSaveOptions);
+                  } else {
+                    await imService.persistNimInstanceConfig(activeNimInstanceId, configToSave);
+                  }
+                  if (typeof override?.enabled === 'boolean') {
+                    setSaveReminderTarget('nim', activeNimInstanceId, override.enabled);
+                  }
+                }}
+                onRename={async (newName) => {
+                  dispatch(setNimInstanceConfig({ instanceId: activeNimInstanceId, config: { instanceName: newName } as any }));
+                  await imService.persistNimInstanceConfig(activeNimInstanceId, { instanceName: newName } as any);
+                }}
+                onTestConnectivity={() => {
+                  void handleConnectivityTest('nim');
+                }}
+                testingPlatform={testingPlatform}
+                connectivityResults={connectivityResults}
+              />
+              {renderInstanceSaveReminder('nim', selectedInstance as unknown as IMInstanceConfigCard, selectedStatus)}
+            </div>
           );
         })()}
 
@@ -2502,6 +2539,8 @@ const IMSettings: React.FC = () => {
               {renderConnectivityTestButton('netease-bee')}
             </div>
 
+            {renderPlatformRuntimeNotice('netease-bee')}
+
             {/* Bot account display */}
             {status['netease-bee']?.botAccount && (
               <div className="text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-3 py-2 rounded-lg">
@@ -2522,174 +2561,223 @@ const IMSettings: React.FC = () => {
         {activePlatform === 'weixin' && (
           <div className="space-y-3">
             {/* Scan QR code section */}
-            <div className="rounded-lg border border-dashed border-border-subtle p-4 text-center space-y-3">
-              {(weixinQrStatus === 'idle' || weixinQrStatus === 'error') && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void handleWeixinQrLogin()}
-                    className="px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {i18nService.t('imWeixinScanBtn')}
-                  </button>
-                  <p className="text-xs text-secondary">
-                    {i18nService.t('imWeixinScanHint')}
-                  </p>
-                  {weixinQrStatus === 'error' && weixinQrError && (
-                    <div className="flex items-center justify-center gap-1.5 text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg">
-                      <XCircleIcon className="h-4 w-4 flex-shrink-0" />
-                      {weixinQrError}
-                    </div>
-                  )}
-                </>
-              )}
-              {weixinQrStatus === 'loading' && (
-                <div className="flex items-center justify-center gap-2 py-4">
-                  <ArrowPathIcon className="h-5 w-5 animate-spin text-primary" />
-                  <span className="text-sm text-secondary">
-                    {i18nService.t('imWeixinQrLoading')}
-                  </span>
-                </div>
-              )}
-              {(weixinQrStatus === 'showing' || weixinQrStatus === 'waiting') && weixinQrUrl && (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium text-foreground">
-                    {i18nService.t('imWeixinQrScanPrompt')}
-                  </p>
-                  <div className="flex justify-center">
-                    <div className="p-3 bg-white rounded-lg border border-border-subtle">
-                      <QRCodeSVG value={weixinQrUrl} size={192} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              {weixinQrStatus === 'success' && (
-                <div className="flex items-center justify-center gap-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-3 py-2 rounded-lg">
-                  <CheckCircleIcon className="h-4 w-4 flex-shrink-0" />
-                  {i18nService.t('imWeixinQrSuccess')}
-                </div>
-              )}
-            </div>
-
-            {/* Platform Guide */}
-            <PlatformGuide
-              steps={[
-                i18nService.t('imWeixinGuideStep1'),
-                i18nService.t('imWeixinGuideStep2'),
-                i18nService.t('imWeixinGuideStep3'),
-              ]}
-                guideUrl={PlatformRegistry.guideUrl('weixin')}
-            />
-
-            {/* Connectivity test */}
-            <div className="pt-1">
-              {renderConnectivityTestButton('weixin')}
-            </div>
-
-            {/* Account ID display */}
-            {weixinAccountId && (
-              <div className="text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-3 py-2 rounded-lg">
-                Account ID: {weixinAccountId}
-              </div>
-            )}
-
-            {/* Error display */}
-            {status.weixin?.lastError && (
-              <div className="text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg">
-                {status.weixin.lastError}
-              </div>
-            )}
-
-            {/* Advanced Settings (collapsible) */}
-            <details className="group">
-              <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-primary transition-colors">
-                {i18nService.t('imAdvancedSettings')}
-              </summary>
-              <div className="mt-2 space-y-3 pl-2 border-l-2 border-border-subtle">
-                {/* DM Policy */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">
-                    DM Policy
-                  </label>
-                  <select
-                    value={weixinOpenClawConfig.dmPolicy}
-                    onChange={(e) => {
-                      const update = { dmPolicy: e.target.value as WeixinOpenClawConfig['dmPolicy'] };
-                      void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, ...update } });
-                    }}
-                    className="block w-full rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                  >
-                    <option value="open">{i18nService.t('imDmPolicyOpen')}</option>
-                    <option value="pairing">{i18nService.t('imDmPolicyPairing')}</option>
-                    <option value="allowlist">{i18nService.t('imDmPolicyAllowlist')}</option>
-                    <option value="disabled">{i18nService.t('imDmPolicyDisabled')}</option>
-                  </select>
-                </div>
-
-                {/* Allow From */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-secondary">
-                    Allow From (User IDs)
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={weixinAllowFromInput}
-                      onChange={(e) => setWeixinAllowFromInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const id = weixinAllowFromInput.trim();
-                          if (id && !weixinOpenClawConfig.allowFrom.includes(id)) {
-                            const newIds = [...weixinOpenClawConfig.allowFrom, id];
-                            setWeixinAllowFromInput('');
-                            void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
-                          }
-                        }
-                      }}
-                      className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm transition-colors"
-                      placeholder="wxid_xxx@im.wechat"
-                    />
+            {(!weixinAccountId || (weixinQrStatus !== 'idle' && weixinQrStatus !== 'success')) && (
+              <div className="rounded-lg border border-dashed border-border-subtle p-4 text-center space-y-3">
+                {(weixinQrStatus === 'idle' || weixinQrStatus === 'error') && (
+                  <>
                     <button
                       type="button"
-                      onClick={() => {
-                        const id = weixinAllowFromInput.trim();
-                        if (id && !weixinOpenClawConfig.allowFrom.includes(id)) {
-                          const newIds = [...weixinOpenClawConfig.allowFrom, id];
-                          setWeixinAllowFromInput('');
-                          void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
-                        }
-                      }}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      onClick={() => void handleWeixinQrLogin()}
+                      className="px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      {i18nService.t('add') || '添加'}
+                      {i18nService.t('imWeixinScanBtn')}
                     </button>
+                    <p className="text-xs text-secondary">
+                      {i18nService.t('imWeixinScanHint')}
+                    </p>
+                    {weixinQrStatus === 'error' && weixinQrError && (
+                      <div className="flex items-center justify-center gap-1.5 text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg">
+                        <XCircleIcon className="h-4 w-4 flex-shrink-0" />
+                        {weixinQrError}
+                      </div>
+                    )}
+                  </>
+                )}
+                {weixinQrStatus === 'loading' && (
+                  <div className="flex items-center justify-center gap-2 py-4">
+                    <ArrowPathIcon className="h-5 w-5 animate-spin text-primary" />
+                    <span className="text-sm text-secondary">
+                      {i18nService.t('imWeixinQrLoading')}
+                    </span>
                   </div>
-                  {weixinOpenClawConfig.allowFrom.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {weixinOpenClawConfig.allowFrom.map((id) => (
-                        <span
-                          key={id}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-surface border-border-subtle border text-foreground"
-                        >
-                          {id}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newIds = weixinOpenClawConfig.allowFrom.filter((uid) => uid !== id);
-                              void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
-                            }}
-                            className="text-secondary hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                          >
-                            <XMarkIcon className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
+                )}
+                {(weixinQrStatus === 'showing' || weixinQrStatus === 'waiting') && weixinQrUrl && (
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-foreground">
+                      {i18nService.t('imWeixinQrScanPrompt')}
+                    </p>
+                    <div className="flex justify-center">
+                      <div className="p-3 bg-white rounded-lg border border-border-subtle">
+                        <QRCodeSVG value={weixinQrUrl} size={192} />
+                      </div>
                     </div>
-                  )}
+                  </div>
+                )}
+                {weixinQrStatus === 'success' && (
+                  <div className="flex items-center justify-center gap-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-3 py-2 rounded-lg">
+                    <CheckCircleIcon className="h-4 w-4 flex-shrink-0" />
+                    {i18nService.t('imWeixinQrSuccess')}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {weixinAccountId && (
+              <div className="rounded-xl border border-border-subtle bg-surface p-3 shadow-subtle">
+                <div className="space-y-4">
+                  <section>
+                    <h4 className="mb-2 text-xs font-medium text-secondary">
+                      {i18nService.t('imAccountSection')}
+                    </h4>
+                    <div className="flex min-h-[42px] items-center rounded-lg border border-border-subtle bg-surface px-3">
+                      <span className="text-xs font-medium text-foreground">
+                        {i18nService.t('imAccountIdLabel')}
+                      </span>
+                      <span className="ml-auto min-w-0 truncate pl-4 text-xs font-medium text-secondary select-text" title={weixinAccountId}>
+                        {weixinAccountId}
+                      </span>
+                    </div>
+                  </section>
+
+                  <section>
+                    <h4 className="mb-2 text-xs font-medium text-secondary">
+                      {i18nService.t('imReceivePermission')}
+                    </h4>
+                    <div className="relative" ref={weixinDmPolicyMenuRef}>
+                      <button
+                        type="button"
+                        onClick={() => setIsWeixinDmPolicyMenuOpen((open) => !open)}
+                        className={`flex min-h-[42px] w-full items-center rounded-lg border px-3 text-left transition-colors ${
+                          isWeixinDmPolicyMenuOpen
+                            ? 'border-primary bg-surface-raised shadow-subtle'
+                            : 'border-border-subtle bg-surface hover:border-border hover:bg-surface-raised'
+                        }`}
+                        aria-haspopup="listbox"
+                        aria-expanded={isWeixinDmPolicyMenuOpen}
+                      >
+                        <span className="text-xs font-medium text-foreground">
+                          {i18nService.t('imDmPolicyLabel')}
+                        </span>
+                        <span className="ml-auto text-xs font-medium text-foreground">
+                          {getDmPolicyLabel(weixinOpenClawConfig.dmPolicy)}
+                        </span>
+                        <ChevronDownIcon className={`ml-2 h-3.5 w-3.5 flex-shrink-0 text-secondary transition-transform ${isWeixinDmPolicyMenuOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {isWeixinDmPolicyMenuOpen && (
+                        <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-border bg-surface shadow-popover popover-enter">
+                          <div
+                            className="py-1"
+                            role="listbox"
+                            aria-label={i18nService.t('imDmPolicyLabel')}
+                          >
+                            {weixinDmPolicyOptions.map((option) => {
+                              const selected = option.value === weixinOpenClawConfig.dmPolicy;
+                              return (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  role="option"
+                                  aria-selected={selected}
+                                  onClick={() => updateWeixinDmPolicy(option.value)}
+                                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors ${
+                                    selected
+                                      ? 'bg-primary/10 text-primary'
+                                      : 'text-foreground hover:bg-surface-raised'
+                                  }`}
+                                >
+                                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                                  {selected && <CheckIcon className="h-3.5 w-3.5 flex-shrink-0" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <details className="group">
+                    <summary className="flex min-h-[42px] cursor-pointer list-none items-center rounded-lg border border-border-subtle bg-surface px-3 text-xs font-medium text-foreground transition-colors hover:border-border hover:bg-surface-raised [&::-webkit-details-marker]:hidden">
+                      {i18nService.t('imAdvancedSettings')}
+                      <ChevronRightIcon className="ml-auto h-3.5 w-3.5 text-secondary transition-transform group-open:rotate-90" />
+                    </summary>
+                    <div className="mt-3 rounded-lg border border-border-subtle bg-surface p-3">
+                      <label className="block text-xs font-medium text-secondary">
+                        {i18nService.t('imAllowFromLabel')}
+                      </label>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="text"
+                          value={weixinAllowFromInput}
+                          onChange={(e) => setWeixinAllowFromInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const id = weixinAllowFromInput.trim();
+                              if (id && !weixinOpenClawConfig.allowFrom.includes(id)) {
+                                const newIds = [...weixinOpenClawConfig.allowFrom, id];
+                                setWeixinAllowFromInput('');
+                                void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
+                              }
+                            }
+                          }}
+                          className="block flex-1 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm text-foreground transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
+                          placeholder={i18nService.t('imAllowFromPlaceholder')}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const id = weixinAllowFromInput.trim();
+                            if (id && !weixinOpenClawConfig.allowFrom.includes(id)) {
+                              const newIds = [...weixinOpenClawConfig.allowFrom, id];
+                              setWeixinAllowFromInput('');
+                              void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
+                            }
+                          }}
+                          className="rounded-md bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+                        >
+                          {i18nService.t('add')}
+                        </button>
+                      </div>
+                      {weixinOpenClawConfig.allowFrom.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {weixinOpenClawConfig.allowFrom.map((id) => (
+                            <span
+                              key={id}
+                              className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface px-2 py-0.5 text-xs text-foreground"
+                            >
+                              {id}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newIds = weixinOpenClawConfig.allowFrom.filter((uid) => uid !== id);
+                                  void imService.updateConfig({ weixin: { ...weixinOpenClawConfig, allowFrom: newIds } });
+                                }}
+                                className="text-secondary transition-colors hover:text-red-500 dark:hover:text-red-400"
+                                aria-label={i18nService.t('delete')}
+                              >
+                                <XMarkIcon className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </details>
                 </div>
               </div>
-            </details>
+            )}
+
+            {renderPlatformRuntimeNotice('weixin')}
+
+            {/* Error display */}
+            {shouldShowWeixinError && weixinLastError && (
+              <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500">
+                {translateIMError(weixinLastError)}
+              </div>
+            )}
+
+            {/* Platform Guide */}
+            {!weixinAccountId && (
+              <PlatformGuide
+                steps={[
+                  i18nService.t('imWeixinGuideStep1'),
+                  i18nService.t('imWeixinGuideStep2'),
+                  i18nService.t('imWeixinGuideStep3'),
+                ]}
+                guideUrl={PlatformRegistry.guideUrl('weixin')}
+              />
+            )}
           </div>
         )}
 
@@ -2705,162 +2793,152 @@ const IMSettings: React.FC = () => {
 
           if (activeWecomInstance) {
             return (
-              <WecomInstanceSettings
-                instance={activeWecomInstance}
-                instanceStatus={activeWecomStatus}
-                onConfigChange={(update) => {
-                  dispatch(setWecomInstanceConfig({ instanceId: activeWecomInstanceId!, config: update }));
-                }}
-                onSave={async (override) => {
-                  if (!configLoaded) return;
-                  const configToSave = override
-                    ? { ...activeWecomInstance, ...override }
-                    : activeWecomInstance;
-                  await imService.persistWecomInstanceConfig(activeWecomInstanceId!, configToSave);
-                }}
-                onRename={async (newName) => {
-                  dispatch(setWecomInstanceConfig({ instanceId: activeWecomInstanceId!, config: { instanceName: newName } as any }));
-                  await imService.persistWecomInstanceConfig(activeWecomInstanceId!, { instanceName: newName } as any);
-                }}
-                onDelete={async () => {
-                  await imService.deleteWecomInstance(activeWecomInstanceId!);
-                  setActiveWecomInstanceId(null);
-                }}
-                onToggleEnabled={async () => {
-                  const newEnabled = !activeWecomInstance.enabled;
-                  dispatch(setWecomInstanceConfig({ instanceId: activeWecomInstanceId!, config: { enabled: newEnabled } }));
-                  await imService.updateWecomInstanceConfig(activeWecomInstanceId!, { enabled: newEnabled });
-                }}
-                onTestConnectivity={() => void handleConnectivityTest('wecom')}
-                onQuickSetup={async () => {
-                  setWecomQuickSetupStatus('pending');
-                  setWecomQuickSetupError('');
-                  try {
-                    const bot = await WecomAIBotSDK.openBotInfoAuthWindow({ source: 'lobster-ai' });
-                    if (!isMountedRef.current) return;
-                    dispatch(setWecomInstanceConfig({ instanceId: activeWecomInstanceId!, config: { botId: bot.botid, secret: bot.secret, enabled: true } }));
-                    dispatch(clearError());
-                    await imService.updateWecomInstanceConfig(activeWecomInstanceId!, { botId: bot.botid, secret: bot.secret, enabled: true });
-                    if (!isMountedRef.current) return;
-                    await imService.loadStatus();
-                    if (!isMountedRef.current) return;
-                    setWecomQuickSetupStatus('success');
-                  } catch (error: unknown) {
-                    if (!isMountedRef.current) return;
-                    setWecomQuickSetupStatus('error');
-                    const err = error as { message?: string; code?: string };
-                    setWecomQuickSetupError(err.message || err.code || 'Unknown error');
-                  }
-                }}
-                quickSetupStatus={wecomQuickSetupStatus}
-                quickSetupError={wecomQuickSetupError}
-                testingPlatform={testingPlatform}
-                connectivityResults={connectivityResults as Record<string, IMConnectivityTestResult>}
-                language={language}
-                renderPairingSection={renderPairingSection}
-              />
+              <div className="space-y-4">
+                <WecomInstanceSettings
+                  instance={activeWecomInstance}
+                  instanceStatus={activeWecomStatus}
+                  headerLeading={renderBackToInstanceList('wecom')}
+                  onConfigChange={(update) => {
+                    dispatch(setWecomInstanceConfig({ instanceId: activeWecomInstanceId!, config: update }));
+                  }}
+                  onSave={async (override) => {
+                    if (!configLoaded) return;
+                    const configToSave = override
+                      ? { ...activeWecomInstance, ...override }
+                      : activeWecomInstance;
+                    await imService.persistWecomInstanceConfig(activeWecomInstanceId!, configToSave);
+                    if (typeof override?.enabled === 'boolean') {
+                      setSaveReminderTarget('wecom', activeWecomInstanceId!, override.enabled);
+                    }
+                  }}
+                  onRename={async (newName) => {
+                    dispatch(setWecomInstanceConfig({ instanceId: activeWecomInstanceId!, config: { instanceName: newName } as any }));
+                    await imService.persistWecomInstanceConfig(activeWecomInstanceId!, { instanceName: newName } as any);
+                  }}
+                  onTestConnectivity={() => void handleConnectivityTest('wecom')}
+                  onQuickSetup={async () => {
+                    setWecomQuickSetupStatus('pending');
+                    setWecomQuickSetupError('');
+                    try {
+                      const bot = await WecomAIBotSDK.openBotInfoAuthWindow({ source: 'lobster-ai' });
+                      if (!isMountedRef.current) return;
+                      dispatch(setWecomInstanceConfig({ instanceId: activeWecomInstanceId!, config: { botId: bot.botid, secret: bot.secret, enabled: true } }));
+                      dispatch(clearError());
+                      await imService.updateWecomInstanceConfig(
+                        activeWecomInstanceId!,
+                        { botId: bot.botid, secret: bot.secret, enabled: true },
+                        IM_AUTH_RESTART_ON_SAVE_OPTIONS,
+                      );
+                      setSaveReminderTarget('wecom', activeWecomInstanceId!, true);
+                      if (!isMountedRef.current) return;
+                      await imService.loadStatus();
+                      if (!isMountedRef.current) return;
+                      setWecomQuickSetupStatus('success');
+                    } catch (error: unknown) {
+                      if (!isMountedRef.current) return;
+                      setWecomQuickSetupStatus('error');
+                      const err = error as { message?: string; code?: string };
+                      setWecomQuickSetupError(err.message || err.code || 'Unknown error');
+                    }
+                  }}
+                  quickSetupStatus={wecomQuickSetupStatus}
+                  quickSetupError={wecomQuickSetupError}
+                  testingPlatform={testingPlatform}
+                  connectivityResults={connectivityResults as Record<string, IMConnectivityTestResult>}
+                  language={language}
+                  renderPairingSection={renderPairingSection}
+                />
+                {renderInstanceSaveReminder('wecom', activeWecomInstance as unknown as IMInstanceConfigCard, activeWecomStatus)}
+              </div>
             );
           }
 
-          // No instance selected - show placeholder
-          return (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <img src={PlatformRegistry.logo('wecom')} alt="WeCom" className="w-12 h-12 object-contain rounded-md mb-4 opacity-50" />
-              <p className="text-sm text-secondary mb-4">
-                {wecomMultiConfig.instances.length === 0
-                  ? (language === 'zh' ? '尚未添加企业微信实例，点击下方按钮添加' : 'No WeCom instances yet. Click below to add one.')
-                  : (language === 'zh' ? '请在左侧选择一个企业微信实例' : 'Select a WeCom instance from the sidebar.')}
-              </p>
-              {wecomMultiConfig.instances.length < MAX_WECOM_INSTANCES && (
-                <button
-                  type="button"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    const name = `WeCom Bot ${wecomMultiConfig.instances.length + 1}`;
-                    const inst = await imService.addWecomInstance(name);
-                    if (inst) {
-                      setActiveWecomInstanceId(inst.instanceId);
-                      setWecomExpanded(true);
-                    }
-                  }}
-                  className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                >
-                  + {i18nService.t('imWecomAddInstance')}
-                </button>
-              )}
-            </div>
-          );
+          return renderMultiInstanceOverview('wecom');
         })()}
 
-        {activePlatform === 'popo' && !activePopoInstanceId && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <img src={PlatformRegistry.logo('popo')} alt="POPO" className="w-12 h-12 object-contain rounded-md mb-4 opacity-50" />
-            <p className="text-sm text-secondary mb-4">
-              {config.popo.instances.length === 0
-                ? (language === 'zh' ? '尚未添加 POPO 实例，点击下方按钮添加' : 'No POPO instances yet. Click below to add one.')
-                : (language === 'zh' ? '请在左侧选择一个 POPO 实例' : 'Select a POPO instance from the sidebar.')}
-            </p>
-            {config.popo.instances.length < MAX_POPO_INSTANCES && (
-              <button
-                type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  const inst = await imService.addPopoInstance(`POPO Bot ${config.popo.instances.length + 1}`);
-                  if (inst) { setActivePopoInstanceId(inst.instanceId); setPopoExpanded(true); }
-                }}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              >
-                + {language === 'zh' ? '添加 POPO 实例' : 'Add POPO Instance'}
-              </button>
-            )}
-          </div>
-        )}
+        {activePlatform === 'popo' && !activePopoInstanceId && renderMultiInstanceOverview('popo')}
         {activePlatform === 'popo' && activePopoInstanceId && (() => {
           const selectedInstance = config.popo.instances.find(i => i.instanceId === activePopoInstanceId);
           if (!selectedInstance) return null;
           const selectedStatus = status.popo?.instances?.find(s => s.instanceId === activePopoInstanceId);
           return (
-            <PopoInstanceSettings
-              instance={selectedInstance}
-              instanceStatus={selectedStatus}
-              onConfigChange={(update) => {
-                dispatch(setPopoInstanceConfig({ instanceId: activePopoInstanceId, config: update }));
-              }}
-              onSave={async (override) => {
-                const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
-                if (selectedInstance.enabled) {
-                  await imService.updatePopoInstanceConfig(activePopoInstanceId, configToSave);
-                } else {
-                  await imService.persistPopoInstanceConfig(activePopoInstanceId, configToSave);
-                }
-              }}
-              onRename={async (newName) => {
-                dispatch(setPopoInstanceConfig({ instanceId: activePopoInstanceId, config: { instanceName: newName } as any }));
-                await imService.persistPopoInstanceConfig(activePopoInstanceId, { instanceName: newName } as any);
-              }}
-              onDelete={async () => {
-                await imService.deletePopoInstance(activePopoInstanceId);
-                const remaining = config.popo.instances.filter(i => i.instanceId !== activePopoInstanceId);
-                setActivePopoInstanceId(remaining.length > 0 ? remaining[0].instanceId : null);
-              }}
-              onToggleEnabled={async () => {
-                const newEnabled = !selectedInstance.enabled;
-                if (newEnabled && !(selectedInstance.appKey && selectedInstance.appSecret && selectedInstance.aesKey)) return;
-                const success = await imService.updatePopoInstanceConfig(activePopoInstanceId, { enabled: newEnabled });
-                if (success) {
-                  dispatch(setPopoInstanceConfig({ instanceId: activePopoInstanceId, config: { enabled: newEnabled } }));
-                  if (newEnabled) dispatch(clearError());
-                }
-              }}
-              onTestConnectivity={() => {
-                void handleConnectivityTest('popo');
-              }}
-              testingPlatform={testingPlatform}
-              connectivityResults={connectivityResults}
-              language={language}
-            />
+            <div className="space-y-4">
+              <PopoInstanceSettings
+                instance={selectedInstance}
+                instanceStatus={selectedStatus}
+                headerLeading={renderBackToInstanceList('popo')}
+                onConfigChange={(update) => {
+                  dispatch(setPopoInstanceConfig({ instanceId: activePopoInstanceId, config: update }));
+                }}
+                onSave={async (override) => {
+                  const configToSave = override ? { ...selectedInstance, ...override } : selectedInstance;
+                  const restartOnSaveOptions = override?.enabled === true
+                    && !!override.appKey
+                    && !!override.appSecret
+                    && !!override.aesKey
+                    ? IM_AUTH_RESTART_ON_SAVE_OPTIONS
+                    : undefined;
+                  if (selectedInstance.enabled || restartOnSaveOptions) {
+                    await imService.updatePopoInstanceConfig(activePopoInstanceId, configToSave, restartOnSaveOptions);
+                  } else {
+                    await imService.persistPopoInstanceConfig(activePopoInstanceId, configToSave);
+                  }
+                  if (typeof override?.enabled === 'boolean') {
+                    setSaveReminderTarget('popo', activePopoInstanceId, override.enabled);
+                  }
+                }}
+                onRename={async (newName) => {
+                  dispatch(setPopoInstanceConfig({ instanceId: activePopoInstanceId, config: { instanceName: newName } as any }));
+                  await imService.persistPopoInstanceConfig(activePopoInstanceId, { instanceName: newName } as any);
+                }}
+                onTestConnectivity={() => {
+                  void handleConnectivityTest('popo');
+                }}
+                testingPlatform={testingPlatform}
+                connectivityResults={connectivityResults}
+                language={language}
+              />
+              {renderInstanceSaveReminder('popo', selectedInstance as unknown as IMInstanceConfigCard, selectedStatus)}
+            </div>
           );
         })()}
+
+        {deleteConfirmTarget && deleteConfirmInstance && (
+          <Modal
+            onClose={() => {
+              if (!isDeletingInstance) setDeleteConfirmTarget(null);
+            }}
+            overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+            className="w-full max-w-sm mx-4 rounded-2xl bg-surface border border-border shadow-2xl p-5"
+          >
+            <div className="text-lg font-semibold text-foreground">
+              {i18nService.t('imDeleteBotConfirmTitle')}
+            </div>
+            <p className="mt-2 text-sm text-secondary">
+              {i18nService.t('imDeleteBotConfirmMessage')
+                .replace('{platform}', i18nService.t(deleteConfirmTarget.platform))
+                .replace('{name}', deleteConfirmInstance.instanceName)}
+            </p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmTarget(null)}
+                disabled={isDeletingInstance}
+                className="px-3 py-1.5 text-xs rounded-lg border border-border text-secondary hover:bg-surface-raised transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {i18nService.t('cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDeleteInstanceFromCard()}
+                disabled={isDeletingInstance}
+                className="px-3 py-1.5 text-xs rounded-lg bg-red-500 text-white hover:bg-red-600 dark:bg-red-500 dark:hover:bg-red-400 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {i18nService.t('confirmDelete')}
+              </button>
+            </div>
+          </Modal>
+        )}
 
         {connectivityModalPlatform && (
           <Modal onClose={() => setConnectivityModalPlatform(null)} overlayClassName="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" className="w-full max-w-2xl bg-surface rounded-2xl shadow-modal border border-border overflow-hidden">

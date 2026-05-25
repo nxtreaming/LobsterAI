@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 
 import mediaGeneratingAnimation from '../../assets/lottie/media-generating.json';
 import { i18nService } from '../../services/i18n';
-import type { ToolGroupItem } from './CoworkSessionDetail';
+import type { ToolGroupItem } from './messageDisplayUtils';
 
 export type MediaPollingGroup = {
   type: 'media_polling_group';

@@ -5,7 +5,7 @@ import {
   hasToolResultMediaAssets,
   normalizeFilePathForDedup,
   parseFileLinksFromMessage,
-  parseFilePathsFromText, parseMediaTokensFromText,
+  parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText,
   parseToolArtifact,
   parseToolResultMediaArtifacts,
 } from './artifactParser';
@@ -352,6 +352,35 @@ describe('dedupeArtifactsForDisplay', () => {
 
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0].id).toBe('local');
+  });
+});
+
+describe('parseLocalServiceUrlsFromText', () => {
+  test('parses localhost service URLs', () => {
+    const content = '服务已启动：http://localhost:4173/login-react.html';
+    const artifacts = parseLocalServiceUrlsFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].type).toBe('local-service');
+    expect(artifacts[0].url).toBe('http://localhost:4173/login-react.html');
+    expect(artifacts[0].title).toBe('login-react.html');
+  });
+
+  test('uses markdown link text as title', () => {
+    const content = '[登录页面](http://localhost:4173/login-react.html)';
+    const artifacts = parseLocalServiceUrlsFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].title).toBe('登录页面');
+  });
+
+  test('deduplicates repeated markdown and bare URLs', () => {
+    const content = '[http://localhost:4173/](http://localhost:4173/)\nhttp://localhost:4173/';
+    const artifacts = parseLocalServiceUrlsFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+  });
+
+  test('ignores remote URLs', () => {
+    const artifacts = parseLocalServiceUrlsFromText('https://example.com/app', 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(0);
   });
 });
 

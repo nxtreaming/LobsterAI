@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
+import type { SubagentSessionSummary } from '../../types/cowork';
 import { getAgentDisplayName, isDefaultAgentId, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import AgentConfirmDialog from '../agent/AgentConfirmDialog';
@@ -13,6 +14,7 @@ import PushPinIcon from '../icons/PushPinIcon';
 import TrashIcon from '../icons/TrashIcon';
 import AgentTaskRow from './AgentTaskRow';
 import ExpandAgentTasksRow from './ExpandAgentTasksRow';
+import SubagentTaskRow from './SubagentTaskRow';
 import type { AgentSidebarAgentNode, AgentSidebarTaskNode } from './types';
 
 interface AgentTreeNodeProps {
@@ -21,6 +23,9 @@ interface AgentTreeNodeProps {
   batchAgentId: string | null;
   selectedIds: Set<string>;
   showBatchOption?: boolean;
+  subagentsBySessionId?: Record<string, SubagentSessionSummary[]>;
+  selectedSubagentId?: string | null;
+  onSelectSubagent?: (subagent: SubagentSessionSummary) => void;
   onToggleExpanded: (agentId: string) => void;
   onEditAgent: (agent: AgentSidebarAgentNode) => void;
   onCreateTask: (agent: AgentSidebarAgentNode) => void;
@@ -65,6 +70,9 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
   batchAgentId,
   selectedIds,
   showBatchOption = false,
+  subagentsBySessionId,
+  selectedSubagentId,
+  onSelectSubagent,
   onToggleExpanded,
   onEditAgent,
   onCreateTask,
@@ -393,21 +401,31 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
               )}
 
               {agent.tasks.map((task) => (
-                <AgentTaskRow
-                  key={task.id}
-                  task={task}
-                  isBatchMode={isBatchAgent}
-                  isSelected={selectedIds.has(task.id)}
-                  isSelectionDisabled={isOutsideBatchAgent}
-                  showBatchOption={showBatchOption && !isBatchMode}
-                  onSelect={() => onSelectTask(task)}
-                  onDelete={() => onDeleteTask(task)}
-                  onShare={() => onShareTask(task)}
-                  onTogglePin={(pinned) => onToggleTaskPin(task, pinned)}
-                  onRename={(title) => onRenameTask(task, title)}
-                  onToggleSelection={() => onToggleSelection(task.id, task.agentId)}
-                  onEnterBatchMode={() => onEnterBatchMode(task)}
-                />
+                <React.Fragment key={task.id}>
+                  <AgentTaskRow
+                    task={task}
+                    isBatchMode={isBatchAgent}
+                    isSelected={selectedIds.has(task.id)}
+                    isSelectionDisabled={isOutsideBatchAgent}
+                    showBatchOption={showBatchOption && !isBatchMode}
+                    hasActiveSubagent={task.isSelected && selectedSubagentId != null}
+                    onSelect={() => onSelectTask(task)}
+                    onDelete={() => onDeleteTask(task)}
+                    onShare={() => onShareTask(task)}
+                    onTogglePin={(pinned) => onToggleTaskPin(task, pinned)}
+                    onRename={(title) => onRenameTask(task, title)}
+                    onToggleSelection={() => onToggleSelection(task.id, task.agentId)}
+                    onEnterBatchMode={() => onEnterBatchMode(task)}
+                  />
+                  {task.isSelected && subagentsBySessionId?.[task.id]?.map((sub) => (
+                    <SubagentTaskRow
+                      key={sub.id}
+                      subagent={sub}
+                      isSelected={sub.id === selectedSubagentId}
+                      onSelect={() => onSelectSubagent?.(sub)}
+                    />
+                  ))}
+                </React.Fragment>
               ))}
 
               {agent.hasLoadError && agent.tasks.length > 0 && (

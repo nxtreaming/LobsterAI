@@ -1,5 +1,6 @@
 import { ApiFormat, type ProviderConfig, ProviderName, ProviderRegistry } from '@shared/providers';
 
+import { normalizeBrowserWebAccessConfig } from '../../shared/browserWebAccess/constants';
 import { AppConfig, CONFIG_KEYS, defaultConfig, isCustomProvider } from '../config';
 import { localStore } from './store';
 
@@ -375,6 +376,7 @@ class ConfigService {
             ...(storedConfig.shortcuts ?? {}),
           } as AppConfig['shortcuts'],
           providers: mergedProviders as AppConfig['providers'],
+          browserWebAccess: normalizeBrowserWebAccessConfig(storedConfig.browserWebAccess),
         });
       }
     } catch (error) {
@@ -399,6 +401,9 @@ class ConfigService {
       ...base,
       ...newConfig,
       ...(normalizedProviders ? { providers: normalizedProviders } : {}),
+      browserWebAccess: normalizeBrowserWebAccessConfig(
+        newConfig.browserWebAccess ?? base.browserWebAccess,
+      ),
     };
     await localStore.setItem(CONFIG_KEYS.APP_CONFIG, this.config);
     window.dispatchEvent(new CustomEvent('config-updated'));

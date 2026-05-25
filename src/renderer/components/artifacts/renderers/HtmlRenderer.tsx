@@ -62,7 +62,7 @@ const FileBasedHtmlRenderer: React.FC<{ artifact: Artifact }> = ({ artifact }) =
   }, [artifact.filePath]);
 
   // Reload iframe when file content changes (triggered by file watcher)
-  const contentVersion = artifact.content;
+  const contentVersion = artifact.contentVersion ?? artifact.content;
   const prevContentRef = useRef(contentVersion);
   useEffect(() => {
     if (prevContentRef.current === contentVersion) return;

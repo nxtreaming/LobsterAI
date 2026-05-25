@@ -6,7 +6,7 @@ import { ProviderRegistry } from '../../../shared/providers';
 import { defaultConfig, getCustomProviderDefaultName, getProviderDisplayName, isCustomProvider } from '../../config';
 import { getProviderIcon } from '../../providers/uiRegistry';
 import { i18nService } from '../../services/i18n';
-import PencilIcon from '../icons/PencilIcon';
+import EditIcon from '../icons/EditIcon';
 import PlusCircleIcon from '../icons/PlusCircleIcon';
 import { GitHubCopilotIcon } from '../icons/providers';
 import TrashIcon from '../icons/TrashIcon';
@@ -29,6 +29,8 @@ const CW_LOG_MIN = Math.log(CW_MIN);
 const CW_LOG_MAX = Math.log(CW_MAX);
 const CW_DEFAULT = 200_000;
 const CW_SCALE_EXP = 1.5;
+const CW_SLIDER_THUMB_SIZE = 14;
+const CW_SLIDER_THUMB_RADIUS = CW_SLIDER_THUMB_SIZE / 2;
 
 function contextWindowToSlider(value: number): number {
   const t = (Math.log(Math.max(CW_MIN, Math.min(CW_MAX, value))) - CW_LOG_MIN) / (CW_LOG_MAX - CW_LOG_MIN);
@@ -38,6 +40,7 @@ function sliderToContextWindow(t: number): number {
   const logT = Math.pow(Math.max(0, Math.min(1, t)), 1 / CW_SCALE_EXP);
   return Math.round(Math.exp(CW_LOG_MIN + logT * (CW_LOG_MAX - CW_LOG_MIN)) / 1000) * 1000;
 }
+const CW_SNAP_THRESHOLD = 0.025;
 const CW_MARKER_STOPS = [
   { label: '32K', value: CW_MIN },
   { label: '64K', value: 64000 },
@@ -45,6 +48,35 @@ const CW_MARKER_STOPS = [
   { label: '1M', value: 1000000 },
   { label: '2M', value: CW_MAX },
 ].map(m => ({ ...m, pos: contextWindowToSlider(m.value) }));
+
+function sliderThumbCenterPosition(pos: number): string {
+  return `calc(${pos * 100}% + ${(0.5 - pos) * CW_SLIDER_THUMB_SIZE}px)`;
+}
+
+function snapSliderValue(t: number): number {
+  for (const m of CW_MARKER_STOPS) {
+    if (Math.abs(t - m.pos) < CW_SNAP_THRESHOLD) return m.pos;
+  }
+  return t;
+}
+
+function parseContextWindowInput(input: string): number | null {
+  const s = input.trim().toLowerCase().replace(/,/g, '');
+  const match = s.match(/^(\d+(?:\.\d+)?)\s*(k|m)?$/);
+  if (!match) return null;
+  let num = parseFloat(match[1]);
+  if (match[2] === 'k') num *= 1000;
+  else if (match[2] === 'm') num *= 1_000_000;
+  const result = Math.round(num);
+  if (result < CW_MIN || result > CW_MAX) return null;
+  return result;
+}
+
+function formatContextWindow(value: number): string {
+  if (value >= 1_000_000 && value % 1_000_000 === 0) return `${value / 1_000_000}M`;
+  if (value >= 1000 && value % 1000 === 0) return `${value / 1000}K`;
+  return value.toLocaleString();
+}
 
 type MiniMaxOAuthPhase =
   | { kind: 'idle' }
@@ -96,19 +128,6 @@ export interface ModelSettingsSectionProps {
   setIsTestResultModalOpen: (v: boolean) => void;
   pendingDeleteProvider: ProviderType | null;
   setPendingDeleteProvider: (v: ProviderType | null) => void;
-  isAddingModel: boolean;
-  isEditingModel: boolean;
-  editingModelId: string | null;
-  newModelName: string;
-  setNewModelName: (v: string) => void;
-  newModelId: string;
-  setNewModelId: (v: string) => void;
-  newModelSupportsImage: boolean;
-  setNewModelSupportsImage: (v: boolean) => void;
-  newModelContextWindow: number | undefined;
-  setNewModelContextWindow: (v: number | undefined) => void;
-  modelFormError: string | null;
-  setModelFormError: (v: string | null) => void;
   importInputRef: React.RefObject<HTMLInputElement>;
   // Handlers
   handleImportProvidersClick: () => void;
@@ -132,12 +151,313 @@ export interface ModelSettingsSectionProps {
   handleCopilotCancelAuth: () => void;
   handleTestConnection: () => void;
   handleAddModel: () => void;
-  handleEditModel: (modelId: string, modelName: string, supportsImage?: boolean, contextWindow?: number) => void;
+  handleEditModel: (modelId: string, modelName: string, supportsImage?: boolean, contextWindow?: number, customParams?: Record<string, unknown>) => void;
   handleDeleteModel: (modelId: string) => void;
+}
+
+export interface ModelEditorDialogProps {
+  activeProvider: ProviderType;
+  isAddingModel: boolean;
+  isEditingModel: boolean;
+  newModelName: string;
+  setNewModelName: (v: string) => void;
+  newModelId: string;
+  setNewModelId: (v: string) => void;
+  newModelSupportsImage: boolean;
+  setNewModelSupportsImage: (v: boolean) => void;
+  newModelContextWindow: number | undefined;
+  setNewModelContextWindow: (v: number | undefined) => void;
+  newModelCustomParams: string;
+  setNewModelCustomParams: (v: string) => void;
+  modelFormError: string | null;
+  setModelFormError: (v: string | null) => void;
   handleSaveNewModel: () => void;
   handleCancelModelEdit: () => void;
   handleModelDialogKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
 }
+
+export const ModelEditorDialog: React.FC<ModelEditorDialogProps> = ({
+  activeProvider,
+  isAddingModel,
+  isEditingModel,
+  newModelName,
+  setNewModelName,
+  newModelId,
+  setNewModelId,
+  newModelSupportsImage,
+  setNewModelSupportsImage,
+  newModelContextWindow,
+  setNewModelContextWindow,
+  newModelCustomParams,
+  setNewModelCustomParams,
+  modelFormError,
+  setModelFormError,
+  handleSaveNewModel,
+  handleCancelModelEdit,
+  handleModelDialogKeyDown,
+}) => {
+  const [newModelContextWindowText, setNewModelContextWindowText] = React.useState<string | null>(null);
+
+  if (!isAddingModel && !isEditingModel) {
+    return null;
+  }
+
+  return (
+    <div
+      className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl bg-background/90 px-4 backdrop-blur-[2px]"
+      onClick={handleCancelModelEdit}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={isEditingModel ? i18nService.t('editModel') : i18nService.t('addNewModel')}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleModelDialogKeyDown}
+        className="w-full max-w-lg rounded-2xl bg-background border-border border shadow-modal p-4"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-semibold text-foreground">
+            {isEditingModel ? i18nService.t('editModel') : i18nService.t('addNewModel')}
+          </h4>
+          <button
+            type="button"
+            onClick={handleCancelModelEdit}
+            className="p-1 text-secondary hover:text-foreground rounded-md hover:bg-surface-raised"
+          >
+            <XMarkIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        {modelFormError && (
+          <p className="mb-3 text-xs text-red-600 dark:text-red-400">
+            {modelFormError}
+          </p>
+        )}
+
+        <div className="space-y-4">
+          {(activeProvider === 'ollama' || activeProvider === 'lm-studio') ? (
+            <>
+              <div className="flex items-start gap-3">
+                <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
+                  {i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioModelName' : 'ollamaModelName')}<span className="text-red-500 dark:text-red-400 ml-0.5">*</span>
+                </label>
+                <div className="flex-1 min-w-0">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newModelId}
+                    onChange={(e) => {
+                      setNewModelId(e.target.value);
+                      if (!newModelName || newModelName === newModelId) {
+                        setNewModelName(e.target.value);
+                      }
+                      if (modelFormError) {
+                        setModelFormError(null);
+                      }
+                    }}
+                    className="block w-full rounded-xl bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-xs"
+                    placeholder={i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioModelNamePlaceholder' : 'ollamaModelNamePlaceholder')}
+                  />
+                  <p className="mt-1 text-[11px] text-muted">
+                    {i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioModelNameHint' : 'ollamaModelNameHint')}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
+                  {i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioDisplayName' : 'ollamaDisplayName')}
+                </label>
+                <div className="flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={newModelName === newModelId ? '' : newModelName}
+                    onChange={(e) => {
+                      setNewModelName(e.target.value || newModelId);
+                      if (modelFormError) {
+                        setModelFormError(null);
+                      }
+                    }}
+                    className="block w-full rounded-xl bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-xs"
+                    placeholder={i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioDisplayNamePlaceholder' : 'ollamaDisplayNamePlaceholder')}
+                  />
+                  <p className="mt-1 text-[11px] text-muted">
+                    {i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioDisplayNameHint' : 'ollamaDisplayNameHint')}
+                  </p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-start gap-3">
+                <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
+                  {i18nService.t('modelName')}<span className="text-red-500 dark:text-red-400 ml-0.5">*</span>
+                </label>
+                <div className="flex-1 min-w-0">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newModelName}
+                    onChange={(e) => {
+                      setNewModelName(e.target.value);
+                      if (modelFormError) {
+                        setModelFormError(null);
+                      }
+                    }}
+                    className="block w-full rounded-xl bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-xs"
+                    placeholder="GPT-4"
+                  />
+                  <p className="mt-1 text-[11px] text-muted">
+                    {i18nService.t('modelNameHint')}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
+                  {i18nService.t('modelId')}<span className="text-red-500 dark:text-red-400 ml-0.5">*</span>
+                </label>
+                <div className="flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={newModelId}
+                    onChange={(e) => {
+                      setNewModelId(e.target.value);
+                      if (modelFormError) {
+                        setModelFormError(null);
+                      }
+                    }}
+                    className="block w-full rounded-xl bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-xs"
+                    placeholder="gpt-4"
+                  />
+                  <p className="mt-1 text-[11px] text-muted">
+                    {i18nService.t('modelIdHint')}
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+          <div className="flex items-start gap-3">
+            <label
+              htmlFor={`${activeProvider}-supportsImage`}
+              className="w-24 shrink-0 text-xs font-medium text-secondary pt-0.5 text-right"
+            >
+              {i18nService.t('supportsImageInput')}
+            </label>
+            <div className="flex-1 min-w-0">
+              <input
+                id={`${activeProvider}-supportsImage`}
+                type="checkbox"
+                checked={newModelSupportsImage}
+                onChange={(e) => setNewModelSupportsImage(e.target.checked)}
+                className="h-3.5 w-3.5 text-primary focus:ring-primary bg-surface border-border rounded"
+              />
+              <p className="mt-1 text-[11px] text-muted">
+                {i18nService.t('supportsImageInputHint')}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
+              {i18nService.t('contextWindow')}
+            </label>
+            <div className="flex-1 min-w-0">
+              <input
+                type="text"
+                value={newModelContextWindowText ?? formatContextWindow(newModelContextWindow ?? CW_DEFAULT)}
+                onFocus={(e) => setNewModelContextWindowText(e.target.value)}
+                onChange={(e) => setNewModelContextWindowText(e.target.value)}
+                onBlur={() => {
+                  if (newModelContextWindowText != null) {
+                    const parsed = parseContextWindowInput(newModelContextWindowText);
+                    if (parsed != null) setNewModelContextWindow(parsed);
+                    setNewModelContextWindowText(null);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                className="w-24 rounded-lg bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-2.5 py-1 text-xs text-center tabular-nums mb-2"
+              />
+              <div className="relative h-3">
+                <div
+                  className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-border"
+                  style={{ left: CW_SLIDER_THUMB_RADIUS, right: CW_SLIDER_THUMB_RADIUS }}
+                />
+                {CW_MARKER_STOPS.map((m) => (
+                  <div
+                    key={m.label}
+                    className="pointer-events-none absolute top-1/2 z-[1] flex h-4 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full"
+                    style={{ left: sliderThumbCenterPosition(m.pos) }}
+                  >
+                    <div className="h-1.5 w-1.5 rounded-full border border-border bg-surface" />
+                  </div>
+                ))}
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.001}
+                  value={contextWindowToSlider(newModelContextWindow ?? CW_DEFAULT)}
+                  onChange={(e) => setNewModelContextWindow(sliderToContextWindow(snapSliderValue(Number(e.target.value))))}
+                  className="absolute inset-0 w-full h-full appearance-none cursor-pointer bg-transparent z-[2] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.2)] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-runnable-track]:bg-transparent"
+                />
+              </div>
+              <div className="relative h-4 mt-0.5">
+                {CW_MARKER_STOPS.map((m) => (
+                  <span
+                    key={m.label}
+                    className="absolute text-[9px] text-muted select-none -translate-x-1/2"
+                    style={{ left: sliderThumbCenterPosition(m.pos) }}
+                  >
+                    {m.label}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-muted">
+                {i18nService.t('contextWindowHint')}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
+              {i18nService.t('customParams')}
+            </label>
+            <div className="flex-1 min-w-0">
+              <textarea
+                value={newModelCustomParams}
+                onChange={(e) => setNewModelCustomParams(e.target.value)}
+                placeholder={'{\n  "reasoning_effort": "high"\n}'}
+                rows={3}
+                className="w-full rounded-lg bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-2.5 py-1.5 text-xs font-mono resize-y"
+              />
+              <p className="mt-1 text-[11px] text-muted">
+                {i18nService.t('customParamsHint')}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end space-x-2 mt-4">
+          <button
+            type="button"
+            onClick={handleCancelModelEdit}
+            className="px-3 py-1.5 text-xs text-foreground hover:bg-surface-raised rounded-xl border border-border"
+          >
+            {i18nService.t('cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveNewModel}
+            className="px-3 py-1.5 text-xs text-white bg-primary hover:bg-primary-hover rounded-xl active:scale-[0.98]"
+          >
+            {i18nService.t('save')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
   providers, activeProvider, visibleProviders,
@@ -149,11 +469,6 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
   copilotAuthStatus, copilotUserCode, copilotVerificationUri, copilotGithubUser, copilotError,
   isTesting, testResult, isTestResultModalOpen, setIsTestResultModalOpen,
   pendingDeleteProvider, setPendingDeleteProvider,
-  isAddingModel, isEditingModel,
-  newModelName, setNewModelName, newModelId, setNewModelId,
-  newModelSupportsImage, setNewModelSupportsImage,
-  newModelContextWindow, setNewModelContextWindow,
-  modelFormError, setModelFormError,
   importInputRef,
   handleImportProvidersClick, handleExportProviders, handleImportProviders,
   handleProviderChange, toggleProviderEnabled,
@@ -164,7 +479,6 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
   handleCopilotSignIn, handleCopilotSignOut, handleCopilotCancelAuth,
   handleTestConnection,
   handleAddModel, handleEditModel, handleDeleteModel,
-  handleSaveNewModel, handleCancelModelEdit, handleModelDialogKeyDown,
 }) => {
   return (
     <>
@@ -1330,10 +1644,10 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
                           )}
                           <button
                             type="button"
-                            onClick={() => handleEditModel(model.id, model.name, model.supportsImage, model.contextWindow)}
+                            onClick={() => handleEditModel(model.id, model.name, model.supportsImage, model.contextWindow, model.customParams)}
                             className="p-0.5 text-secondary hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
                           >
-                            <PencilIcon className="h-3.5 w-3.5" />
+                            <EditIcon className="h-3.5 w-3.5" />
                           </button>
                           <button
                             type="button"
@@ -1453,237 +1767,6 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
           </div>
         )}
 
-        {(isAddingModel || isEditingModel) && (
-          <div
-            className="absolute inset-0 z-20 flex items-center justify-center bg-black/35 px-4 rounded-2xl"
-            onClick={handleCancelModelEdit}
-          >
-              <div
-                role="dialog"
-                aria-modal="true"
-                aria-label={isEditingModel ? i18nService.t('editModel') : i18nService.t('addNewModel')}
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={handleModelDialogKeyDown}
-                className="w-full max-w-lg rounded-2xl bg-background border-border border shadow-modal p-4"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-sm font-semibold text-foreground">
-                    {isEditingModel ? i18nService.t('editModel') : i18nService.t('addNewModel')}
-                  </h4>
-                  <button
-                    type="button"
-                    onClick={handleCancelModelEdit}
-                    className="p-1 text-secondary hover:text-foreground rounded-md hover:bg-surface-raised"
-                  >
-                    <XMarkIcon className="h-4 w-4" />
-                  </button>
-                </div>
-
-                {modelFormError && (
-                  <p className="mb-3 text-xs text-red-600 dark:text-red-400">
-                    {modelFormError}
-                  </p>
-                )}
-
-                <div className="space-y-4">
-                  {(activeProvider === 'ollama' || activeProvider === 'lm-studio') ? (
-                    <>
-                      <div className="flex items-start gap-3">
-                        <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
-                          {i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioModelName' : 'ollamaModelName')}<span className="text-red-500 dark:text-red-400 ml-0.5">*</span>
-                        </label>
-                        <div className="flex-1 min-w-0">
-                          <input
-                            autoFocus
-                            type="text"
-                            value={newModelId}
-                            onChange={(e) => {
-                              setNewModelId(e.target.value);
-                              if (!newModelName || newModelName === newModelId) {
-                                setNewModelName(e.target.value);
-                              }
-                              if (modelFormError) {
-                                setModelFormError(null);
-                              }
-                            }}
-                            className="block w-full rounded-xl bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-xs"
-                            placeholder={i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioModelNamePlaceholder' : 'ollamaModelNamePlaceholder')}
-                          />
-                          <p className="mt-1 text-[11px] text-muted">
-                            {i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioModelNameHint' : 'ollamaModelNameHint')}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
-                          {i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioDisplayName' : 'ollamaDisplayName')}
-                        </label>
-                        <div className="flex-1 min-w-0">
-                          <input
-                            type="text"
-                            value={newModelName === newModelId ? '' : newModelName}
-                            onChange={(e) => {
-                              setNewModelName(e.target.value || newModelId);
-                              if (modelFormError) {
-                                setModelFormError(null);
-                              }
-                            }}
-                            className="block w-full rounded-xl bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-xs"
-                            placeholder={i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioDisplayNamePlaceholder' : 'ollamaDisplayNamePlaceholder')}
-                          />
-                          <p className="mt-1 text-[11px] text-muted">
-                            {i18nService.t(activeProvider === 'lm-studio' ? 'lmStudioDisplayNameHint' : 'ollamaDisplayNameHint')}
-                          </p>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-start gap-3">
-                        <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
-                          {i18nService.t('modelName')}<span className="text-red-500 dark:text-red-400 ml-0.5">*</span>
-                        </label>
-                        <div className="flex-1 min-w-0">
-                          <input
-                            autoFocus
-                            type="text"
-                            value={newModelName}
-                            onChange={(e) => {
-                              setNewModelName(e.target.value);
-                              if (modelFormError) {
-                                setModelFormError(null);
-                              }
-                            }}
-                            className="block w-full rounded-xl bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-xs"
-                            placeholder="GPT-4"
-                          />
-                          <p className="mt-1 text-[11px] text-muted">
-                            {i18nService.t('modelNameHint')}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
-                          {i18nService.t('modelId')}<span className="text-red-500 dark:text-red-400 ml-0.5">*</span>
-                        </label>
-                        <div className="flex-1 min-w-0">
-                          <input
-                            type="text"
-                            value={newModelId}
-                            onChange={(e) => {
-                              setNewModelId(e.target.value);
-                              if (modelFormError) {
-                                setModelFormError(null);
-                              }
-                            }}
-                            className="block w-full rounded-xl bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-xs"
-                            placeholder="gpt-4"
-                          />
-                          <p className="mt-1 text-[11px] text-muted">
-                            {i18nService.t('modelIdHint')}
-                          </p>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                  <div className="flex items-start gap-3">
-                    <label
-                      htmlFor={`${activeProvider}-supportsImage`}
-                      className="w-24 shrink-0 text-xs font-medium text-secondary pt-0.5 text-right"
-                    >
-                      {i18nService.t('supportsImageInput')}
-                    </label>
-                    <div className="flex-1 min-w-0">
-                      <input
-                        id={`${activeProvider}-supportsImage`}
-                        type="checkbox"
-                        checked={newModelSupportsImage}
-                        onChange={(e) => setNewModelSupportsImage(e.target.checked)}
-                        className="h-3.5 w-3.5 text-primary focus:ring-primary bg-surface border-border rounded"
-                      />
-                      <p className="mt-1 text-[11px] text-muted">
-                        {i18nService.t('supportsImageInputHint')}
-                      </p>
-                    </div>
-                  </div>
-                  {/* Context Window Slider */}
-                  <div className="flex items-start gap-3">
-                    <label className="w-24 shrink-0 text-xs font-medium text-secondary pt-2 text-right">
-                      {i18nService.t('contextWindow')}
-                    </label>
-                    <div className="flex-1 min-w-0">
-                      <input
-                        type="number"
-                        min={CW_MIN}
-                        max={CW_MAX}
-                        value={newModelContextWindow ?? CW_DEFAULT}
-                        onChange={(e) => {
-                          const v = parseInt(e.target.value, 10);
-                          if (!isNaN(v)) setNewModelContextWindow(Math.max(CW_MIN, Math.min(CW_MAX, v)));
-                        }}
-                        className="w-24 rounded-lg bg-surface-inset border-border border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-2.5 py-1 text-xs text-center tabular-nums mb-2"
-                      />
-                      {/* Track + dots + slider */}
-                      <div className="relative h-3">
-                        {/* Track line */}
-                        <div className="absolute top-1/2 left-0 right-0 h-[3px] -translate-y-1/2 rounded-full bg-border" />
-                        {/* Marker dots */}
-                        {CW_MARKER_STOPS.map((m) => (
-                          <div
-                            key={m.label}
-                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-[7px] h-[7px] rounded-full bg-white border-[1.5px] border-border z-[1]"
-                            style={{ left: `${m.pos * 100}%` }}
-                          />
-                        ))}
-                        {/* Range input overlay */}
-                        <input
-                          type="range"
-                          min={0}
-                          max={1}
-                          step={0.001}
-                          value={contextWindowToSlider(newModelContextWindow ?? CW_DEFAULT)}
-                          onChange={(e) => setNewModelContextWindow(sliderToContextWindow(Number(e.target.value)))}
-                          className="absolute inset-0 w-full h-full appearance-none cursor-pointer bg-transparent z-[2] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.2)] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-runnable-track]:bg-transparent"
-                        />
-                      </div>
-                      {/* Labels */}
-                      <div className="relative h-4 mt-0.5">
-                        {CW_MARKER_STOPS.map((m) => (
-                          <span
-                            key={m.label}
-                            className="absolute text-[9px] text-muted select-none -translate-x-1/2"
-                            style={{ left: `${m.pos * 100}%` }}
-                          >
-                            {m.label}
-                          </span>
-                        ))}
-                      </div>
-                      <p className="mt-1 text-[11px] text-muted">
-                        {i18nService.t('contextWindowHint')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end space-x-2 mt-4">
-                  <button
-                    type="button"
-                    onClick={handleCancelModelEdit}
-                    className="px-3 py-1.5 text-xs text-foreground hover:bg-surface-raised rounded-xl border border-border"
-                  >
-                    {i18nService.t('cancel')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveNewModel}
-                    className="px-3 py-1.5 text-xs text-white bg-primary hover:bg-primary-hover rounded-xl active:scale-[0.98]"
-                  >
-                    {i18nService.t('save')}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
     </>
   );
 };

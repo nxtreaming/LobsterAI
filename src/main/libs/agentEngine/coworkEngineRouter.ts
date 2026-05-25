@@ -154,9 +154,9 @@ export class CoworkEngineRouter extends EventEmitter implements CoworkRuntime {
   }
 
   private bindRuntimeEvents(engine: CoworkAgentEngine, runtime: CoworkRuntime): void {
-    runtime.on('message', (sessionId, message) => {
+    runtime.on('message', (sessionId, message, beforeMessageId) => {
       this.sessionEngine.set(sessionId, engine);
-      this.emit('message', sessionId, message);
+      this.emit('message', sessionId, message, beforeMessageId);
     });
 
     runtime.on('messageUpdate', (sessionId, messageId, content, metadata) => {

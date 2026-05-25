@@ -166,7 +166,7 @@ const AllRunsHistory: React.FC = () => {
 
         {/* Empty state */}
         {isEmpty && (
-          <div className="flex flex-col items-center justify-center rounded-lg border border-border/60 px-6 py-16">
+          <div className="flex flex-col items-center justify-center rounded-lg border border-border-subtle bg-surface px-6 py-16">
             <ClockIcon className="h-12 w-12 text-secondary/40 mb-4" />
             <p className="text-sm font-medium text-secondary">
               {hasActiveFilter
@@ -177,7 +177,7 @@ const AllRunsHistory: React.FC = () => {
         )}
 
         {!isEmpty && (
-          <div className="overflow-hidden rounded-lg border border-border/60 bg-background">
+          <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface">
             {/* Column headers */}
             <div className={`${historyGridClass} bg-surface/30 px-5 py-2.5`}>
               <div className="text-xs font-medium text-secondary">

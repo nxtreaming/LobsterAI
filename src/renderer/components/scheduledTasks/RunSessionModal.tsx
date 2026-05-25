@@ -3,12 +3,12 @@ import React, { useCallback,useEffect, useMemo, useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
 import type { CoworkSession } from '../../types/cowork';
+import AssistantTurnBlock from '../cowork/AssistantTurnBlock';
 import {
-  AssistantTurnBlock,
   buildConversationTurns,
   buildDisplayItems,
-  UserMessageItem,
-} from '../cowork/CoworkSessionDetail';
+} from '../cowork/messageDisplayUtils';
+import UserMessageItem from '../cowork/UserMessageItem';
 
 interface RunSessionModalProps {
   sessionId?: string | null;

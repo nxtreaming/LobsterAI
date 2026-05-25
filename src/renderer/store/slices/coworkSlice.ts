@@ -372,14 +372,26 @@ const coworkSlice = createSlice({
       removeSessionsFromState(state, action.payload);
     },
 
-    addMessage(state, action: PayloadAction<{ sessionId: string; message: CoworkMessage }>) {
-      const { sessionId, message } = action.payload;
+    addMessage(state, action: PayloadAction<{ sessionId: string; message: CoworkMessage; beforeMessageId?: string }>) {
+      const { sessionId, message, beforeMessageId } = action.payload;
 
       if (state.currentSession?.id === sessionId) {
         const exists = state.currentSession.messages.some((item) => item.id === message.id);
         if (!exists) {
-          state.currentSession.messages.push(message);
-          applyPendingMediaStatusUpdates(state, sessionId, message);
+          // If beforeMessageId is specified, insert before that message to maintain correct order
+          // (e.g. thinking block should appear before the assistant text)
+          let inserted = false;
+          if (beforeMessageId) {
+            const targetIndex = state.currentSession.messages.findIndex((item) => item.id === beforeMessageId);
+            console.log('[ThinkingOrder] Redux addMessage: beforeMessageId=', beforeMessageId, 'targetIndex=', targetIndex, 'messageId=', message.id, 'totalMessages=', state.currentSession.messages.length);
+            if (targetIndex !== -1) {
+              state.currentSession.messages.splice(targetIndex, 0, message);
+              inserted = true;
+            }
+          }
+          if (!inserted) {
+            state.currentSession.messages.push(message);
+          }
           state.currentSession.updatedAt = message.timestamp;
           state.currentSession.totalMessages += 1;
         }

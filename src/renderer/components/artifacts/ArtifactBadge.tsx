@@ -17,6 +17,7 @@ const TYPE_ICONS: Record<ArtifactType, string> = {
   markdown: '📝',
   text: '📄',
   document: '📑',
+  'local-service': '🌐',
 };
 
 interface ArtifactBadgeProps {

@@ -67,6 +67,13 @@ import type {
   WecomOpenClawConfig,
 } from '../types/im';
 
+type IMConfigUpdateOptions = {
+  syncGateway?: boolean;
+  restartGatewayIfRunning?: boolean;
+  markRestartOnSave?: boolean;
+  reloadStatus?: boolean;
+};
+
 class IMService {
   private statusUnsubscribe: (() => void) | null = null;
   private messageUnsubscribe: (() => void) | null = null;
@@ -153,16 +160,28 @@ class IMService {
   }
 
   /**
-   * Update configuration and trigger gateway sync/restart.
-   * Used by toggleGateway and other operations that need immediate effect.
+   * Persist configuration and optionally trigger gateway sync/restart.
+   * Settings edits and settings auth flows default to save-only; non-settings
+   * callers can explicitly opt into immediate gateway activation.
    */
-  async updateConfig(config: Partial<IMGatewayConfig>): Promise<boolean> {
+  async updateConfig(
+    config: Partial<IMGatewayConfig>,
+    options: IMConfigUpdateOptions = {},
+  ): Promise<boolean> {
     try {
       store.dispatch(setLoading(true));
-      const result: IMGatewayResult = await window.electron.im.setConfig(config, { syncGateway: true });
+      const syncGateway = options.syncGateway ?? false;
+      const result: IMGatewayResult = await window.electron.im.setConfig(config, {
+        syncGateway,
+        restartGatewayIfRunning: options.restartGatewayIfRunning ?? syncGateway,
+        markRestartOnSave: options.markRestartOnSave,
+      });
       if (result.success) {
         // Reload config to get merged values
         await this.loadConfig();
+        if (syncGateway || options.reloadStatus) {
+          await this.loadStatus();
+        }
         return true;
       } else {
         store.dispatch(setError(result.error || 'Failed to update IM config'));
@@ -197,7 +216,7 @@ class IMService {
   }
 
   /**
-   * Sync IM gateway config (regenerate openclaw.json and restart gateway).
+   * Sync IM gateway config if IM-related settings changed.
    * Called from the global Settings Save button.
    */
   async saveAndSyncConfig(): Promise<boolean> {
@@ -392,13 +411,24 @@ class IMService {
     }
   }
 
-  async updateDingTalkInstanceConfig(instanceId: string, config: Partial<DingTalkOpenClawConfig>): Promise<boolean> {
+  async updateDingTalkInstanceConfig(
+    instanceId: string,
+    config: Partial<DingTalkOpenClawConfig>,
+    options: IMConfigUpdateOptions = {},
+  ): Promise<boolean> {
     try {
       store.dispatch(setLoading(true));
-      const result = await window.electron.im.setDingTalkInstanceConfig(instanceId, config, { syncGateway: true });
+      const syncGateway = options.syncGateway ?? false;
+      const result = await window.electron.im.setDingTalkInstanceConfig(instanceId, config, {
+        syncGateway,
+        restartGatewayIfRunning: options.restartGatewayIfRunning ?? syncGateway,
+        markRestartOnSave: options.markRestartOnSave,
+      });
       if (result.success) {
         await this.loadConfig();
-        await this.loadStatus();
+        if (syncGateway || options.reloadStatus) {
+          await this.loadStatus();
+        }
         return true;
       }
       store.dispatch(setError(result.error || 'Failed to update DingTalk instance config'));
@@ -459,13 +489,24 @@ class IMService {
     }
   }
 
-  async updateNimInstanceConfig(instanceId: string, config: Partial<NimOpenClawConfig>): Promise<boolean> {
+  async updateNimInstanceConfig(
+    instanceId: string,
+    config: Partial<NimOpenClawConfig>,
+    options: IMConfigUpdateOptions = {},
+  ): Promise<boolean> {
     try {
       store.dispatch(setLoading(true));
-      const result = await window.electron.im.setNimInstanceConfig(instanceId, config, { syncGateway: true });
+      const syncGateway = options.syncGateway ?? false;
+      const result = await window.electron.im.setNimInstanceConfig(instanceId, config, {
+        syncGateway,
+        restartGatewayIfRunning: options.restartGatewayIfRunning ?? syncGateway,
+        markRestartOnSave: options.markRestartOnSave,
+      });
       if (result.success) {
         await this.loadConfig();
-        await this.loadStatus();
+        if (syncGateway || options.reloadStatus) {
+          await this.loadStatus();
+        }
         return true;
       }
       store.dispatch(setError(result.error || 'Failed to update NIM instance config'));
@@ -526,13 +567,24 @@ class IMService {
     }
   }
 
-  async updateQQInstanceConfig(instanceId: string, config: Partial<QQOpenClawConfig>): Promise<boolean> {
+  async updateQQInstanceConfig(
+    instanceId: string,
+    config: Partial<QQOpenClawConfig>,
+    options: IMConfigUpdateOptions = {},
+  ): Promise<boolean> {
     try {
       store.dispatch(setLoading(true));
-      const result = await window.electron.im.setQQInstanceConfig(instanceId, config, { syncGateway: true });
+      const syncGateway = options.syncGateway ?? false;
+      const result = await window.electron.im.setQQInstanceConfig(instanceId, config, {
+        syncGateway,
+        restartGatewayIfRunning: options.restartGatewayIfRunning ?? syncGateway,
+        markRestartOnSave: options.markRestartOnSave,
+      });
       if (result.success) {
         await this.loadConfig();
-        await this.loadStatus();
+        if (syncGateway || options.reloadStatus) {
+          await this.loadStatus();
+        }
         return true;
       }
       store.dispatch(setError(result.error || 'Failed to update QQ instance config'));
@@ -593,13 +645,24 @@ class IMService {
     }
   }
 
-  async updateFeishuInstanceConfig(instanceId: string, config: Partial<FeishuOpenClawConfig>): Promise<boolean> {
+  async updateFeishuInstanceConfig(
+    instanceId: string,
+    config: Partial<FeishuOpenClawConfig>,
+    options: IMConfigUpdateOptions = {},
+  ): Promise<boolean> {
     try {
       store.dispatch(setLoading(true));
-      const result = await window.electron.im.setFeishuInstanceConfig(instanceId, config, { syncGateway: true });
+      const syncGateway = options.syncGateway ?? false;
+      const result = await window.electron.im.setFeishuInstanceConfig(instanceId, config, {
+        syncGateway,
+        restartGatewayIfRunning: options.restartGatewayIfRunning ?? syncGateway,
+        markRestartOnSave: options.markRestartOnSave,
+      });
       if (result.success) {
         await this.loadConfig();
-        await this.loadStatus();
+        if (syncGateway || options.reloadStatus) {
+          await this.loadStatus();
+        }
         return true;
       }
       store.dispatch(setError(result.error || 'Failed to update Feishu instance config'));
@@ -664,17 +727,28 @@ class IMService {
     }
   }
 
-  async updateEmailInstanceConfig(instanceId: string, config: Partial<EmailInstanceConfig>): Promise<boolean> {
+  async updateEmailInstanceConfig(
+    instanceId: string,
+    config: Partial<EmailInstanceConfig>,
+    options: IMConfigUpdateOptions = {},
+  ): Promise<boolean> {
     try {
       store.dispatch(setLoading(true));
+      const syncGateway = options.syncGateway ?? false;
       const result: IMGatewayResult = await window.electron.im.setEmailInstanceConfig(
         instanceId,
         config,
-        { syncGateway: true },
+        {
+          syncGateway,
+          restartGatewayIfRunning: options.restartGatewayIfRunning ?? syncGateway,
+          markRestartOnSave: options.markRestartOnSave,
+        },
       );
       if (result.success) {
         await this.loadConfig();
-        await this.loadStatus();
+        if (syncGateway || options.reloadStatus) {
+          await this.loadStatus();
+        }
         return true;
       }
       store.dispatch(setError(result.error || 'Failed to update email instance config'));
@@ -735,13 +809,24 @@ class IMService {
     }
   }
 
-  async updateWecomInstanceConfig(instanceId: string, config: Partial<WecomOpenClawConfig>): Promise<boolean> {
+  async updateWecomInstanceConfig(
+    instanceId: string,
+    config: Partial<WecomOpenClawConfig>,
+    options: IMConfigUpdateOptions = {},
+  ): Promise<boolean> {
     try {
       store.dispatch(setLoading(true));
-      const result = await window.electron.im.setWecomInstanceConfig(instanceId, config, { syncGateway: true });
+      const syncGateway = options.syncGateway ?? false;
+      const result = await window.electron.im.setWecomInstanceConfig(instanceId, config, {
+        syncGateway,
+        restartGatewayIfRunning: options.restartGatewayIfRunning ?? syncGateway,
+        markRestartOnSave: options.markRestartOnSave,
+      });
       if (result.success) {
         await this.loadConfig();
-        await this.loadStatus();
+        if (syncGateway || options.reloadStatus) {
+          await this.loadStatus();
+        }
         return true;
       }
       store.dispatch(setError(result.error || 'Failed to update WeCom instance config'));
@@ -802,13 +887,24 @@ class IMService {
     }
   }
 
-  async updateTelegramInstanceConfig(instanceId: string, config: Partial<TelegramOpenClawConfig>): Promise<boolean> {
+  async updateTelegramInstanceConfig(
+    instanceId: string,
+    config: Partial<TelegramOpenClawConfig>,
+    options: IMConfigUpdateOptions = {},
+  ): Promise<boolean> {
     try {
       store.dispatch(setLoading(true));
-      const result = await window.electron.im.setTelegramInstanceConfig(instanceId, config, { syncGateway: true });
+      const syncGateway = options.syncGateway ?? false;
+      const result = await window.electron.im.setTelegramInstanceConfig(instanceId, config, {
+        syncGateway,
+        restartGatewayIfRunning: options.restartGatewayIfRunning ?? syncGateway,
+        markRestartOnSave: options.markRestartOnSave,
+      });
       if (result.success) {
         await this.loadConfig();
-        await this.loadStatus();
+        if (syncGateway || options.reloadStatus) {
+          await this.loadStatus();
+        }
         return true;
       }
       store.dispatch(setError(result.error || 'Failed to update Telegram instance config'));
@@ -869,13 +965,24 @@ class IMService {
     }
   }
 
-  async updateDiscordInstanceConfig(instanceId: string, config: Partial<DiscordOpenClawConfig>): Promise<boolean> {
+  async updateDiscordInstanceConfig(
+    instanceId: string,
+    config: Partial<DiscordOpenClawConfig>,
+    options: IMConfigUpdateOptions = {},
+  ): Promise<boolean> {
     try {
       store.dispatch(setLoading(true));
-      const result = await window.electron.im.setDiscordInstanceConfig(instanceId, config, { syncGateway: true });
+      const syncGateway = options.syncGateway ?? false;
+      const result = await window.electron.im.setDiscordInstanceConfig(instanceId, config, {
+        syncGateway,
+        restartGatewayIfRunning: options.restartGatewayIfRunning ?? syncGateway,
+        markRestartOnSave: options.markRestartOnSave,
+      });
       if (result.success) {
         await this.loadConfig();
-        await this.loadStatus();
+        if (syncGateway || options.reloadStatus) {
+          await this.loadStatus();
+        }
         return true;
       }
       store.dispatch(setError(result.error || 'Failed to update Discord instance config'));
@@ -936,13 +1043,24 @@ class IMService {
     }
   }
 
-  async updatePopoInstanceConfig(instanceId: string, config: Partial<PopoOpenClawConfig>): Promise<boolean> {
+  async updatePopoInstanceConfig(
+    instanceId: string,
+    config: Partial<PopoOpenClawConfig>,
+    options: IMConfigUpdateOptions = {},
+  ): Promise<boolean> {
     try {
       store.dispatch(setLoading(true));
-      const result = await window.electron.im.setPopoInstanceConfig(instanceId, config, { syncGateway: true });
+      const syncGateway = options.syncGateway ?? false;
+      const result = await window.electron.im.setPopoInstanceConfig(instanceId, config, {
+        syncGateway,
+        restartGatewayIfRunning: options.restartGatewayIfRunning ?? syncGateway,
+        markRestartOnSave: options.markRestartOnSave,
+      });
       if (result.success) {
         await this.loadConfig();
-        await this.loadStatus();
+        if (syncGateway || options.reloadStatus) {
+          await this.loadStatus();
+        }
         return true;
       }
       store.dispatch(setError(result.error || 'Failed to update POPO instance config'));

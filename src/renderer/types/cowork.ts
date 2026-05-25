@@ -236,6 +236,18 @@ export interface CoworkSessionSummary {
   updatedAt: number;
 }
 
+// Subagent session summary for sidebar display
+export interface SubagentSessionSummary {
+  id: string;
+  agentId: string | null;
+  task: string | null;
+  label: string | null;
+  sessionKey: string | null;
+  parentSessionId: string;
+  status: 'running' | 'done' | 'error';
+  createdAt: number;
+}
+
 // Start session options
 export interface CoworkStartOptions {
   prompt: string;
