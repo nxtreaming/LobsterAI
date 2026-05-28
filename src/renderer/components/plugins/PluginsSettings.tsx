@@ -31,16 +31,20 @@ export interface PluginPendingChanges {
 export interface PluginsSettingsHandle {
   getPendingChanges: () => PluginPendingChanges | null;
   resetDirty: () => void;
+  /** Returns true if leave is blocked (dialog shown). Caller should abort navigation. */
+  guardLeave: (proceedAction: () => void) => boolean;
 }
 
 interface PluginsSettingsProps {
-  onDirtyChange?: (dirty: boolean) => void;
   handleRef?: React.Ref<PluginsSettingsHandle>;
 }
 
-export default function PluginsSettings({ onDirtyChange, handleRef }: PluginsSettingsProps) {
+export default function PluginsSettings({ handleRef }: PluginsSettingsProps) {
   const [plugins, setPlugins] = useState<PluginListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  // --- Unsaved-changes guard (internal dialog) ---
+  const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
+  const pendingLeaveActionRef = useRef<(() => void) | null>(null);
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
@@ -81,11 +85,6 @@ export default function PluginsSettings({ onDirtyChange, handleRef }: PluginsSet
     return false;
   }, [pendingToggles, pendingConfigs]);
 
-  // Notify parent of dirty state changes
-  useEffect(() => {
-    onDirtyChange?.(isDirty());
-  }, [isDirty, onDirtyChange]);
-
   // Expose handle to parent
   useImperativeHandle(handleRef, () => ({
     getPendingChanges: (): PluginPendingChanges | null => {
@@ -121,6 +120,12 @@ export default function PluginsSettings({ onDirtyChange, handleRef }: PluginsSet
       }
       setPendingToggles(new Map());
       setPendingConfigs(new Map());
+    },
+    guardLeave: (proceedAction: () => void): boolean => {
+      if (!isDirty()) return false;
+      pendingLeaveActionRef.current = proceedAction;
+      setShowUnsavedConfirm(true);
+      return true;
     },
   }), [isDirty, pendingToggles, pendingConfigs]);
 
@@ -715,6 +720,47 @@ export default function PluginsSettings({ onDirtyChange, handleRef }: PluginsSet
                 className="px-4 py-2 text-sm rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {uninstalling ? i18nService.t('pluginsUninstalling') : i18nService.t('pluginsUninstall')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unsaved changes confirmation dialog */}
+      {showUnsavedConfirm && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/35 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-background border border-border shadow-modal p-5">
+            <h4 className="text-sm font-semibold text-foreground mb-2">
+              {i18nService.t('pluginsUnsavedTitle')}
+            </h4>
+            <p className="text-sm text-secondary mb-4">
+              {i18nService.t('pluginsUnsavedMessage')}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUnsavedConfirm(false);
+                  pendingLeaveActionRef.current = null;
+                }}
+                className="px-4 py-2 text-sm font-medium rounded-lg text-secondary hover:bg-surface-raised transition-colors"
+              >
+                {i18nService.t('pluginsUnsavedStay')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUnsavedConfirm(false);
+                  // Reset dirty state so subsequent navigation is not blocked
+                  setPendingToggles(new Map());
+                  setPendingConfigs(new Map());
+                  const action = pendingLeaveActionRef.current;
+                  pendingLeaveActionRef.current = null;
+                  action?.();
+                }}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-destructive text-destructive-foreground hover:opacity-90 transition-opacity"
+              >
+                {i18nService.t('pluginsUnsavedDiscard')}
               </button>
             </div>
           </div>

@@ -501,11 +501,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
   const initialLanguageRef = useRef<LanguageType>(i18nService.getLanguage());
   const didSaveRef = useRef(false);
 
-  // Plugin settings dirty tracking
-  const pluginsDirtyRef = useRef(false);
+  // Plugin settings handle (deferred save)
   const pluginsSettingsRef = useRef<PluginsSettingsHandle>(null);
-  const [showPluginsUnsavedConfirm, setShowPluginsUnsavedConfirm] = useState(false);
-  const [pendingLeaveAction, setPendingLeaveAction] = useState<(() => void) | null>(null);
 
   // Add state for active provider
   const [activeProvider, setActiveProvider] = useState<ProviderType>(getDefaultActiveProvider());
@@ -1935,7 +1932,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
         if (pendingChanges) {
           await window.electron?.plugins.batchSave(pendingChanges);
           pluginsSettingsRef.current.resetDirty();
-          pluginsDirtyRef.current = false;
         }
       }
 
@@ -1963,9 +1959,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
   };
 
   const handleTabChange = (tab: TabType) => {
-    if (activeTab === 'plugins' && pluginsDirtyRef.current) {
-      setPendingLeaveAction(() => () => doTabChange(tab));
-      setShowPluginsUnsavedConfirm(true);
+    if (activeTab === 'plugins' && pluginsSettingsRef.current?.guardLeave(() => doTabChange(tab))) {
       return;
     }
     doTabChange(tab);
@@ -1973,9 +1967,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
 
   // Guarded close: check plugin dirty state before closing
   const guardedClose = useCallback(() => {
-    if (activeTab === 'plugins' && pluginsDirtyRef.current) {
-      setPendingLeaveAction(() => () => onClose());
-      setShowPluginsUnsavedConfirm(true);
+    if (activeTab === 'plugins' && pluginsSettingsRef.current?.guardLeave(() => onClose())) {
       return;
     }
     onClose();
@@ -3250,7 +3242,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
       case 'plugins':
         return (
           <PluginsSettings
-            onDirtyChange={(dirty) => { pluginsDirtyRef.current = dirty; }}
             handleRef={pluginsSettingsRef}
           />
         );
@@ -3582,44 +3573,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
             </div>
           )}
 
-      {/* Plugins unsaved changes confirmation dialog */}
-      {showPluginsUnsavedConfirm && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/35 px-4">
-          <div className="w-full max-w-sm rounded-2xl bg-background border border-border shadow-modal p-5">
-            <h4 className="text-sm font-semibold text-foreground mb-2">
-              {i18nService.t('pluginsUnsavedTitle')}
-            </h4>
-            <p className="text-sm text-secondary mb-4">
-              {i18nService.t('pluginsUnsavedMessage')}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPluginsUnsavedConfirm(false);
-                  setPendingLeaveAction(null);
-                }}
-                className="px-4 py-2 text-sm font-medium rounded-lg text-secondary hover:bg-surface-raised transition-colors"
-              >
-                {i18nService.t('pluginsUnsavedStay')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPluginsUnsavedConfirm(false);
-                  pluginsDirtyRef.current = false;
-                  const action = pendingLeaveAction;
-                  setPendingLeaveAction(null);
-                  action?.();
-                }}
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-destructive text-destructive-foreground hover:opacity-90 transition-opacity"
-              >
-                {i18nService.t('pluginsUnsavedDiscard')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     </Modal>
   );
