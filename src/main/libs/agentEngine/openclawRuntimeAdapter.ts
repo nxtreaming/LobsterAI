@@ -233,6 +233,7 @@ type ActiveTurn = {
   turnToken: number;
   /** Timestamp when this turn was created (for abort diagnostics). */
   startedAtMs: number;
+  firstResponseTiming: FirstResponseTiming;
   knownRunIds: Set<string>;
   assistantMessageId: string | null;
   committedAssistantText: string;
@@ -312,6 +313,23 @@ type ActiveTurn = {
   finalCompletionAllowLateContinuation?: boolean;
   allowRecentlyClosedRunRetryReopenOnCleanup?: boolean;
   suppressRecentlyClosedRunIdsOnCleanup?: boolean;
+};
+
+type FirstResponseTiming = {
+  turnStartedAtMs: number;
+  gatewayReadyStartedAtMs?: number;
+  gatewayReadyEndedAtMs?: number;
+  modelPatchStartedAtMs?: number;
+  modelPatchEndedAtMs?: number;
+  promptBuildStartedAtMs?: number;
+  promptBuildEndedAtMs?: number;
+  chatHistoryStartedAtMs?: number;
+  chatHistoryEndedAtMs?: number;
+  chatSendStartedAtMs?: number;
+  chatSendAckAtMs?: number;
+  lifecycleStartedAtMs?: number;
+  firstVisibleAssistantAtMs?: number;
+  firstVisibleAssistantSource?: 'agent' | 'chat';
 };
 
 type RecentlyClosedRunInfo = {
@@ -1292,6 +1310,20 @@ const waitWithTimeout = async (promise: Promise<void>, timeoutMs: number): Promi
       clearTimeout(timeoutId);
     }
   }
+};
+
+const formatTimingDuration = (startedAtMs?: number, endedAtMs?: number): string => {
+  if (!startedAtMs || !endedAtMs) {
+    return 'n/a';
+  }
+  return `${endedAtMs - startedAtMs}ms`;
+};
+
+const formatTimingOffset = (baseStartedAtMs: number, endedAtMs?: number): string => {
+  if (!endedAtMs) {
+    return 'n/a';
+  }
+  return `${endedAtMs - baseStartedAtMs}ms`;
 };
 
 export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntime {
@@ -2872,6 +2904,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (!prompt.trim() && (!options.imageAttachments || options.imageAttachments.length === 0)) {
       throw new Error('Prompt is required.');
     }
+    const firstResponseTiming: FirstResponseTiming = { turnStartedAtMs: Date.now() };
+    console.log(
+      '[OpenClawRuntimeTiming] turn started.',
+      `Session ${sessionId}.`,
+      `Prompt length ${prompt.length}.`,
+      `Image attachments ${options.imageAttachments?.length ?? 0}.`,
+    );
     // Clear stop cooldown when user explicitly starts/continues a session
     this.stoppedSessions.delete(sessionId);
     this.manuallyStoppedSessions.delete(sessionId);
@@ -2917,7 +2956,15 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.store.updateSession(sessionId, { status: 'running' });
     this.emitSessionStatus(sessionId, 'running');
     setCoworkProxySessionId(sessionId);
+    firstResponseTiming.gatewayReadyStartedAtMs = Date.now();
     await this.ensureGatewayClientReady();
+    firstResponseTiming.gatewayReadyEndedAtMs = Date.now();
+    console.log(
+      '[OpenClawRuntimeTiming] gateway client ready.',
+      `Session ${sessionId}.`,
+      `Elapsed ${formatTimingDuration(firstResponseTiming.gatewayReadyStartedAtMs, firstResponseTiming.gatewayReadyEndedAtMs)}.`,
+      `Total ${formatTimingOffset(firstResponseTiming.turnStartedAtMs, firstResponseTiming.gatewayReadyEndedAtMs)}.`,
+    );
     this.startChannelPolling();
 
     const runId = randomUUID();
@@ -2934,6 +2981,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       this.store.updateAgent(agent.id, { model: currentModel });
     }
     try {
+      firstResponseTiming.modelPatchStartedAtMs = Date.now();
       await this.ensureSessionModelForTurn({
         sessionId,
         sessionKey,
@@ -2942,6 +2990,14 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           ? SessionModelPatchSource.SessionOverride
           : SessionModelPatchSource.AgentModel,
       });
+      firstResponseTiming.modelPatchEndedAtMs = Date.now();
+      console.log(
+        '[OpenClawRuntimeTiming] session model sync finished.',
+        `Session ${sessionId}.`,
+        `Model ${currentModel || 'none'}.`,
+        `Elapsed ${formatTimingDuration(firstResponseTiming.modelPatchStartedAtMs, firstResponseTiming.modelPatchEndedAtMs)}.`,
+        `Total ${formatTimingOffset(firstResponseTiming.turnStartedAtMs, firstResponseTiming.modelPatchEndedAtMs)}.`,
+      );
     } catch (error) {
       this.store.updateSession(sessionId, { status: 'error' });
       const message = error instanceof Error ? error.message : String(error);
@@ -2956,12 +3012,23 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       buildMediaGenerationTurnInstruction(options.mediaSelection, hasMediaSkillActive),
     ].filter(p => p?.trim()).join('\n\n');
 
+    firstResponseTiming.promptBuildStartedAtMs = Date.now();
     const outboundMessage = await this.buildOutboundPrompt(
       sessionId,
       prompt,
       outboundSystemPrompt,
       agentId,
       options.mediaReferences,
+      firstResponseTiming,
+    );
+    firstResponseTiming.promptBuildEndedAtMs = Date.now();
+    console.log(
+      '[OpenClawRuntimeTiming] outbound prompt built.',
+      `Session ${sessionId}.`,
+      `Message length ${outboundMessage.length}.`,
+      `System prompt length ${outboundSystemPrompt.length}.`,
+      `Elapsed ${formatTimingDuration(firstResponseTiming.promptBuildStartedAtMs, firstResponseTiming.promptBuildEndedAtMs)}.`,
+      `Total ${formatTimingOffset(firstResponseTiming.turnStartedAtMs, firstResponseTiming.promptBuildEndedAtMs)}.`,
     );
     const runCwd = session.cwd?.trim() ? path.resolve(session.cwd.trim()) : undefined;
     const completionPromise = new Promise<void>((resolve, reject) => {
@@ -2991,6 +3058,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       mediaStatusPollBaseByToolCallId: new Map(),
       contextMaintenanceToolCallIds: new Set(),
       startedAtMs: Date.now(),
+      firstResponseTiming,
       stopRequested: false,
       thinkingMessageId: null,
       currentThinkingText: '',
@@ -3030,6 +3098,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         console.log('[OpenClawRuntime] chat.send with attachments:', attachments.length, 'images,', attachments.map(a => ({ type: a.type, mimeType: a.mimeType, contentLength: a.content?.length ?? 0 })));
       }
       const chatSendStartMs = Date.now();
+      firstResponseTiming.chatSendStartedAtMs = chatSendStartMs;
       const sendResult = await client.request<Record<string, unknown>>('chat.send', {
         sessionKey,
         message: outboundMessage,
@@ -3039,6 +3108,14 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         ...(attachments ? { attachments } : {}),
       }, { timeoutMs: 90_000 });
       const chatSendElapsedMs = Date.now() - chatSendStartMs;
+      firstResponseTiming.chatSendAckAtMs = Date.now();
+      console.log(
+        '[OpenClawRuntimeTiming] chat.send acknowledged.',
+        `Session ${sessionId}.`,
+        `Run ${runId}.`,
+        `Elapsed ${chatSendElapsedMs}ms.`,
+        `Total ${formatTimingOffset(firstResponseTiming.turnStartedAtMs, firstResponseTiming.chatSendAckAtMs)}.`,
+      );
       if (chatSendElapsedMs > 10_000) {
         console.warn(`[OpenClawRuntime] chat.send took ${chatSendElapsedMs}ms — gateway may still be initializing`);
       }
@@ -3064,6 +3141,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     systemPrompt?: string,
     agentId?: string,
     mediaReferences?: CoworkMediaAttachmentRef[],
+    firstResponseTiming?: FirstResponseTiming,
   ): Promise<string> {
     const normalizedSystemPrompt = (systemPrompt ?? '').trim();
     const previousSystemPrompt = this.lastSystemPromptBySession.get(sessionId) ?? '';
@@ -3107,12 +3185,28 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const sessionKey = this.toSessionKey(sessionId, agentId);
     let hasHistory = false;
     try {
+      if (firstResponseTiming) {
+        firstResponseTiming.chatHistoryStartedAtMs = Date.now();
+      }
       const history = await client.request<{ messages?: unknown[] }>('chat.history', {
         sessionKey,
         limit: 1,
       }, { timeoutMs: 3_000 });
+      if (firstResponseTiming) {
+        firstResponseTiming.chatHistoryEndedAtMs = Date.now();
+      }
       hasHistory = Array.isArray(history?.messages) && history.messages.length > 0;
+      console.log(
+        '[OpenClawRuntimeTiming] chat.history probe finished.',
+        `Session ${sessionId}.`,
+        `Has history ${hasHistory}.`,
+        `Elapsed ${formatTimingDuration(firstResponseTiming?.chatHistoryStartedAtMs, firstResponseTiming?.chatHistoryEndedAtMs)}.`,
+        `Total ${firstResponseTiming ? formatTimingOffset(firstResponseTiming.turnStartedAtMs, firstResponseTiming.chatHistoryEndedAtMs) : 'n/a'}.`,
+      );
     } catch (error) {
+      if (firstResponseTiming) {
+        firstResponseTiming.chatHistoryEndedAtMs = Date.now();
+      }
       console.warn('[OpenClawRuntime] chat.history check failed, continuing without history guard:', error);
     }
 
@@ -4339,6 +4433,45 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     return (this.latestTurnTokenBySession.get(sessionId) ?? 0) === turnToken;
   }
 
+  private ensureFirstResponseTiming(turn: ActiveTurn): FirstResponseTiming {
+    if (!turn.firstResponseTiming) {
+      turn.firstResponseTiming = { turnStartedAtMs: turn.startedAtMs || Date.now() };
+    }
+    return turn.firstResponseTiming;
+  }
+
+  private logFirstResponseTiming(
+    sessionId: string,
+    turn: ActiveTurn,
+    source: 'agent' | 'chat',
+    visibleTextLength: number,
+  ): void {
+    const timing = this.ensureFirstResponseTiming(turn);
+    if (timing.firstVisibleAssistantAtMs) {
+      return;
+    }
+
+    const now = Date.now();
+    timing.firstVisibleAssistantAtMs = now;
+    timing.firstVisibleAssistantSource = source;
+    console.log(
+      '[OpenClawRuntimeTiming] first visible assistant content received.',
+      `Session ${sessionId}.`,
+      `Run ${turn.runId}.`,
+      `Source ${source}.`,
+      `Visible text length ${visibleTextLength}.`,
+      `Total ${formatTimingOffset(timing.turnStartedAtMs, now)}.`,
+      `Gateway ready ${formatTimingDuration(timing.gatewayReadyStartedAtMs, timing.gatewayReadyEndedAtMs)}.`,
+      `Model patch ${formatTimingDuration(timing.modelPatchStartedAtMs, timing.modelPatchEndedAtMs)}.`,
+      `Prompt build ${formatTimingDuration(timing.promptBuildStartedAtMs, timing.promptBuildEndedAtMs)}.`,
+      `History probe ${formatTimingDuration(timing.chatHistoryStartedAtMs, timing.chatHistoryEndedAtMs)}.`,
+      `Chat send ack ${formatTimingDuration(timing.chatSendStartedAtMs, timing.chatSendAckAtMs)}.`,
+      `Ack to lifecycle ${formatTimingDuration(timing.chatSendAckAtMs, timing.lifecycleStartedAtMs)}.`,
+      `Lifecycle to first content ${formatTimingDuration(timing.lifecycleStartedAtMs, now)}.`,
+      `Ack to first content ${formatTimingDuration(timing.chatSendAckAtMs, now)}.`,
+    );
+  }
+
   private reuseFinalAssistantMessage(sessionId: string, content: string): string | null {
     const normalizedContent = content.trim();
     if (!normalizedContent) {
@@ -4404,6 +4537,21 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (phase === AgentLifecyclePhase.Start) {
       this.store.updateSession(sessionId, { status: 'running' });
       this.emitSessionStatus(sessionId, 'running');
+      const startingTurn = this.activeTurns.get(sessionId);
+      if (startingTurn) {
+        const timing = this.ensureFirstResponseTiming(startingTurn);
+        if (timing.lifecycleStartedAtMs) {
+          return;
+        }
+        timing.lifecycleStartedAtMs = Date.now();
+        console.log(
+          '[OpenClawRuntimeTiming] agent lifecycle started.',
+          `Session ${sessionId}.`,
+          `Run ${eventRunId ?? startingTurn.runId}.`,
+          `Total ${formatTimingOffset(timing.turnStartedAtMs, timing.lifecycleStartedAtMs)}.`,
+          `Ack to lifecycle ${formatTimingDuration(timing.chatSendAckAtMs, timing.lifecycleStartedAtMs)}.`,
+        );
+      }
     }
     if (phase === AgentLifecyclePhase.End) {
       // Detect announce completion — mark subagent done and skip parent turn
@@ -5263,6 +5411,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     turn.currentText = text;
     const displayText = stripTrailingSilentReplyTail(text);
     turn.currentAssistantSegmentText = this.resolveAssistantSegmentText(turn, displayText);
+    if (turn.currentAssistantSegmentText) {
+      this.logFirstResponseTiming(sessionId, turn, 'agent', turn.currentAssistantSegmentText.length);
+    }
 
     if (!turn.assistantMessageId && turn.currentAssistantSegmentText) {
       // Create a new message for the new text segment (after split).
@@ -5442,6 +5593,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const segmentText = this.resolveAssistantSegmentText(turn, displayStreamedText);
     if (!segmentText) return;
     if (segmentText === previousSegmentText && streamedText === previousText) return;
+    this.logFirstResponseTiming(sessionId, turn, 'chat', segmentText.length);
 
     if (!turn.assistantMessageId) {
       const msgTimestamp = isRecord(payload.message) && typeof (payload.message as Record<string, unknown>).timestamp === 'number'
@@ -5543,6 +5695,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
     const finalSegmentText = this.resolveAssistantSegmentText(turn, finalText);
     turn.currentAssistantSegmentText = finalSegmentText;
+    if (finalSegmentText) {
+      this.logFirstResponseTiming(sessionId, turn, 'chat', finalSegmentText.length);
+    }
 
     // Collect media URLs and backfill tool result text from chat.history.
     // The agent tool event does not carry the result text (gateway strips it),
@@ -7265,6 +7420,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       mediaStatusPollBaseByToolCallId: new Map(),
       contextMaintenanceToolCallIds: new Set(),
       startedAtMs: Date.now(),
+      firstResponseTiming: { turnStartedAtMs: Date.now() },
       stopRequested: false,
       thinkingMessageId: null,
       currentThinkingText: '',

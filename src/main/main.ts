@@ -4867,6 +4867,13 @@ if (!gotTheLock) {
       },
     ) => {
       try {
+        const ipcStartedAtMs = Date.now();
+        console.log(
+          '[CoworkFirstResponseTiming] start IPC received.',
+          `Prompt length ${options.prompt.length}.`,
+          `Image attachments ${options.imageAttachments?.length ?? 0}.`,
+          `Agent ${options.agentId || 'main'}.`,
+        );
         const engineStatus = await ensureOpenClawRunningForCowork();
         if (engineStatus.phase !== 'running') {
           return getEngineNotReadyResponse(engineStatus);
@@ -4951,6 +4958,11 @@ if (!gotTheLock) {
         coworkStoreInstance.updateSession(session.id, { status: 'running' });
 
         const runtime = getCoworkEngineRouter();
+        console.log(
+          '[CoworkFirstResponseTiming] start IPC dispatched to runtime.',
+          `Session ${session.id}.`,
+          `Elapsed ${Date.now() - ipcStartedAtMs}ms.`,
+        );
         runtime
           .startSession(session.id, options.prompt, {
             skipInitialUserMessage: true,
@@ -5028,6 +5040,13 @@ if (!gotTheLock) {
       },
     ) => {
       try {
+        const ipcStartedAtMs = Date.now();
+        console.log(
+          '[CoworkFirstResponseTiming] continue IPC received.',
+          `Session ${options.sessionId}.`,
+          `Prompt length ${options.prompt.length}.`,
+          `Image attachments ${options.imageAttachments?.length ?? 0}.`,
+        );
         const engineStatus = await ensureOpenClawRunningForCowork();
         if (engineStatus.phase !== 'running') {
           return getEngineNotReadyResponse(engineStatus);
@@ -5060,6 +5079,11 @@ if (!gotTheLock) {
           });
         }
 
+        console.log(
+          '[CoworkFirstResponseTiming] continue IPC dispatched to runtime.',
+          `Session ${options.sessionId}.`,
+          `Elapsed ${Date.now() - ipcStartedAtMs}ms.`,
+        );
         runtime
           .continueSession(options.sessionId, options.prompt, {
             systemPrompt: mergeCoworkSystemPrompt(
