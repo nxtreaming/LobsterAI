@@ -70,6 +70,24 @@ const AGENT_TASK_SLOT_SHORTCUT_ACTIONS = [
   ShortcutAction.OpenAgentTask9,
 ] as const;
 
+const SETTINGS_TAB_SHORTCUT_ACTIONS: Array<{
+  action: ShortcutAction;
+  initialTab: NonNullable<SettingsOpenOptions['initialTab']>;
+}> = [
+  { action: ShortcutAction.OpenSettingsGeneral, initialTab: 'general' },
+  { action: ShortcutAction.OpenSettingsAppearance, initialTab: 'appearance' },
+  { action: ShortcutAction.OpenSettingsAgentEngine, initialTab: 'coworkAgentEngine' },
+  { action: ShortcutAction.OpenSettingsModel, initialTab: 'model' },
+  { action: ShortcutAction.OpenSettingsIm, initialTab: 'im' },
+  { action: ShortcutAction.OpenSettingsBrowser, initialTab: 'browserWebAccess' },
+  { action: ShortcutAction.OpenSettingsEmail, initialTab: 'email' },
+  { action: ShortcutAction.OpenSettingsMemory, initialTab: 'coworkMemory' },
+  { action: ShortcutAction.OpenSettingsDreaming, initialTab: 'coworkDreaming' },
+  { action: ShortcutAction.OpenSettingsPlugins, initialTab: 'plugins' },
+  { action: ShortcutAction.OpenSettingsShortcuts, initialTab: 'shortcuts' },
+  { action: ShortcutAction.OpenSettingsAbout, initialTab: 'about' },
+];
+
 /** Used for config + i18n init; longer on Windows where main-process IPC can stall during cold start. */
 const INIT_STEP_TIMEOUT_MS_WINDOWS = 24_000;
 const INIT_STEP_TIMEOUT_MS_DEFAULT = 16_000;
@@ -625,6 +643,13 @@ const App: React.FC = () => {
       if (matchesAction(ShortcutAction.ShowShortcuts)) {
         event.preventDefault();
         handleShowSettings({ initialTab: 'shortcuts' });
+        return;
+      }
+
+      const settingsTabShortcut = SETTINGS_TAB_SHORTCUT_ACTIONS.find(({ action }) => matchesAction(action));
+      if (settingsTabShortcut) {
+        event.preventDefault();
+        handleShowSettings({ initialTab: settingsTabShortcut.initialTab });
         return;
       }
 

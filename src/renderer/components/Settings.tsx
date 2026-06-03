@@ -1,4 +1,4 @@
-import { ChatBubbleLeftIcon, CpuChipIcon, CubeIcon, EnvelopeIcon, GlobeAltIcon, InformationCircleIcon, MagnifyingGlassIcon, SunIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { ChatBubbleLeftIcon, CpuChipIcon, CubeIcon, EnvelopeIcon, GlobeAltIcon, InformationCircleIcon, MagnifyingGlassIcon, SunIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useCallback,useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
@@ -35,6 +35,7 @@ import DreamingSettingsSection from './cowork/DreamingSettingsSection';
 import EmbeddingSettingsSection from './cowork/EmbeddingSettingsSection';
 import ErrorMessage from './ErrorMessage';
 import BrainIcon from './icons/BrainIcon';
+import EditIcon from './icons/EditIcon';
 import PlugIcon from './icons/PlugIcon';
 import PlusCircleIcon from './icons/PlusCircleIcon';
 import IMSettings from './im/IMSettings';
@@ -450,10 +451,16 @@ const SEND_SHORTCUT_OPTIONS = [
 
 const isMacPlatform = navigator.platform.includes('Mac');
 
-const ShortcutRecorder: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
+const ShortcutRecorder: React.FC<{
+  value: string;
+  label: string;
+  onChange: (v: string) => void;
+}> = ({ value, label, onChange }) => {
   const [recording, setRecording] = useState(false);
-  const divRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const recorderRef = useRef<HTMLButtonElement>(null);
   const displayValue = formatShortcutForDisplay(value, { isMac: isMacPlatform });
+  const editLabel = i18nService.t('shortcutEditCommand').replace('{command}', label);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!recording) return;
@@ -468,28 +475,58 @@ const ShortcutRecorder: React.FC<{ value: string; onChange: (v: string) => void 
   useEffect(() => {
     if (!recording) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (divRef.current && !divRef.current.contains(e.target as Node)) setRecording(false);
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setRecording(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [recording]);
 
+  useEffect(() => {
+    if (!recording) return;
+    window.setTimeout(() => recorderRef.current?.focus(), 0);
+  }, [recording]);
+
+  if (recording) {
+    return (
+      <div ref={containerRef} className="flex items-center gap-3">
+        <button
+          ref={recorderRef}
+          type="button"
+          data-shortcut-input="true"
+          onKeyDown={handleKeyDown}
+          className="h-8 min-w-[8rem] rounded-xl border border-border bg-surface px-4 text-xs font-medium text-foreground shadow-sm outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/25"
+        >
+          {i18nService.t('shortcutPressShortcut')}
+        </button>
+        <button
+          type="button"
+          data-shortcut-input="true"
+          onClick={() => setRecording(false)}
+          className="text-xs font-medium text-secondary transition-colors hover:text-foreground"
+        >
+          {i18nService.t('cancel')}
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div
-      ref={divRef}
-      tabIndex={0}
-      data-shortcut-input="true"
-      onKeyDown={handleKeyDown}
-      onClick={() => setRecording(true)}
-      onBlur={() => setRecording(false)}
-      className={`w-28 rounded-lg border px-2.5 py-1 text-xs cursor-pointer select-none text-center outline-none transition-colors
-        dark:bg-claude-darkSurfaceInset bg-claude-surfaceInset dark:text-claude-darkText text-claude-text
-        ${recording
-          ? 'border-claude-accent ring-1 ring-claude-accent/30 dark:text-claude-darkTextSecondary text-claude-textSecondary'
-          : 'dark:border-claude-darkBorder border-claude-border hover:border-claude-accent/50'
-        }`}
-    >
-      {displayValue || i18nService.t('shortcutNotSet')}
+    <div className="flex items-center gap-2">
+      <span
+        title={displayValue || i18nService.t('shortcutNotSet')}
+        className="min-w-[5.5rem] max-w-[9rem] truncate rounded-full bg-surface-raised px-3 py-1 text-center text-xs font-medium text-secondary"
+      >
+        {displayValue || i18nService.t('shortcutNotSet')}
+      </span>
+      <button
+        type="button"
+        onClick={() => setRecording(true)}
+        title={editLabel}
+        aria-label={editLabel}
+        className="pointer-events-none inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-secondary opacity-0 transition-colors hover:bg-surface-raised hover:text-foreground group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+      >
+        <EditIcon className="h-4 w-4" />
+      </button>
     </div>
   );
 };
@@ -3434,16 +3471,17 @@ const Settings: React.FC<SettingsProps> = ({
                   </div>
                   {group.commands.map((command, commandIndex) => {
                     const value = shortcuts[command.key] ?? '';
+                    const commandLabel = getShortcutCommandText(command, 'labelKey');
                     return (
                       <div
                         key={command.key}
-                        className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 ${
+                        className={`group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 ${
                           commandIndex === 0 ? '' : 'border-t border-border/70'
                         }`}
                       >
                         <div className="min-w-0">
                           <div className="truncate text-xs font-medium text-foreground">
-                            {getShortcutCommandText(command, 'labelKey')}
+                            {commandLabel}
                           </div>
                           <div className="mt-0.5 line-clamp-2 text-xs text-secondary">
                             {getShortcutCommandText(command, 'descriptionKey')}
@@ -3458,19 +3496,21 @@ const Settings: React.FC<SettingsProps> = ({
                           ) : (
                             <ShortcutRecorder
                               value={value}
+                              label={commandLabel}
                               onChange={(nextValue) => handleShortcutChange(command.key, nextValue)}
                             />
                           )}
-                          <button
-                            type="button"
-                            onClick={() => handleShortcutChange(command.key, '')}
-                            disabled={!value}
-                            title={i18nService.t('shortcutClear')}
-                            aria-label={i18nService.t('shortcutClear')}
-                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-secondary transition-colors hover:bg-surface-raised hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-secondary"
-                          >
-                            <XMarkIcon className="h-4 w-4" />
-                          </button>
+                          {value && (
+                            <button
+                              type="button"
+                              onClick={() => handleShortcutChange(command.key, '')}
+                              title={i18nService.t('shortcutClear')}
+                              aria-label={i18nService.t('shortcutClear')}
+                              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-secondary transition-colors hover:bg-surface-raised hover:text-foreground"
+                            >
+                              <TrashIcon className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
