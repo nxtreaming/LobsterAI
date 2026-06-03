@@ -296,7 +296,7 @@ const KitsManager: React.FC<KitsManagerProps> = ({ onTryAsking }) => {
         <button
           type="button"
           onClick={() => setSelectedKit(null)}
-          className="non-draggable inline-flex items-center gap-1.5 text-sm text-secondary hover:text-foreground transition-colors"
+          className="non-draggable relative z-30 inline-flex items-center gap-1.5 text-sm text-secondary hover:text-foreground transition-colors"
         >
           <ArrowLeftIcon className="h-4 w-4" />
           {i18nService.t('kitBack')}

@@ -280,7 +280,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const readOnlyContextGroupRef = useRef<HTMLDivElement>(null);
     const dragDepthRef = useRef(0);
     const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const skillPopoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const modelPatchRequestIdRef = useRef(0);
 
   // 暴露方法给父组件
@@ -522,12 +521,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       const target = event.target as Node;
       if (!addMenuButtonRef.current?.contains(target) && !addMenuRef.current?.contains(target)) {
         setShowAddMenu(false);
+        setShowSkillsPopover(false);
       }
     };
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setShowAddMenu(false);
+        setShowSkillsPopover(false);
       }
     };
 
@@ -541,21 +542,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   useEffect(() => {
     if (!showAddMenu) {
-      if (skillPopoverCloseTimerRef.current) {
-        clearTimeout(skillPopoverCloseTimerRef.current);
-        skillPopoverCloseTimerRef.current = null;
-      }
       setShowSkillsPopover(false);
     }
   }, [showAddMenu]);
-
-  useEffect(() => {
-    return () => {
-      if (skillPopoverCloseTimerRef.current) {
-        clearTimeout(skillPopoverCloseTimerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     modelPatchRequestIdRef.current += 1;
@@ -1186,31 +1175,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [addAttachment, effectiveSelectedModel, isAddingFile, disabled, isStreaming, modelSupportsImage]);
 
   const handleOpenAddMenu = useCallback(() => {
-    if (skillPopoverCloseTimerRef.current) {
-      clearTimeout(skillPopoverCloseTimerRef.current);
-      skillPopoverCloseTimerRef.current = null;
-    }
     setShowSkillsPopover(false);
     setShowAddMenu(prev => !prev);
   }, []);
 
   const handleOpenSkillsPopover = useCallback(() => {
-    if (skillPopoverCloseTimerRef.current) {
-      clearTimeout(skillPopoverCloseTimerRef.current);
-      skillPopoverCloseTimerRef.current = null;
-    }
     setShowAddMenu(true);
     setShowSkillsPopover(true);
-  }, []);
-
-  const handleScheduleCloseSkillsPopover = useCallback(() => {
-    if (skillPopoverCloseTimerRef.current) {
-      clearTimeout(skillPopoverCloseTimerRef.current);
-    }
-    skillPopoverCloseTimerRef.current = setTimeout(() => {
-      setShowSkillsPopover(false);
-      skillPopoverCloseTimerRef.current = null;
-    }, 320);
   }, []);
 
   const handleRemoveAttachment = useCallback((path: string) => {
@@ -1406,18 +1377,10 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           ref={addMenuRef}
           className="absolute bottom-full left-0 z-50 mb-2 w-48 rounded-xl border border-border bg-surface py-1 shadow-popover"
           role="menu"
-          onMouseEnter={() => {
-            if (skillPopoverCloseTimerRef.current) {
-              clearTimeout(skillPopoverCloseTimerRef.current);
-              skillPopoverCloseTimerRef.current = null;
-            }
-          }}
-          onMouseLeave={handleScheduleCloseSkillsPopover}
         >
           <button
             type="button"
             onClick={handleAddFile}
-            onMouseEnter={handleScheduleCloseSkillsPopover}
             disabled={disabled || isStreaming || isAddingFile}
             className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
             role="menuitem"
@@ -1425,14 +1388,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             <PaperClipIcon className="h-5 w-5 shrink-0 text-secondary" />
             <span className="min-w-0 truncate">{i18nService.t('coworkAddFile')}</span>
           </button>
-          {showSkillsPopover && (
-            <div
-              aria-hidden="true"
-              className="absolute bottom-0 left-[calc(100%-1px)] z-[55] h-80 w-40"
-              onMouseEnter={handleOpenSkillsPopover}
-              onMouseLeave={handleScheduleCloseSkillsPopover}
-            />
-          )}
           <button
             ref={skillMenuItemRef}
             type="button"
@@ -1459,8 +1414,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             anchorRef={skillMenuItemRef as React.RefObject<HTMLElement>}
             asSubmenu
             autoFocusSearch={false}
-            onMouseEnter={handleOpenSkillsPopover}
-            onMouseLeave={handleScheduleCloseSkillsPopover}
           />
         </div>
       )}
