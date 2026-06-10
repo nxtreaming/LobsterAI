@@ -1,6 +1,8 @@
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, test } from 'vitest';
 
-import {
+import MarkdownContent, {
   getLargeMarkdownPreview,
   isInternalHref,
   safeUrlTransform,
@@ -20,6 +22,19 @@ test('large markdown preview keeps the head and latest tail', () => {
   expect(preview).toContain('\n...\n');
   expect(preview.endsWith('-tail')).toBe(true);
   expect(preview.length).toBeLessThan(content.length);
+});
+
+test('large markdown preview can be disabled for full document renderers', () => {
+  const content = `# Full file\n\n${'x'.repeat(8 * 1024 + 1)}`;
+  const defaultHtml = renderToStaticMarkup(React.createElement(MarkdownContent, { content }));
+  const fullHtml = renderToStaticMarkup(React.createElement(MarkdownContent, {
+    content,
+    enableLargePreview: false,
+  }));
+
+  expect(defaultHtml).toMatch(/内容较大|Large content/);
+  expect(fullHtml).not.toMatch(/内容较大|Large content/);
+  expect(fullHtml).toContain('Full file');
 });
 
 test('kit links are treated as safe internal links', () => {

@@ -1,9 +1,9 @@
 import { defaultKeymap, historyKeymap } from '@codemirror/commands';
 import {
   bracketMatching,
-  defaultHighlightStyle,
   foldGutter,
   foldKeymap,
+  HighlightStyle,
   LanguageDescription,
   LanguageSupport,
   syntaxHighlighting,
@@ -22,22 +22,23 @@ import {
   setSearchQuery,
 } from '@codemirror/search';
 import { Compartment, EditorState,Extension } from '@codemirror/state';
+import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
 import {
   crosshairCursor,
   drawSelection,
   EditorView,
-  highlightActiveLine,
-  highlightActiveLineGutter,
   keymap,
   lineNumbers,
   Panel,
   rectangularSelection,
 } from '@codemirror/view';
+import { tags as t } from '@lezer/highlight';
 import { indentationMarkers } from '@replit/codemirror-indentation-markers';
 import CodeMirror from '@uiw/react-codemirror';
 import React, { useCallback, useEffect, useMemo,useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { copyTextToClipboard } from '../services/clipboard';
 import { i18nService } from '../services/i18n';
 import Tooltip, { TooltipAlign, TooltipPosition } from './ui/Tooltip';
 
@@ -579,6 +580,31 @@ function buildSearchPanel(view: EditorView): Panel {
 // CodeMirror theme extensions (module-level, stable references)
 // ---------------------------------------------------------------------------
 
+/**
+ * One Light palette — the light-mode companion of the One Dark palette used in
+ * dark mode. Mirrors the tag structure of oneDarkHighlightStyle so both modes
+ * colorize exactly the same tokens, and its blue (#4078f2) sits close to the
+ * app primary (#3B82F6).
+ */
+const oneLightHighlightStyle = HighlightStyle.define([
+  { tag: t.keyword, color: '#a626a4' },
+  { tag: [t.name, t.deleted, t.character, t.propertyName, t.macroName], color: '#e45649' },
+  { tag: [t.function(t.variableName), t.labelName], color: '#4078f2' },
+  { tag: [t.color, t.constant(t.name), t.standard(t.name)], color: '#986801' },
+  { tag: [t.definition(t.name), t.separator], color: '#383a42' },
+  { tag: [t.typeName, t.className, t.number, t.changed, t.annotation, t.modifier, t.self, t.namespace], color: '#c18401' },
+  { tag: [t.operator, t.operatorKeyword, t.url, t.escape, t.regexp, t.link, t.special(t.string)], color: '#0184bc' },
+  { tag: [t.meta, t.comment], color: '#a0a1a7' },
+  { tag: t.strong, fontWeight: 'bold' },
+  { tag: t.emphasis, fontStyle: 'italic' },
+  { tag: t.strikethrough, textDecoration: 'line-through' },
+  { tag: t.link, color: '#a0a1a7', textDecoration: 'underline' },
+  { tag: t.heading, fontWeight: 'bold', color: '#e45649' },
+  { tag: [t.atom, t.bool, t.special(t.variableName)], color: '#986801' },
+  { tag: [t.processingInstruction, t.string, t.inserted], color: '#50a14f' },
+  { tag: t.invalid, color: '#ca1243' },
+]);
+
 const baseTheme = EditorView.theme({
   '&': {
     fontSize: '13px',
@@ -589,10 +615,9 @@ const baseTheme = EditorView.theme({
     minWidth: '2.5em',
     padding: '0 8px 0 4px',
     fontSize: '12px',
-    opacity: '0.5',
   },
-  '.cm-content': { padding: '8px 0' },
-  '.cm-line': { padding: '0 12px' },
+  '.cm-content': { padding: '10px 0' },
+  '.cm-line': { padding: '0 14px' },
   '.cm-cursor': { display: 'none !important' },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': { overflow: 'auto' },
@@ -722,13 +747,11 @@ const baseTheme = EditorView.theme({
 });
 
 const darkThemeExt = EditorView.theme({
-  '&': { backgroundColor: '#282c34', color: '#abb2bf' },
-  '.cm-gutters': { backgroundColor: '#282c34', color: '#636d83' },
+  '&': { backgroundColor: 'transparent', color: '#abb2bf' },
+  '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--lobster-text-muted)' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: '#3e4451 !important',
+    backgroundColor: 'color-mix(in srgb, var(--lobster-primary) 30%, transparent) !important',
   },
-  '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.04)' },
-  '.cm-activeLineGutter': { backgroundColor: 'rgba(255,255,255,0.04)' },
   '.cm-deletedChunk .cm-line, .cm-changedChunk .cm-deletedLine': {
     backgroundColor: 'rgba(255,80,80,0.18)',
   },
@@ -739,16 +762,18 @@ const darkThemeExt = EditorView.theme({
     '--indent-marker-bg-color': 'rgba(255,255,255,0.08)',
     '--indent-marker-active-bg-color': 'rgba(255,255,255,0.22)',
   },
-});
+}, { dark: true });
+
+/** Syntax highlighting must follow the theme: One Dark on dark, One Light on light. */
+const syntaxHighlightExt = (isDark: boolean): Extension =>
+  syntaxHighlighting(isDark ? oneDarkHighlightStyle : oneLightHighlightStyle);
 
 const lightThemeExt = EditorView.theme({
-  '&': { backgroundColor: '#f0f2f5', color: '#383a42' },
-  '.cm-gutters': { backgroundColor: '#f0f2f5', color: '#9d9d9f' },
+  '&': { backgroundColor: 'transparent', color: '#383a42' },
+  '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--lobster-text-muted)' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: '#d7d9e0 !important',
+    backgroundColor: 'color-mix(in srgb, var(--lobster-primary) 16%, transparent) !important',
   },
-  '.cm-activeLine': { backgroundColor: 'rgba(0,0,0,0.04)' },
-  '.cm-activeLineGutter': { backgroundColor: 'rgba(0,0,0,0.04)' },
   '.cm-deletedChunk .cm-line, .cm-changedChunk .cm-deletedLine': {
     backgroundColor: 'rgba(220,40,40,0.12)',
   },
@@ -765,8 +790,16 @@ const lightThemeExt = EditorView.theme({
 // Constants
 // ---------------------------------------------------------------------------
 
-const CODE_BLOCK_LINE_LIMIT = 200;
-const CODE_BLOCK_CHAR_LIMIT = 20000;
+// CodeMirror is virtualized, so it comfortably handles documents of this size;
+// only truly huge blocks fall back to the plain <pre> rendering below.
+const CODE_BLOCK_LINE_LIMIT = 1000;
+const CODE_BLOCK_CHAR_LIMIT = 100000;
+
+/** Prose-like fenced content reads better with word wrap enabled by default. */
+const WRAP_BY_DEFAULT_LANGUAGES = new Set(['markdown', 'md', 'mdx', 'text', 'txt', 'plaintext', 'plain', 'log']);
+
+const shouldWrapByDefault = (lang: string | null): boolean =>
+  !lang || WRAP_BY_DEFAULT_LANGUAGES.has(lang);
 
 /**
  * Maps language identifiers (as they appear in fenced code blocks) to their
@@ -868,7 +901,7 @@ interface CodeFullscreenModalProps {
 }
 
 const CodeFullscreenModal: React.FC<CodeFullscreenModalProps> = ({ code, lang, isDark, onClose }) => {
-  const [wrap, setWrap] = useState(false);
+  const [wrap, setWrap] = useState(() => shouldWrapByDefault(lang));
   const [searchOpen, setSearchOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const viewRef = useRef<EditorView | null>(null);
@@ -891,14 +924,11 @@ const CodeFullscreenModal: React.FC<CodeFullscreenModalProps> = ({ code, lang, i
   }, []);
 
   const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setIsCopied(true);
-      if (copyTimeoutRef.current != null) window.clearTimeout(copyTimeoutRef.current);
-      copyTimeoutRef.current = window.setTimeout(() => setIsCopied(false), 1500);
-    } catch (err) {
-      console.error('Failed to copy in fullscreen modal:', err);
-    }
+    const copiedToClipboard = await copyTextToClipboard(code);
+    if (!copiedToClipboard) return;
+    setIsCopied(true);
+    if (copyTimeoutRef.current != null) window.clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = window.setTimeout(() => setIsCopied(false), 1500);
   }, [code]);
 
   const handleToggleSearch = useCallback(() => {
@@ -927,7 +957,7 @@ const CodeFullscreenModal: React.FC<CodeFullscreenModalProps> = ({ code, lang, i
       {/* Modal container */}
       <div
         className="flex flex-col m-8 rounded-xl overflow-hidden border border-border shadow-2xl"
-        style={{ flex: 1, minHeight: 0, backgroundColor: isDark ? '#282c34' : '#f0f2f5' }}
+        style={{ flex: 1, minHeight: 0, backgroundColor: 'var(--lobster-surface)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal header */}
@@ -1041,6 +1071,7 @@ const DiffView: React.FC<DiffViewProps> = ({ original, modified, langSupport, is
     const exts: Extension[] = [
       baseTheme,
       isDark ? darkThemeExt : lightThemeExt,
+      syntaxHighlightExt(isDark),
       EditorView.editable.of(false),
       unifiedMergeView({
         original,
@@ -1124,7 +1155,10 @@ function useCodeMirrorView({
   useEffect(() => {
     if (!container) return;
 
-    const initialTheme = isDark ? darkThemeExt : lightThemeExt;
+    const initialTheme: Extension = [
+      isDark ? darkThemeExt : lightThemeExt,
+      syntaxHighlightExt(isDark),
+    ];
     const initialWrap = wrap ? EditorView.lineWrapping : [];
     const initialLang: Extension = langSupport ?? [];
 
@@ -1145,19 +1179,12 @@ function useCodeMirrorView({
         highlightSelectionMatches(),
         drawSelection(),
 
-        // Active line highlight
-        highlightActiveLine(),
-        highlightActiveLineGutter(),
-
         // Multi-selection
         rectangularSelection(),
         crosshairCursor(),
 
         // Indentation guides
         indentationMarkers(),
-
-        // Syntax highlighting
-        syntaxHighlighting(defaultHighlightStyle),
 
         // Search — custom panel with match counter
         search({ createPanel: buildSearchPanel }),
@@ -1200,7 +1227,10 @@ function useCodeMirrorView({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: themeCompartment.current.reconfigure(isDark ? darkThemeExt : lightThemeExt),
+      effects: themeCompartment.current.reconfigure([
+        isDark ? darkThemeExt : lightThemeExt,
+        syntaxHighlightExt(isDark),
+      ]),
     });
   }, [isDark]);
 
@@ -1333,7 +1363,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
 
   const [isCopied, setIsCopied] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
-  const [wrap, setWrap] = useState(false);
+  const [wrap, setWrap] = useState(() => shouldWrapByDefault(rawLang));
   const [collapsed, setCollapsed] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const copyTimeoutRef = useRef<number | null>(null);
@@ -1347,14 +1377,11 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
   );
 
   const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(trimmedCodeText);
-      setIsCopied(true);
-      if (copyTimeoutRef.current != null) window.clearTimeout(copyTimeoutRef.current);
-      copyTimeoutRef.current = window.setTimeout(() => setIsCopied(false), 1500);
-    } catch (error) {
-      console.error('Failed to copy code block: ', error);
-    }
+    const copiedToClipboard = await copyTextToClipboard(trimmedCodeText);
+    if (!copiedToClipboard) return;
+    setIsCopied(true);
+    if (copyTimeoutRef.current != null) window.clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = window.setTimeout(() => setIsCopied(false), 1500);
   }, [trimmedCodeText]);
 
   const savedTimeoutRef = useRef<number | null>(null);
@@ -1399,7 +1426,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
   // -------------------------------------------------------------------------
   if (isInline) {
     const inlineClassName = [
-      'inline bg-transparent px-0.5 text-[0.92em] font-mono font-medium text-foreground',
+      'inline rounded-[5px] bg-foreground/[0.06] px-[0.35em] py-[0.12em] text-[0.85em] font-mono text-foreground/90 break-words [box-decoration-break:clone]',
       normalizedClassName,
     ]
       .filter(Boolean)
@@ -1423,7 +1450,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
     : match[1];
 
   return (
-    <div className="my-3 rounded-lg overflow-hidden border border-border-subtle bg-surface-raised/40 relative">
+    <div className="my-3 rounded-lg overflow-hidden border border-border bg-surface-raised/40 relative">
       {/* Fullscreen modal */}
       {fullscreen && (
         <CodeFullscreenModal
@@ -1512,8 +1539,12 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
             />
           )
         ) : (
-          <div className="m-0 overflow-x-auto dark:bg-[#282c34] bg-[#f0f2f5] text-[13px] leading-6">
-            <code className="block px-4 py-3 font-mono dark:text-gray-100 text-gray-800 whitespace-pre dark:bg-[#282c34] bg-[#f0f2f5] w-max min-w-full">
+          <div className="m-0 overflow-x-auto text-[13px] leading-6">
+            <code
+              className={`block px-4 py-3 font-mono text-foreground/90 ${
+                wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre w-max min-w-full'
+              }`}
+            >
               {trimmedCodeText}
             </code>
           </div>

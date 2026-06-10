@@ -375,7 +375,7 @@ const createMarkdownComponents = (
   onImageClick?: (image: { src: string; alt?: string | null }) => void,
 ) => ({
   p: ({ node: _node, className: _className, children, ...props }: any) => (
-    <p className="my-1 first:mt-0 last:mb-0 leading-[23px] text-foreground/90" {...props}>
+    <p className="my-3 first:mt-0 last:mb-0 text-foreground/90" {...props}>
       {children}
     </p>
   ),
@@ -385,37 +385,42 @@ const createMarkdownComponents = (
     </strong>
   ),
   h1: ({ node: _node, className: _className, children, ...props }: any) => (
-    <h1 className="text-2xl font-semibold mt-6 mb-3 text-foreground" {...props}>
+    <h1 className="text-xl font-semibold leading-snug mt-6 mb-3 first:mt-0 text-foreground" {...props}>
       {children}
     </h1>
   ),
   h2: ({ node: _node, className: _className, children, ...props }: any) => (
-    <h2 className="text-xl font-semibold mt-5 mb-2 text-foreground" {...props}>
+    <h2 className="text-[17px] font-semibold leading-snug mt-5 mb-2.5 first:mt-0 text-foreground" {...props}>
       {children}
     </h2>
   ),
   h3: ({ node: _node, className: _className, children, ...props }: any) => (
-    <h3 className="text-lg font-semibold mt-4 mb-2 text-foreground" {...props}>
+    <h3 className="text-base font-semibold leading-snug mt-4 mb-2 first:mt-0 text-foreground" {...props}>
       {children}
     </h3>
   ),
+  h4: ({ node: _node, className: _className, children, ...props }: any) => (
+    <h4 className="text-[15px] font-semibold leading-snug mt-4 mb-1.5 first:mt-0 text-foreground" {...props}>
+      {children}
+    </h4>
+  ),
   ul: ({ node: _node, className: _className, children, ...props }: any) => (
-    <ul className="list-disc pl-5 my-1.5 text-foreground/90" {...props}>
+    <ul className="list-disc pl-5 my-3 first:mt-0 last:mb-0 [li>&]:my-1.5 marker:text-foreground/40 text-foreground/90" {...props}>
       {children}
     </ul>
   ),
   ol: ({ node: _node, className: _className, children, ...props }: any) => (
-    <ol className="list-decimal pl-6 my-1.5 text-foreground/90" {...props}>
+    <ol className="list-decimal pl-6 my-3 first:mt-0 last:mb-0 [li>&]:my-1.5 marker:text-foreground/55 text-foreground/90" {...props}>
       {children}
     </ol>
   ),
   li: ({ node: _node, className: _className, children, ...props }: any) => (
-    <li className="my-0.5 leading-[23px] text-foreground/90" {...props}>
+    <li className="my-1.5 pl-1 text-foreground/90" {...props}>
       {children}
     </li>
   ),
   blockquote: ({ node: _node, className: _className, children, ...props }: any) => (
-    <blockquote className="border-l-4 border-primary pl-4 py-1 my-2 bg-surface-raised/30 rounded-r-lg text-foreground/90 overflow-x-auto" {...props}>
+    <blockquote className="border-l-4 border-primary pl-4 py-1 my-3 bg-surface-raised/30 rounded-r-lg text-foreground/90 overflow-x-auto" {...props}>
       {children}
     </blockquote>
   ),
@@ -650,6 +655,7 @@ interface MarkdownContentProps {
   className?: string;
   resolveLocalFilePath?: (href: string, text: string) => string | null;
   showRevealInFolderAction?: boolean;
+  enableLargePreview?: boolean;
   onImageClick?: (image: { src: string; alt?: string | null }) => void;
 }
 
@@ -658,10 +664,12 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
   className = '',
   resolveLocalFilePath,
   showRevealInFolderAction = false,
+  enableLargePreview = true,
   onImageClick,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const useLargePreview = shouldUseLargeMarkdownPreview(content) && !isExpanded;
+  const canUseLargePreview = enableLargePreview && shouldUseLargeMarkdownPreview(content);
+  const useLargePreview = canUseLargePreview && !isExpanded;
   const components = useMemo(
     () => createMarkdownComponents(resolveLocalFilePath, showRevealInFolderAction, onImageClick),
     [resolveLocalFilePath, showRevealInFolderAction, onImageClick]
@@ -675,7 +683,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
 
   if (useLargePreview) {
     return (
-      <div className={`markdown-content min-w-0 max-w-full text-[15px] leading-[23px] ${className}`}>
+      <div className={`markdown-content min-w-0 max-w-full text-[15px] leading-[1.75] ${className}`}>
         <div className="rounded-lg border border-border bg-surface-raised/60">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 text-xs text-muted">
             <span>
@@ -698,8 +706,8 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
   }
 
   return (
-    <div className={`markdown-content min-w-0 max-w-full text-[15px] leading-[23px] ${className}`}>
-      {shouldUseLargeMarkdownPreview(content) && (
+    <div className={`markdown-content min-w-0 max-w-full text-[15px] leading-[1.75] ${className}`}>
+      {canUseLargePreview && (
         <div className="mb-2 flex justify-end">
           <button
             type="button"

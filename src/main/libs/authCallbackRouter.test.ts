@@ -43,6 +43,28 @@ describe('AuthCallbackRouter', () => {
     expect(router.markListenerReadyAndConsumePending()).toBeNull();
   });
 
+  test('direct auth code delivery uses the same ready listener path', () => {
+    const { target, sent } = createTarget();
+    const router = new AuthCallbackRouter({ getTarget: () => target });
+
+    router.markListenerReadyAndConsumePending();
+    router.handleAuthCode('local-code');
+
+    expect(sent).toEqual([
+      { channel: AuthIpcChannel.Callback, payload: { code: 'local-code' } },
+    ]);
+  });
+
+  test('direct auth code delivery buffers before renderer listener is ready', () => {
+    const { target, sent } = createTarget();
+    const router = new AuthCallbackRouter({ getTarget: () => target });
+
+    router.handleAuthCode('local-pending-code');
+
+    expect(sent).toEqual([]);
+    expect(router.markListenerReadyAndConsumePending()).toBe('local-pending-code');
+  });
+
   test('keeps renderer listener ready for child frame artifact loads', () => {
     const { target, sent } = createTarget();
     const router = new AuthCallbackRouter({ getTarget: () => target });

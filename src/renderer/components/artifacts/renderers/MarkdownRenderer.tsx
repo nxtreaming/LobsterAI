@@ -145,6 +145,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ artifact, selectedT
         content={artifact.content}
         resolveLocalFilePath={resolveLocalFilePath}
         showRevealInFolderAction
+        enableLargePreview={false}
       />
     </div>
   );

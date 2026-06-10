@@ -2,7 +2,6 @@ import { CheckIcon } from '@heroicons/react/24/outline';
 import React, { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
-import expertKitsEmptyIconUrl from '../../assets/icons/expert-kits-empty.svg';
 import { i18nService } from '../../services/i18n';
 import { kitService } from '../../services/kit';
 import { resolveLocalizedText } from '../../services/skill';
@@ -11,6 +10,7 @@ import { setInstalledKits, setMarketplaceKits } from '../../store/slices/kitSlic
 import type { MarketplaceKit } from '../../types/kit';
 import SearchIcon from '../icons/SearchIcon';
 import SidebarKitsIcon from '../icons/SidebarKitsIcon';
+import ExpertKitsEmptyIcon from './ExpertKitsEmptyIcon';
 
 const MIN_SEARCHABLE_KIT_COUNT = 3;
 
@@ -185,12 +185,7 @@ const KitsPopover: React.FC<KitsPopoverProps> = ({
         ) : shouldShowInstallGuide ? (
           <div>
             <div className="mb-3 flex justify-center">
-              <img
-                src={expertKitsEmptyIconUrl}
-                alt=""
-                aria-hidden="true"
-                className="h-20 w-20"
-              />
+              <ExpertKitsEmptyIcon aria-hidden="true" className="h-20 w-20 text-foreground" />
             </div>
             <div className="text-center text-[13px] font-medium text-foreground">
               {i18nService.t('noKitsInstalled')}

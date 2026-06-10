@@ -542,6 +542,34 @@ test('disconnectGatewayClient rejects pending gateway readiness immediately', as
   expect(adapter.gatewayReadyReject).toBeNull();
 });
 
+test('disconnectGatewayClient suppresses automatic gateway reconnect until manual connect', async () => {
+  const startGateway = vi.fn(async () => ({ phase: 'running', message: '' }));
+  const adapter = new OpenClawRuntimeAdapter({} as never, {
+    startGateway,
+    getGatewayConnectionInfo: () => ({
+      url: 'ws://127.0.0.1:9999',
+      token: 'token',
+      version: 'test-version',
+      clientEntryPath: '/tmp/openclaw-gateway-client.js',
+    }),
+  } as never);
+
+  adapter.disconnectGatewayClient();
+  adapter.scheduleGatewayReconnect();
+  expect(adapter.gatewayReconnectTimer).toBeNull();
+
+  await adapter.attemptGatewayReconnect();
+  expect(startGateway).not.toHaveBeenCalled();
+
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({}),
+  };
+  await adapter.connectGatewayIfNeeded();
+  expect(adapter.gatewayReconnectSuppressed).toBe(false);
+});
+
 test('patchSession uses the persisted IM channel session key after runtime cache is empty', async () => {
   const { adapter, requests } = createPatchAdapter({
     isChannelSession: true,

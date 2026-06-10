@@ -67,6 +67,13 @@ import {
   COWORK_DETAIL_GUTTER_CLASS,
   hasRenderableAssistantContent,
 } from './messageDisplayUtils';
+import {
+  buildCoworkSessionJSON,
+  buildCoworkSessionMarkdown,
+  CoworkTextExportFormat,
+  type CoworkTextExportFormat as CoworkTextExportFormatValue,
+  mergeCoworkTextExportMessages,
+} from './sessionExport';
 import UserMessageItem from './UserMessageItem';
 interface CoworkSessionDetailProps {
   onManageSkills?: () => void;
@@ -857,6 +864,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
   // Export states
   const [isExportingImage, setIsExportingImage] = useState(false);
+  const [isExportingText, setIsExportingText] = useState(false);
   const [showExportOptions, setShowExportOptions] = useState(false);
 
   useEffect(() => {
@@ -1980,79 +1988,51 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     };
   }, [currentSession?.id]);
 
-  const sessionToMarkdown = useCallback((): string => {
-    if (!currentSession) return '';
-    const lines: string[] = [];
-    lines.push(`# ${currentSession.title}`);
-    lines.push('');
-    lines.push(`> ${i18nService.t('coworkExportCreatedAt')}: ${new Date(currentSession.createdAt).toLocaleString()}`);
-    lines.push('');
-    lines.push('---');
-    lines.push('');
-    for (const msg of currentSession.messages) {
-      if (msg.type === 'user') {
-        lines.push(`## 🧑 User`);
-        lines.push('');
-        if (msg.metadata?.selectedTextSnippets?.length) {
-          lines.push(`### ${i18nService.t('coworkSelectedTextExportHeading')}`);
-          lines.push('');
-          for (const snippet of msg.metadata.selectedTextSnippets) {
-            lines.push(...snippet.text.split('\n').map(line => `> ${line}`));
-            lines.push('');
-          }
-        }
-        lines.push(msg.content);
-        lines.push('');
-      } else if (msg.type === 'assistant') {
-        lines.push(`## 🤖 Assistant`);
-        lines.push('');
-        lines.push(msg.content);
-        lines.push('');
-      } else if (msg.type === 'tool_use' && msg.metadata?.toolName) {
-        lines.push(`### 🔧 Tool: ${msg.metadata.toolName}`);
-        lines.push('');
-        if (msg.metadata.toolInput) {
-          lines.push('```json');
-          lines.push(JSON.stringify(msg.metadata.toolInput, null, 2));
-          lines.push('```');
-          lines.push('');
-        }
-      } else if (msg.type === 'tool_result') {
-        lines.push('#### Tool Result');
-        lines.push('');
-        lines.push('```');
-        lines.push(msg.content.slice(0, 2000) + (msg.content.length > 2000 ? '\n... (truncated)' : ''));
-        lines.push('```');
-        lines.push('');
+  const loadTextExportMessages = useCallback(async (): Promise<CoworkMessage[]> => {
+    if (!currentSession) return [];
+
+    const loadedMessages = currentSession.messages;
+    const totalMessages = Math.max(currentSession.totalMessages ?? 0, loadedMessages.length);
+    const hasLoadedFullHistory = (currentSession.messagesOffset ?? 0) <= 0 && loadedMessages.length >= totalMessages;
+    if (hasLoadedFullHistory) {
+      return loadedMessages;
+    }
+
+    const result = await window.electron.cowork.getSessionMessages({
+      sessionId: currentSession.id,
+      limit: Math.max(totalMessages, 1),
+      offset: 0,
+    });
+    if (!result.success || !result.messages) {
+      throw new Error(result.error || 'Failed to load session messages for export');
+    }
+
+    let storedMessages = result.messages;
+    const returnedTotal = result.total ?? totalMessages;
+    if (returnedTotal > storedMessages.length) {
+      const retryResult = await window.electron.cowork.getSessionMessages({
+        sessionId: currentSession.id,
+        limit: returnedTotal,
+        offset: 0,
+      });
+      if (retryResult.success && retryResult.messages) {
+        storedMessages = retryResult.messages;
       }
     }
-    return lines.join('\n');
+
+    return mergeCoworkTextExportMessages(storedMessages, loadedMessages);
   }, [currentSession]);
 
-  const sessionToJSON = useCallback((): string => {
-    if (!currentSession) return '{}';
-    return JSON.stringify({
-      title: currentSession.title,
-      createdAt: new Date(currentSession.createdAt).toISOString(),
-      updatedAt: new Date(currentSession.updatedAt).toISOString(),
-      status: currentSession.status,
-      messages: currentSession.messages.map(msg => ({
-        type: msg.type,
-        content: msg.content,
-        timestamp: new Date(msg.timestamp).toISOString(),
-        ...(msg.metadata?.toolName ? { toolName: msg.metadata.toolName } : {}),
-        ...(msg.metadata?.toolInput ? { toolInput: msg.metadata.toolInput } : {}),
-        ...(msg.metadata?.selectedTextSnippets?.length ? { selectedTextSnippets: msg.metadata.selectedTextSnippets } : {}),
-      })),
-    }, null, 2);
-  }, [currentSession]);
-
-  const handleExportText = useCallback(async (format: 'md' | 'json') => {
-    if (!currentSession) return;
-    const content = format === 'md' ? sessionToMarkdown() : sessionToJSON();
+  const handleExportText = useCallback(async (format: CoworkTextExportFormatValue) => {
+    if (!currentSession || isExportingText) return;
+    setIsExportingText(true);
     const timestamp = new Date().toISOString().slice(0, 10);
     const fileName = sanitizeExportFileName(`${currentSession.title}-${timestamp}.${format}`);
     try {
+      const messages = await loadTextExportMessages();
+      const content = format === CoworkTextExportFormat.Markdown
+        ? buildCoworkSessionMarkdown(currentSession, messages, i18nService.t.bind(i18nService))
+        : buildCoworkSessionJSON(currentSession, messages);
       const result = await window.electron.cowork.exportSessionText({
         content,
         defaultFileName: fileName,
@@ -2070,8 +2050,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       window.dispatchEvent(new CustomEvent('app:showToast', {
         detail: i18nService.t('coworkExportTextFailed'),
       }));
+    } finally {
+      setIsExportingText(false);
     }
-  }, [currentSession, sessionToMarkdown, sessionToJSON]);
+  }, [currentSession, isExportingText, loadTextExportMessages]);
 
   const handleShareClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -3001,8 +2983,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => { setShowExportOptions(false); handleExportText('md'); }}
-                className="w-full flex items-center gap-3 px-5 py-3 text-left text-sm dark:text-claude-darkText text-claude-text hover:bg-claude-surfaceHover dark:hover:bg-claude-darkSurfaceHover transition-colors"
+                onClick={() => { setShowExportOptions(false); handleExportText(CoworkTextExportFormat.Markdown); }}
+                disabled={isExportingText}
+                className="w-full flex items-center gap-3 px-5 py-3 text-left text-sm dark:text-claude-darkText text-claude-text hover:bg-claude-surfaceHover dark:hover:bg-claude-darkSurfaceHover transition-colors disabled:opacity-50"
               >
                 <DocumentArrowDownIcon className="h-5 w-5 dark:text-claude-darkTextSecondary text-claude-textSecondary" />
                 <div>
@@ -3012,8 +2995,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => { setShowExportOptions(false); handleExportText('json'); }}
-                className="w-full flex items-center gap-3 px-5 py-3 text-left text-sm dark:text-claude-darkText text-claude-text hover:bg-claude-surfaceHover dark:hover:bg-claude-darkSurfaceHover transition-colors"
+                onClick={() => { setShowExportOptions(false); handleExportText(CoworkTextExportFormat.Json); }}
+                disabled={isExportingText}
+                className="w-full flex items-center gap-3 px-5 py-3 text-left text-sm dark:text-claude-darkText text-claude-text hover:bg-claude-surfaceHover dark:hover:bg-claude-darkSurfaceHover transition-colors disabled:opacity-50"
               >
                 <DocumentArrowDownIcon className="h-5 w-5 dark:text-claude-darkTextSecondary text-claude-textSecondary" />
                 <div>

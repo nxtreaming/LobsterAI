@@ -1,6 +1,7 @@
 import { ApiFormat, type ProviderConfig, ProviderName, ProviderRegistry } from '@shared/providers';
 
 import { normalizeBrowserWebAccessConfig } from '../../shared/browserWebAccess/constants';
+import { normalizeNotificationSettings } from '../../shared/notifications/constants';
 import {
   AppConfig,
   CONFIG_KEYS,
@@ -499,6 +500,7 @@ const hydrateStoredConfig = (storedConfig: AppConfig): AppConfig => {
     providers: mergedProviders as AppConfig['providers'],
     providerModelMigrationVersions,
     browserWebAccess: normalizeBrowserWebAccessConfig(storedConfig.browserWebAccess),
+    notificationSettings: normalizeNotificationSettings(storedConfig.notificationSettings),
   });
 };
 
@@ -556,6 +558,9 @@ class ConfigService {
         : {}),
       browserWebAccess: normalizeBrowserWebAccessConfig(
         newConfig.browserWebAccess ?? base.browserWebAccess,
+      ),
+      notificationSettings: normalizeNotificationSettings(
+        newConfig.notificationSettings ?? base.notificationSettings,
       ),
     };
     await localStore.setItem(CONFIG_KEYS.APP_CONFIG, this.config);

@@ -8,6 +8,8 @@ import {
   defaultBrowserWebAccessConfig,
   normalizeBrowserWebAccessConfig,
 } from '../../shared/browserWebAccess/constants';
+import { DataMigrationRestoreStatus } from '../../shared/dataMigration/constants';
+import { normalizeNotificationSettings } from '../../shared/notifications/constants';
 import { OpenClawEnginePhase, OpenClawGatewayRepairErrorCode } from '../../shared/openclawEngine/constants';
 import { ProviderAuthType, ProviderName, ProviderRegistry, resolveCodingPlanBaseUrl } from '../../shared/providers';
 import { type AppConfig, defaultConfig, getProviderDisplayName, getVisibleProviders, ShortcutAction, type ShortcutConfig } from '../config';
@@ -38,6 +40,7 @@ import EmbeddingSettingsSection from './cowork/EmbeddingSettingsSection';
 import ErrorMessage from './ErrorMessage';
 import BrainIcon from './icons/BrainIcon';
 import EditIcon from './icons/EditIcon';
+import MessageCopyIcon from './icons/MessageCopyIcon';
 import PlugIcon from './icons/PlugIcon';
 import PlusCircleIcon from './icons/PlusCircleIcon';
 import IMSettings from './im/IMSettings';
@@ -71,6 +74,55 @@ import EmailSkillConfig from './skills/EmailSkillConfig';
 import ThemedSelect from './ui/ThemedSelect';
 
 type TabType = 'general' | 'appearance' | 'coworkAgentEngine' | 'model' | 'browserWebAccess' | 'coworkMemory' | 'coworkDreaming' | 'shortcuts' | 'im' | 'email' | 'plugins' | 'about';
+
+const waitForNextPaint = (): Promise<void> => new Promise(resolve => {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => resolve());
+  });
+});
+
+const formatBackupSize = (sizeBytes?: number): string => {
+  if (!Number.isFinite(sizeBytes) || !sizeBytes || sizeBytes <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = sizeBytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+};
+
+const normalizeProvidersForSettingsSave = (providers: ProvidersConfig): ProvidersConfig => (
+  Object.fromEntries(
+    Object.entries(providers).map(([providerKey, providerConfig]) => {
+      const apiFormat = getEffectiveApiFormat(providerKey, providerConfig.apiFormat);
+      const hasValidAuth = hasProviderAuthConfigured(providerKey as ProviderType, providerConfig);
+      return [
+        providerKey,
+        {
+          ...providerConfig,
+          enabled: providerConfig.enabled && hasValidAuth,
+          apiFormat,
+          ...(providerKey === ProviderName.Copilot ? { apiKey: '' } : {}),
+          baseUrl: resolveBaseUrl(providerKey as ProviderType, providerConfig.baseUrl, apiFormat),
+        },
+      ];
+    })
+  ) as ProvidersConfig
+);
+
+const resolvePrimaryProviderForSettingsSave = (
+  providers: ProvidersConfig,
+  activeProvider: ProviderType,
+): ProviderConfig => {
+  const firstEnabledProvider = Object.entries(providers).find(
+    ([_, config]) => config.enabled
+  );
+  return firstEnabledProvider
+    ? firstEnabledProvider[1]
+    : providers[activeProvider];
+};
 
 type ShortcutCommandDefinition = {
   key: ShortcutAction;
@@ -671,6 +723,7 @@ const Settings: React.FC<SettingsProps> = ({
   const [autoLaunch, setAutoLaunchState] = useState(false);
   const [useSystemProxy, setUseSystemProxy] = useState(false);
   const [sqliteAutoBackupEnabled, setSqliteAutoBackupEnabled] = useState(false);
+  const [taskCompletionNotificationsEnabled, setTaskCompletionNotificationsEnabled] = useState(true);
   const [browserWebAccess, setBrowserWebAccess] = useState<BrowserWebAccessConfig>(() => ({
     ...defaultBrowserWebAccessConfig,
     webFetch: { ...defaultBrowserWebAccessConfig.webFetch },
@@ -739,6 +792,7 @@ const Settings: React.FC<SettingsProps> = ({
   const contentRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const emailCopiedTimerRef = useRef<number | null>(null);
+  const openClawGatewayCopiedTimerRef = useRef<number | null>(null);
   const updateCheckTimerRef = useRef<number | null>(null);
 
   // 快捷键设置
@@ -973,6 +1027,11 @@ const Settings: React.FC<SettingsProps> = ({
   const [showOpenClawRepairConfirm, setShowOpenClawRepairConfirm] = useState<boolean>(false);
   const [isRepairingOpenClaw, setIsRepairingOpenClaw] = useState<boolean>(false);
   const [openClawRepairResult, setOpenClawRepairResult] = useState<OpenClawGatewayRepairResult | null>(null);
+  const [openClawGatewayCopied, setOpenClawGatewayCopied] = useState<boolean>(false);
+  const [isBackingUpOpenClawData, setIsBackingUpOpenClawData] = useState<boolean>(false);
+  const [isRestoringOpenClawData, setIsRestoringOpenClawData] = useState<boolean>(false);
+  const [openClawDataBackupResult, setOpenClawDataBackupResult] = useState<{ path: string; sizeBytes?: number } | null>(null);
+  const [showOpenClawDataRestoreConfirm, setShowOpenClawDataRestoreConfirm] = useState<boolean>(false);
 
   useEffect(() => {
     setCoworkAgentEngine(coworkConfig.agentEngine || 'openclaw');
@@ -1014,9 +1073,33 @@ const Settings: React.FC<SettingsProps> = ({
     if (emailCopiedTimerRef.current != null) {
       window.clearTimeout(emailCopiedTimerRef.current);
     }
+    if (openClawGatewayCopiedTimerRef.current != null) {
+      window.clearTimeout(openClawGatewayCopiedTimerRef.current);
+    }
     if (updateCheckTimerRef.current != null) {
       window.clearTimeout(updateCheckTimerRef.current);
     }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void window.electron.openclaw.dataMigration.getLastRestoreResult().then((response) => {
+      if (!active || !response.success || !response.result) return;
+      if (response.result.status === DataMigrationRestoreStatus.Success) {
+        setNoticeMessage(i18nService.t('openClawDataMigrationSuccess'));
+        return;
+      }
+      const message = response.result.error
+        ? `${i18nService.t('openClawDataMigrationFailed')}: ${response.result.error}`
+        : i18nService.t('openClawDataMigrationFailed');
+      setError(message);
+    }).catch((loadError) => {
+      if (!active) return;
+      setError(loadError instanceof Error ? loadError.message : i18nService.t('openClawDataMigrationFailed'));
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -1046,6 +1129,9 @@ const Settings: React.FC<SettingsProps> = ({
       setLanguage(config.language);
       setUseSystemProxy(config.useSystemProxy ?? false);
       setSqliteAutoBackupEnabled(config.sqliteAutoBackupEnabled === true);
+      setTaskCompletionNotificationsEnabled(
+        normalizeNotificationSettings(config.notificationSettings).taskCompletionNotificationsEnabled,
+      );
       setBrowserWebAccess(normalizeBrowserWebAccessConfig(config.browserWebAccess));
       const savedTestMode = config.app?.testMode ?? false;
       setTestMode(savedTestMode);
@@ -1763,43 +1849,79 @@ const Settings: React.FC<SettingsProps> = ({
     if (phase === OpenClawEnginePhase.Error) {
       return {
         Icon: ExclamationTriangleIcon,
-        cardClassName: 'border-border bg-surface text-foreground',
         iconClassName: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
         progressClassName: 'bg-red-500',
         spinIcon: false,
+        inProgress: false,
+        badgeLabelKey: 'openClawStatusBadgeError',
+        badgeClassName: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+        badgeDotClassName: 'bg-red-500',
       };
     }
 
     if (phase === OpenClawEnginePhase.Running || phase === OpenClawEnginePhase.Ready) {
       return {
         Icon: CheckCircleIcon,
-        cardClassName: 'border-border bg-surface text-foreground',
         iconClassName: 'bg-primary-muted text-primary',
         progressClassName: 'bg-primary',
         spinIcon: false,
+        inProgress: false,
+        badgeLabelKey: phase === OpenClawEnginePhase.Running
+          ? 'openClawStatusBadgeRunning'
+          : 'openClawStatusBadgeReady',
+        badgeClassName: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+        badgeDotClassName: 'bg-emerald-500',
       };
     }
 
     if (phase === OpenClawEnginePhase.Installing || phase === OpenClawEnginePhase.Starting) {
       return {
         Icon: ArrowPathIcon,
-        cardClassName: 'border-border bg-surface text-foreground',
         iconClassName: 'bg-primary-muted text-primary',
         progressClassName: 'bg-primary',
         spinIcon: true,
+        inProgress: true,
+        badgeLabelKey: phase === OpenClawEnginePhase.Installing
+          ? 'openClawStatusBadgeInstalling'
+          : 'openClawStatusBadgeStarting',
+        badgeClassName: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+        badgeDotClassName: 'bg-amber-500',
       };
     }
 
     return {
       Icon: CpuChipIcon,
-      cardClassName: 'border-border bg-surface text-foreground',
       iconClassName: 'bg-surface-raised text-secondary',
       progressClassName: 'bg-primary',
       spinIcon: false,
+      inProgress: false,
+      badgeLabelKey: 'openClawStatusBadgeNotInstalled',
+      badgeClassName: 'bg-surface-raised text-secondary',
+      badgeDotClassName: 'bg-secondary/60',
     };
   }, [openClawEngineStatus?.phase]);
 
   const OpenClawStatusIcon = openClawStatusTone.Icon;
+  const openClawGatewayHttpUrl = openClawEngineStatus?.gatewayHttpUrl?.trim() || null;
+
+  const handleCopyOpenClawGatewayUrl = useCallback(async () => {
+    if (!openClawGatewayHttpUrl) return;
+    const copied = await copyTextToClipboard(openClawGatewayHttpUrl);
+    if (!copied) return;
+
+    setOpenClawGatewayCopied(true);
+    if (openClawGatewayCopiedTimerRef.current != null) {
+      window.clearTimeout(openClawGatewayCopiedTimerRef.current);
+    }
+    openClawGatewayCopiedTimerRef.current = window.setTimeout(() => {
+      setOpenClawGatewayCopied(false);
+      openClawGatewayCopiedTimerRef.current = null;
+    }, 1200);
+  }, [openClawGatewayHttpUrl]);
+
+  useEffect(() => {
+    setOpenClawGatewayCopied(false);
+  }, [openClawGatewayHttpUrl]);
 
   const resolveOpenClawStatusText = (status: OpenClawEngineStatus | null): string => {
     if (!status) {
@@ -1821,6 +1943,10 @@ const Settings: React.FC<SettingsProps> = ({
       default:
         return status.message?.trim() || i18nService.t('coworkOpenClawRunning');
     }
+  };
+
+  const resolveOpenClawStatusDescription = (status: OpenClawEngineStatus | null): string => {
+    return status?.gatewayHttpUrl || i18nService.t('coworkOpenClawInstallHint');
   };
 
   const resolveOpenClawRepairMessage = (result: OpenClawGatewayRepairResult): string => {
@@ -1869,6 +1995,89 @@ const Settings: React.FC<SettingsProps> = ({
       setError(revealError instanceof Error ? revealError.message : i18nService.t('showInFolderFailed'));
     }
   }, [openClawRepairResult?.backupPath]);
+
+  const handleRevealOpenClawDataBackup = useCallback(async () => {
+    const backupPath = openClawDataBackupResult?.path;
+    if (!backupPath) return;
+    try {
+      const result = await window.electron.shell.showItemInFolder(backupPath);
+      if (!result?.success) {
+        setError(result?.error || i18nService.t('showInFolderFailed'));
+      }
+    } catch (revealError) {
+      setError(revealError instanceof Error ? revealError.message : i18nService.t('showInFolderFailed'));
+    }
+  }, [openClawDataBackupResult?.path]);
+
+  const persistModelSettingsBeforeDataBackup = useCallback(async () => {
+    const normalizedProviders = normalizeProvidersForSettingsSave(providers);
+    const primaryProvider = resolvePrimaryProviderForSettingsSave(normalizedProviders, activeProvider);
+    await configService.updateConfig({
+      api: {
+        key: primaryProvider.apiKey,
+        baseUrl: primaryProvider.baseUrl,
+      },
+      providers: normalizedProviders,
+    });
+  }, [activeProvider, providers]);
+
+  const handleOpenClawDataBackup = useCallback(async () => {
+    if (isBackingUpOpenClawData) return;
+    setError(null);
+    setNoticeMessage(null);
+    setOpenClawDataBackupResult(null);
+    setIsBackingUpOpenClawData(true);
+    try {
+      await waitForNextPaint();
+      await persistModelSettingsBeforeDataBackup();
+      const result = await window.electron.openclaw.dataMigration.backup();
+      if (!result.success) {
+        setError(result.error || i18nService.t('openClawDataBackupFailed'));
+        return;
+      }
+      if (result.canceled) {
+        return;
+      }
+      if (result.path) {
+        setOpenClawDataBackupResult({ path: result.path, sizeBytes: result.sizeBytes });
+      }
+      setNoticeMessage(i18nService.t('openClawDataBackupSuccess'));
+    } catch (backupError) {
+      setError(backupError instanceof Error ? backupError.message : i18nService.t('openClawDataBackupFailed'));
+    } finally {
+      setIsBackingUpOpenClawData(false);
+    }
+  }, [isBackingUpOpenClawData, persistModelSettingsBeforeDataBackup]);
+
+  const handleConfirmOpenClawDataRestore = useCallback(async () => {
+    if (isRestoringOpenClawData) return;
+    setShowOpenClawDataRestoreConfirm(false);
+    setError(null);
+    setNoticeMessage(null);
+    setIsRestoringOpenClawData(true);
+    let keepLoadingUntilRestart = false;
+    try {
+      await waitForNextPaint();
+      const result = await window.electron.openclaw.dataMigration.restore();
+      if (!result.success) {
+        setError(result.error || i18nService.t('openClawDataMigrationFailed'));
+        return;
+      }
+      if (result.canceled) {
+        return;
+      }
+      if (result.scheduledRestart) {
+        keepLoadingUntilRestart = true;
+        setNoticeMessage(i18nService.t('openClawDataMigrationRestarting'));
+      }
+    } catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : i18nService.t('openClawDataMigrationFailed'));
+    } finally {
+      if (!keepLoadingUntilRestart) {
+        setIsRestoringOpenClawData(false);
+      }
+    }
+  }, [isRestoringOpenClawData]);
 
   const loadCoworkMemoryData = useCallback(async () => {
     setCoworkMemoryListLoading(true);
@@ -2083,31 +2292,8 @@ const Settings: React.FC<SettingsProps> = ({
     setError(null);
 
     try {
-      const normalizedProviders = Object.fromEntries(
-        Object.entries(providers).map(([providerKey, providerConfig]) => {
-          const apiFormat = getEffectiveApiFormat(providerKey, providerConfig.apiFormat);
-          const hasValidAuth = hasProviderAuthConfigured(providerKey as ProviderType, providerConfig);
-          return [
-            providerKey,
-            {
-              ...providerConfig,
-              enabled: providerConfig.enabled && hasValidAuth,
-              apiFormat,
-              ...(providerKey === ProviderName.Copilot ? { apiKey: '' } : {}),
-              baseUrl: resolveBaseUrl(providerKey as ProviderType, providerConfig.baseUrl, apiFormat),
-            },
-          ];
-        })
-      ) as ProvidersConfig;
-
-      // Find the first enabled provider to use as the primary API
-      const firstEnabledProvider = Object.entries(normalizedProviders).find(
-        ([_, config]) => config.enabled
-      );
-
-      const primaryProvider = firstEnabledProvider
-        ? firstEnabledProvider[1]
-        : normalizedProviders[activeProvider];
+      const normalizedProviders = normalizeProvidersForSettingsSave(providers);
+      const primaryProvider = resolvePrimaryProviderForSettingsSave(normalizedProviders, activeProvider);
       const normalizedBrowserWebAccess = normalizeBrowserWebAccessConfig({
         ...browserWebAccess,
         browserEnabled: true,
@@ -2133,6 +2319,9 @@ const Settings: React.FC<SettingsProps> = ({
         language,
         useSystemProxy,
         sqliteAutoBackupEnabled,
+        notificationSettings: {
+          taskCompletionNotificationsEnabled,
+        },
         browserWebAccess: normalizedBrowserWebAccess,
         shortcuts,
         app: {
@@ -2246,19 +2435,21 @@ const Settings: React.FC<SettingsProps> = ({
   }, []);
 
   const handleTabChange = useCallback((tab: TabType) => {
+    if (isBackingUpOpenClawData || isRestoringOpenClawData) return;
     if (activeTab === 'plugins' && pluginsSettingsRef.current?.guardLeave(() => doTabChange(tab))) {
       return;
     }
     doTabChange(tab);
-  }, [activeTab, doTabChange]);
+  }, [activeTab, doTabChange, isBackingUpOpenClawData, isRestoringOpenClawData]);
 
   // Guarded close: check plugin dirty state before closing
   const guardedClose = useCallback(() => {
+    if (isBackingUpOpenClawData || isRestoringOpenClawData) return;
     if (activeTab === 'plugins' && pluginsSettingsRef.current?.guardLeave(() => onClose())) {
       return;
     }
     onClose();
-  }, [activeTab, onClose]);
+  }, [activeTab, isBackingUpOpenClawData, isRestoringOpenClawData, onClose]);
 
   const shortcutCommandMap = useMemo(
     () => new Map(SHORTCUT_COMMANDS.map(command => [command.key, command])),
@@ -3264,6 +3455,15 @@ const Settings: React.FC<SettingsProps> = ({
             />
 
             <SettingsToggleRow
+              title={i18nService.t('taskCompletionNotifications')}
+              description={i18nService.t('taskCompletionNotificationsDescription')}
+              checked={taskCompletionNotificationsEnabled}
+              onToggle={() => {
+                setTaskCompletionNotificationsEnabled((prev) => !prev);
+              }}
+            />
+
+            <SettingsToggleRow
               title={i18nService.t('skipMissedJobs')}
               description={i18nService.t('skipMissedJobsDescription')}
               checked={skipMissedJobs}
@@ -3287,35 +3487,67 @@ const Settings: React.FC<SettingsProps> = ({
             {isOpenClawAgentEngine && (
               <>
                 <section className="space-y-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <h4 className="min-w-0 flex-1 text-sm font-medium text-foreground">
-                      {i18nService.t('openClawRuntimeStatusTitle')}
-                    </h4>
-                    {openClawProgressPercent !== null && (
-                      <span className="shrink-0 rounded-full bg-surface-raised px-3 py-1 text-xs font-medium text-secondary">
-                        {openClawProgressPercent}%
-                      </span>
-                    )}
-                  </div>
+                  <h4 className="text-sm font-medium text-foreground">
+                    {i18nService.t('openClawRuntimeStatusTitle')}
+                  </h4>
 
-                  <div className={`rounded-xl border px-4 py-4 ${openClawStatusTone.cardClassName}`}>
-                    <div className="flex items-start gap-3">
-                      <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${openClawStatusTone.iconClassName}`}>
-                        <OpenClawStatusIcon className={`h-4 w-4 ${openClawStatusTone.spinIcon ? 'animate-spin' : ''}`} />
+                  <div className="rounded-xl border border-border bg-surface p-4">
+                    <div className="flex items-start gap-3.5">
+                      <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${openClawStatusTone.iconClassName}`}>
+                        <OpenClawStatusIcon className={`h-5 w-5 ${openClawStatusTone.spinIcon ? 'animate-spin' : ''}`} />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium leading-5 text-foreground">
-                          {resolveOpenClawStatusText(openClawEngineStatus)}
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0 text-sm font-medium leading-5 text-foreground">
+                            {resolveOpenClawStatusText(openClawEngineStatus)}
+                          </div>
+                          <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${openClawStatusTone.badgeClassName}`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${openClawStatusTone.badgeDotClassName} ${openClawStatusTone.inProgress ? 'animate-pulse' : ''}`} />
+                            {i18nService.t(openClawStatusTone.badgeLabelKey)}
+                          </span>
                         </div>
-                        <p className="mt-2 text-sm text-secondary">
-                          {i18nService.t('coworkOpenClawInstallHint')}
-                        </p>
-                        {openClawProgressPercent !== null && (
-                          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-raised">
-                            <div
-                              className={`h-full rounded-full transition-all ${openClawStatusTone.progressClassName}`}
-                              style={{ width: `${openClawProgressPercent}%` }}
-                            />
+
+                        {openClawGatewayHttpUrl ? (
+                          <div className="mt-3 flex max-w-full items-center gap-2 rounded-lg border border-border-subtle bg-surface-raised/60 p-1.5">
+                            <span className="shrink-0 rounded-md bg-background px-2 py-1 text-[11px] font-medium text-secondary">
+                              {i18nService.t('openClawGatewayAddress')}
+                            </span>
+                            <code
+                              className="min-w-0 flex-1 select-all truncate px-1 font-mono text-[13px] leading-6 text-foreground"
+                              title={openClawGatewayHttpUrl}
+                            >
+                              {openClawGatewayHttpUrl}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={handleCopyOpenClawGatewayUrl}
+                              title={openClawGatewayCopied ? i18nService.t('copied') : i18nService.t('copyToClipboard')}
+                              aria-label={openClawGatewayCopied ? i18nService.t('copied') : i18nService.t('copyToClipboard')}
+                              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-secondary transition-colors hover:bg-background hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/25"
+                            >
+                              {openClawGatewayCopied
+                                ? <CheckCircleIcon className="h-4 w-4 text-primary" />
+                                : <MessageCopyIcon className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-sm text-secondary">
+                            {resolveOpenClawStatusDescription(openClawEngineStatus)}
+                          </p>
+                        )}
+
+                        {openClawStatusTone.inProgress && openClawProgressPercent !== null && (
+                          <div className="mt-3 space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-secondary">{i18nService.t('openClawStartupProgressLabel')}</span>
+                              <span className="font-medium tabular-nums text-foreground">{openClawProgressPercent}%</span>
+                            </div>
+                            <div className="h-1.5 overflow-hidden rounded-full bg-surface-raised">
+                              <div
+                                className={`h-full rounded-full transition-all ${openClawStatusTone.progressClassName}`}
+                                style={{ width: `${openClawProgressPercent}%` }}
+                              />
+                            </div>
                           </div>
                         )}
                       </div>
@@ -3324,23 +3556,21 @@ const Settings: React.FC<SettingsProps> = ({
                 </section>
 
                 <section className="space-y-3">
-                  <div>
-                    <h4 className="text-sm font-medium text-foreground">
-                      {i18nService.t('openClawMaintenanceTitle')}
-                    </h4>
-                  </div>
+                  <h4 className="text-sm font-medium text-foreground">
+                    {i18nService.t('openClawMaintenanceTitle')}
+                  </h4>
 
-                  <div className="overflow-hidden rounded-xl border border-border bg-surface">
-                    <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="overflow-hidden rounded-xl border border-border bg-surface divide-y divide-border">
+                    <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex min-w-0 items-start gap-3">
-                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-muted text-primary">
-                          <WrenchScrewdriverIcon className="h-4 w-4" />
+                        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-muted text-primary">
+                          <WrenchScrewdriverIcon className="h-[18px] w-[18px]" />
                         </span>
                         <div className="min-w-0">
                           <div className="text-sm font-medium text-foreground">
                             {i18nService.t('openClawRepairGatewayStateTitle')}
                           </div>
-                          <div className="mt-1 text-sm text-secondary">
+                          <div className="mt-0.5 text-[13px] leading-5 text-secondary">
                             {i18nService.t('openClawRepairGatewayStateDesc')}
                           </div>
                         </div>
@@ -3349,12 +3579,10 @@ const Settings: React.FC<SettingsProps> = ({
                         type="button"
                         onClick={() => setShowOpenClawRepairConfirm(true)}
                         disabled={isRepairingOpenClaw}
-                        className="inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-xs font-medium text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.98]"
+                        className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-border bg-surface px-3 text-xs font-medium text-foreground transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.98] sm:self-auto"
                       >
-                        {isRepairingOpenClaw ? (
+                        {isRepairingOpenClaw && (
                           <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <WrenchScrewdriverIcon className="h-3.5 w-3.5" />
                         )}
                         {isRepairingOpenClaw
                           ? i18nService.t('openClawRepairRunning')
@@ -3362,46 +3590,87 @@ const Settings: React.FC<SettingsProps> = ({
                       </button>
                     </div>
 
-                    <div className="border-t border-border px-4 py-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-raised text-secondary">
-                            <ArchiveBoxIcon className="h-4 w-4" />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-foreground">
-                              {i18nService.t('openClawDataBackupTitle')}
+                    {openClawDataBackupResult && (
+                      <div className="flex flex-col gap-3 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 space-y-1">
+                          <div className="font-medium text-foreground">
+                            {i18nService.t('openClawDataBackupSavedTitle')}
+                          </div>
+                          <div className="break-all font-mono text-xs leading-5 text-secondary">
+                            {openClawDataBackupResult.path}
+                          </div>
+                          {formatBackupSize(openClawDataBackupResult.sizeBytes) && (
+                            <div className="text-xs text-secondary">
+                              {i18nService.t('openClawDataBackupSize')}: {formatBackupSize(openClawDataBackupResult.sizeBytes)}
                             </div>
-                            <div className="mt-1 text-sm text-secondary">
-                              {i18nService.t('openClawDataBackupDesc')}
-                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { void handleRevealOpenClawDataBackup(); }}
+                          className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface px-3 text-xs font-medium text-foreground transition-colors hover:bg-surface-raised active:scale-[0.98]"
+                        >
+                          {i18nService.t('showInFolder')}
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-muted text-primary">
+                          <ArchiveBoxIcon className="h-[18px] w-[18px]" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-foreground">
+                            {i18nService.t('openClawDataBackupTitle')}
+                          </div>
+                          <div className="mt-0.5 text-[13px] leading-5 text-secondary">
+                            {i18nService.t('openClawDataBackupDesc')}
                           </div>
                         </div>
-                        <span className="shrink-0 rounded-full bg-surface-raised px-3 py-1 text-xs font-medium text-secondary">
-                          {i18nService.t('openClawMaintenanceComingSoon')}
-                        </span>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => { void handleOpenClawDataBackup(); }}
+                        disabled={isBackingUpOpenClawData || isRestoringOpenClawData}
+                        className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-border bg-surface px-3 text-xs font-medium text-foreground transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.98] sm:self-auto"
+                      >
+                        {isBackingUpOpenClawData && (
+                          <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />
+                        )}
+                        {isBackingUpOpenClawData
+                          ? i18nService.t('openClawDataBackupRunning')
+                          : i18nService.t('openClawDataBackupAction')}
+                      </button>
                     </div>
 
-                    <div className="border-t border-border px-4 py-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-raised text-secondary">
-                            <ArrowPathRoundedSquareIcon className="h-4 w-4" />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-foreground">
-                              {i18nService.t('openClawDataMigrationTitle')}
-                            </div>
-                            <div className="mt-1 text-sm text-secondary">
-                              {i18nService.t('openClawDataMigrationDesc')}
-                            </div>
+                    <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-muted text-primary">
+                          <ArrowPathRoundedSquareIcon className="h-[18px] w-[18px]" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-foreground">
+                            {i18nService.t('openClawDataMigrationTitle')}
+                          </div>
+                          <div className="mt-0.5 text-[13px] leading-5 text-secondary">
+                            {i18nService.t('openClawDataMigrationDesc')}
                           </div>
                         </div>
-                        <span className="shrink-0 rounded-full bg-surface-raised px-3 py-1 text-xs font-medium text-secondary">
-                          {i18nService.t('openClawMaintenanceComingSoon')}
-                        </span>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowOpenClawDataRestoreConfirm(true)}
+                        disabled={isBackingUpOpenClawData || isRestoringOpenClawData}
+                        className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-border bg-surface px-3 text-xs font-medium text-foreground transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.98] sm:self-auto"
+                      >
+                        {isRestoringOpenClawData && (
+                          <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />
+                        )}
+                        {isRestoringOpenClawData
+                          ? i18nService.t('openClawDataMigrationRunning')
+                          : i18nService.t('openClawDataMigrationAction')}
+                      </button>
                     </div>
                   </div>
                 </section>
@@ -3765,7 +4034,9 @@ const Settings: React.FC<SettingsProps> = ({
               src="logo.png"
               alt="LobsterAI"
               className="w-16 h-16 mb-3 cursor-pointer select-none"
-              onClick={() => {
+              onClick={(e) => {
+                if (!e.altKey || !e.shiftKey) return;
+
                 const next = logoClickCount + 1;
                 setLogoClickCount(next);
                 if (next >= 10 && !testModeUnlocked) {
@@ -4076,6 +4347,88 @@ const Settings: React.FC<SettingsProps> = ({
                       ? i18nService.t('openClawRepairRunning')
                       : i18nService.t('openClawRepairConfirmAction')}
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showOpenClawDataRestoreConfirm && (
+            <div
+              className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 px-4 rounded-2xl"
+              onClick={() => {
+                if (!isRestoringOpenClawData) setShowOpenClawDataRestoreConfirm(false);
+              }}
+            >
+              <div
+                className="bg-surface border-border border rounded-2xl shadow-xl w-full max-w-md"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-5 pt-5 pb-4 border-b border-border">
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-muted text-primary">
+                      <ArrowPathRoundedSquareIcon className="h-5 w-5" />
+                    </span>
+                    <h3 className="text-base font-semibold text-foreground">
+                      {i18nService.t('openClawDataMigrationConfirmTitle')}
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="space-y-3 px-5 py-4 text-sm text-secondary">
+                  <p>{i18nService.t('openClawDataMigrationConfirmDesc')}</p>
+                  <p>{i18nService.t('openClawDataMigrationConfirmSafeDesc')}</p>
+                </div>
+
+                <div className="flex justify-end space-x-2 px-5 pb-5">
+                  <button
+                    type="button"
+                    onClick={() => setShowOpenClawDataRestoreConfirm(false)}
+                    disabled={isRestoringOpenClawData}
+                    className="px-3 py-1.5 text-sm text-foreground hover:bg-surface-raised rounded-xl border border-border disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {i18nService.t('cancel')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { void handleConfirmOpenClawDataRestore(); }}
+                    disabled={isRestoringOpenClawData}
+                    className="inline-flex items-center justify-center gap-2 px-3 py-1.5 text-sm text-white bg-primary hover:bg-primary-hover rounded-xl disabled:opacity-60 disabled:cursor-not-allowed transition-colors active:scale-[0.98]"
+                  >
+                    {isRestoringOpenClawData
+                      ? <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                      : <ArrowPathRoundedSquareIcon className="h-4 w-4" />}
+                    {isRestoringOpenClawData
+                      ? i18nService.t('openClawDataMigrationRunning')
+                      : i18nService.t('openClawDataMigrationConfirmAction')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(isBackingUpOpenClawData || isRestoringOpenClawData) && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 px-4">
+              <div className="w-full max-w-md rounded-2xl border border-border bg-surface px-5 py-5 text-center shadow-xl">
+                <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary-muted text-primary">
+                  <ArrowPathIcon className="h-5 w-5 animate-spin" />
+                </div>
+                <h3 className="mt-4 text-base font-semibold text-foreground">
+                  {i18nService.t(isBackingUpOpenClawData
+                    ? 'openClawDataBackupBlockingTitle'
+                    : 'openClawDataMigrationBlockingTitle')}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-secondary">
+                  {i18nService.t(isBackingUpOpenClawData
+                    ? 'openClawDataBackupBlockingDesc'
+                    : 'openClawDataMigrationBlockingDesc')}
+                </p>
+                <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs leading-5 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                  <ExclamationTriangleIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    {i18nService.t(isBackingUpOpenClawData
+                      ? 'openClawDataBackupBlockingWarning'
+                      : 'openClawDataMigrationBlockingWarning')}
+                  </span>
                 </div>
               </div>
             </div>

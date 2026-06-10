@@ -4,6 +4,10 @@ import {
   type BrowserWebAccessConfig,
   defaultBrowserWebAccessConfig,
 } from '../shared/browserWebAccess/constants';
+import {
+  defaultNotificationSettings,
+  type NotificationSettings,
+} from '../shared/notifications/constants';
 
 export const ShortcutAction = {
   NewChat: 'newChat',
@@ -79,6 +83,8 @@ export interface AppConfig {
   useSystemProxy: boolean;
   // 是否启用 SQLite 自动备份与恢复
   sqliteAutoBackupEnabled?: boolean;
+  // 通知配置
+  notificationSettings?: NotificationSettings;
   // 浏览器与网页访问配置
   browserWebAccess: BrowserWebAccessConfig;
   // 语言初始化标记 (用于判断是否是首次启动)
@@ -129,6 +135,7 @@ export const defaultConfig: AppConfig = {
   language: 'zh',
   useSystemProxy: false,
   sqliteAutoBackupEnabled: false,
+  notificationSettings: defaultNotificationSettings,
   browserWebAccess: defaultBrowserWebAccessConfig,
   app: {
     port: 3000,

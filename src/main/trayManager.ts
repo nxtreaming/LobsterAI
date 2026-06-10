@@ -1,5 +1,6 @@
-import { app, Tray, Menu, nativeImage, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, Tray } from 'electron';
 import path from 'path';
+
 import { APP_NAME } from './appConstants';
 import { t } from './i18n';
 
@@ -7,6 +8,12 @@ let tray: Tray | null = null;
 let contextMenu: Menu | null = null;
 let clickHandler: (() => void) | null = null;
 let rightClickHandler: (() => void) | null = null;
+let trayReminder: TrayReminderState = { count: 0 };
+
+export interface TrayReminderState {
+  count: number;
+  onClick?: () => void;
+}
 
 function getTrayIconPath(): string {
   const isMac = process.platform === 'darwin';
@@ -26,10 +33,17 @@ function getTrayIconPath(): string {
   return path.join(basePath, 'tray-icon.png');
 }
 
-function getLabels(): { showWindow: string; newTask: string; settings: string; quit: string } {
+function getLabels(): {
+  showWindow: string;
+  newTask: string;
+  viewCompletedTask: string;
+  settings: string;
+  quit: string;
+} {
   return {
     showWindow: t('trayShowWindow'),
     newTask: t('trayNewTask'),
+    viewCompletedTask: t('trayViewCompletedTask'),
     settings: t('traySettings'),
     quit: t('trayQuit'),
   };
@@ -39,6 +53,15 @@ function buildContextMenu(getWindow: () => BrowserWindow | null): Menu {
   const labels = getLabels();
 
   return Menu.buildFromTemplate([
+    ...(trayReminder.count > 0
+      ? [
+          {
+            label: labels.viewCompletedTask,
+            click: () => trayReminder.onClick?.(),
+          },
+          { type: 'separator' as const },
+        ]
+      : []),
     {
       label: labels.showWindow,
       click: () => {
@@ -100,11 +123,15 @@ export function createTray(getWindow: () => BrowserWindow | null): Tray {
   }
 
   tray = new Tray(icon);
-  tray.setToolTip(APP_NAME);
+  tray.setToolTip(resolveTrayTooltip());
 
   contextMenu = buildContextMenu(getWindow);
 
   clickHandler = () => {
+    if (trayReminder.count > 0) {
+      trayReminder.onClick?.();
+      return;
+    }
     const win = getWindow();
     if (!win || win.isDestroyed()) return;
     if (!win.isVisible()) win.show();
@@ -126,6 +153,15 @@ export function createTray(getWindow: () => BrowserWindow | null): Tray {
 export function updateTrayMenu(getWindow: () => BrowserWindow | null): void {
   if (!tray) return;
   contextMenu = buildContextMenu(getWindow);
+  tray.setToolTip(resolveTrayTooltip());
+}
+
+export function updateTrayReminder(
+  getWindow: () => BrowserWindow | null,
+  reminder: TrayReminderState,
+): void {
+  trayReminder = reminder;
+  updateTrayMenu(getWindow);
 }
 
 export function destroyTray(): void {
@@ -137,5 +173,13 @@ export function destroyTray(): void {
     contextMenu = null;
     clickHandler = null;
     rightClickHandler = null;
+    trayReminder = { count: 0 };
   }
+}
+
+function resolveTrayTooltip(): string {
+  if (trayReminder.count > 0) {
+    return t('trayCompletedTaskTooltip', { count: trayReminder.count });
+  }
+  return APP_NAME;
 }

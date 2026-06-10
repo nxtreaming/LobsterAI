@@ -225,22 +225,6 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     }, 0);
   };
 
-  const handleForkTask = async (task: AgentSidebarTaskNode) => {
-    if (task.status === 'running') {
-      window.dispatchEvent(new CustomEvent('app:showToast', {
-        detail: i18nService.t('coworkForkRunningBlocked'),
-      }));
-      return;
-    }
-    if (task.agentId !== currentAgentId) {
-      agentService.switchAgent(task.agentId);
-      await coworkService.loadSessions(task.agentId);
-    }
-    const result = await coworkService.forkSession({ sessionId: task.id });
-    if (!result.session) return;
-    onShowCowork();
-  };
-
   const handleEnterBatchMode = (task: AgentSidebarTaskNode) => {
     if (task.agentId !== currentAgentId) {
       agentService.switchAgent(task.agentId);
@@ -310,7 +294,6 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
       onCollapseTasks={collapseTasks}
       onSelectTask={(task) => void handleSelectTask(task)}
       onDeleteTask={handleDeleteTask}
-      onForkTask={handleForkTask}
       onShareTask={handleShareTask}
       onToggleTaskPin={handleToggleTaskPin}
       onRenameTask={handleRenameTask}

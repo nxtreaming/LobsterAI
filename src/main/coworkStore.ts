@@ -1201,7 +1201,7 @@ export class CoworkStore {
         `
         SELECT MAX(pin_order) as max_pin_order
         FROM cowork_sessions
-        WHERE pinned = 1 AND COALESCE(agent_id, 'main') = ?
+        WHERE pinned = 1 AND COALESCE(NULLIF(TRIM(agent_id), ''), 'main') = ?
       `,
       )
       .get(agentId) as { max_pin_order?: number | null } | undefined;
@@ -1215,7 +1215,7 @@ export class CoworkStore {
   countSessions(agentId?: string): number {
     if (agentId) {
       const row = this.db
-        .prepare('SELECT COUNT(*) as count FROM cowork_sessions WHERE agent_id = ?')
+        .prepare("SELECT COUNT(*) as count FROM cowork_sessions WHERE COALESCE(NULLIF(TRIM(agent_id), ''), 'main') = ?")
         .get(agentId) as { count: number } | undefined;
       return row?.count || 0;
     }
@@ -1248,7 +1248,7 @@ export class CoworkStore {
                parent_session_id, forked_at, fork_mode,
                created_at, updated_at
         FROM cowork_sessions
-        WHERE agent_id = ?
+        WHERE COALESCE(NULLIF(TRIM(agent_id), ''), 'main') = ?
         ORDER BY pinned DESC,
           CASE WHEN pinned = 1 THEN COALESCE(pin_order, updated_at, created_at) END ASC,
           CASE WHEN pinned = 0 THEN updated_at END DESC,

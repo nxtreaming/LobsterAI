@@ -13,6 +13,11 @@ import type {
   CoworkContextUsageSource,
 } from '../../shared/cowork/constants';
 import type {
+  DataMigrationBackupResult,
+  DataMigrationLastRestoreResponse,
+  DataMigrationRestoreScheduleResult,
+} from '../../shared/dataMigration/constants';
+import type {
   HtmlShareAccessMode,
   HtmlShareConfigurableStatus,
   HtmlShareStatus,
@@ -200,6 +205,8 @@ interface OpenClawEngineStatus {
   version: string | null;
   progressPercent?: number;
   message?: string;
+  gatewayPort?: number | null;
+  gatewayHttpUrl?: string | null;
   canRetry: boolean;
 }
 
@@ -569,6 +576,11 @@ interface IElectronAPI {
       test: (options?: { profile?: BrowserRuntimeProfile }) => Promise<BrowserDiagnosticResult>;
       resetProfile: (options?: { profile?: BrowserRuntimeProfile }) => Promise<{ success: boolean; result?: Record<string, unknown>; error?: string }>;
     };
+    dataMigration: {
+      backup: () => Promise<DataMigrationBackupResult>;
+      restore: () => Promise<DataMigrationRestoreScheduleResult>;
+      getLastRestoreResult: () => Promise<DataMigrationLastRestoreResponse>;
+    };
   };
   ipcRenderer: {
     send: (channel: string, ...args: any[]) => void;
@@ -644,6 +656,9 @@ interface IElectronAPI {
     getSession: (
       sessionId: string,
     ) => Promise<{ success: boolean; session?: CoworkSession; error?: string }>;
+    markSessionViewed: (
+      sessionId: string,
+    ) => Promise<{ success: boolean; error?: string }>;
     remoteManaged: (
       sessionId: string,
     ) => Promise<{ success: boolean; remoteManaged: boolean; error?: string }>;
@@ -750,6 +765,10 @@ interface IElectronAPI {
     }) => Promise<{ success: boolean; error?: string }>;
     getConfig: () => Promise<{ success: boolean; config?: CoworkConfig; error?: string }>;
     setConfig: (config: CoworkConfigUpdate) => Promise<{ success: boolean; error?: string }>;
+    notifyOpenSessionFromNotificationReady: () => Promise<{ success: boolean; error?: string }>;
+    onOpenSessionFromNotification: (
+      callback: (data: { sessionId: string }) => void,
+    ) => () => void;
     listMemoryEntries: (input: {
       query?: string;
       limit?: number;

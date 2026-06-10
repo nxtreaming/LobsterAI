@@ -1,4 +1,4 @@
-import { CheckIcon, ChevronDownIcon, LockClosedIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, LockClosedIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { ProviderName } from '@shared/providers';
 import React from 'react';
 import { createPortal } from 'react-dom';
@@ -33,8 +33,11 @@ interface ModelSelectorProps {
   alignDropdownToTriggerEnd?: boolean;
 }
 
-const DROPDOWN_MAX_HEIGHT = 344; // list max-h-72 plus the tab area
+const DROPDOWN_MAX_HEIGHT = 380; // list max-h-72 plus the tab area and current-model footer
 const DROPDOWN_WIDTH = 300;
+const MODEL_ITEM_HEIGHT = 36; // px-3 py-2 row with a 20px line
+const LIST_VERTICAL_PADDING = 8; // scroll container py-1
+const LIST_MAX_HEIGHT = 288; // matches max-h-72
 const DROPDOWN_VIEWPORT_MARGIN = 8;
 const HOVER_CARD_WIDTH = 220;
 const HOVER_CARD_GAP = 8;
@@ -205,6 +208,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     if (!model) return null;
     return model.isServerModel ? ModelSelectorGroup.Server : ModelSelectorGroup.User;
   };
+  const selectedModelGroup = getModelGroup(selectedModel);
   const getPreferredGroup = (): ModelSelectorGroup => {
     const selectedGroup = getModelGroup(selectedModel);
     if (selectedGroup && isGroupAvailable(selectedGroup)) return selectedGroup;
@@ -216,6 +220,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     : availableModels;
   const accessibleModels = visibleModels.filter(m => m.accessible !== false);
   const restrictedModels = visibleModels.filter(m => m.accessible === false);
+  // Keep the list height identical across tabs so switching never resizes the dropdown.
+  const largestGroupRowCount = Math.max(serverModels.length, userModels.length) + (defaultLabel ? 1 : 0);
+  const stableListMinHeight = shouldShowGroupTabs
+    ? Math.min(largestGroupRowCount * MODEL_ITEM_HEIGHT + LIST_VERTICAL_PADDING, LIST_MAX_HEIGHT)
+    : undefined;
 
   // 点击外部区域关闭下拉框
   React.useEffect(() => {
@@ -446,13 +455,15 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         className={`w-full px-3 py-2 text-left dark:text-claude-darkText text-claude-text flex items-center gap-2.5 transition-colors ${
           restricted
             ? 'cursor-pointer opacity-60 dark:hover:bg-claude-darkSurfaceHover hover:bg-claude-surfaceHover'
-            : `dark:hover:bg-claude-darkSurfaceHover hover:bg-claude-surfaceHover ${selected ? 'dark:bg-claude-darkSurfaceHover/50 bg-claude-surfaceHover/50' : ''}`
+            : selected
+              ? 'bg-primary/10 dark:bg-primary/15'
+              : 'dark:hover:bg-claude-darkSurfaceHover hover:bg-claude-surfaceHover'
         }`}
       >
         <span className="flex h-5 w-5 shrink-0 items-center justify-center text-secondary">
           {renderProviderIcon(model)}
         </span>
-        <span className="min-w-0 truncate text-[13px] font-normal leading-5">
+        <span className={`min-w-0 truncate text-[13px] leading-5 ${selected ? 'font-medium' : 'font-normal'}`}>
           {model.name}
         </span>
         {model.costMultiplier != null && model.costMultiplier > 0 && (
@@ -470,7 +481,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           <LockClosedIcon className="h-3.5 w-3.5 shrink-0 text-secondary" />
         )}
         {selected && !restricted && (
-          <CheckIcon className="h-4 w-4 shrink-0 text-emerald-500" />
+          <CheckIcon className="h-4 w-4 shrink-0 text-primary" strokeWidth={2.5} />
         )}
       </button>
     );
@@ -513,25 +524,48 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const renderGroupTabs = () => (
     <div className="border-b border-border/60 p-2">
       <div className="flex rounded-lg bg-surface-raised p-0.5" role="tablist" aria-label={i18nService.t('model')}>
-        {modelGroups.map(group => (
-          <button
-            type="button"
-            key={group.key}
-            role="tab"
-            aria-selected={visibleGroup === group.key}
-            onClick={() => setActiveGroup(group.key)}
-            className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-center text-[12px] font-medium leading-4 transition-colors ${
-              visibleGroup === group.key
-                ? 'bg-surface text-foreground shadow-sm'
-                : 'text-secondary hover:text-foreground'
-            }`}
-          >
-            <span className="truncate">{group.label}</span>
-          </button>
-        ))}
+        {modelGroups.map(group => {
+          const active = visibleGroup === group.key;
+          return (
+            <button
+              type="button"
+              key={group.key}
+              role="tab"
+              aria-selected={active}
+              onClick={() => setActiveGroup(group.key)}
+              className={`flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-1.5 text-[12px] leading-4 transition-colors ${
+                active
+                  ? 'bg-surface font-semibold text-foreground shadow-sm'
+                  : 'font-medium text-secondary hover:text-foreground'
+              }`}
+            >
+              <span className="truncate">{group.label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
+
+  const renderCurrentModelFooter = () => {
+    if (!shouldShowGroupTabs || !selectedModel || !selectedModelGroup) return null;
+    const inOtherGroup = selectedModelGroup !== visibleGroup;
+    return (
+      <button
+        type="button"
+        onClick={() => setActiveGroup(selectedModelGroup)}
+        className="flex w-full items-center gap-1.5 border-t border-border/60 px-3 py-2 text-left transition-colors hover:bg-surface-raised"
+      >
+        <span className="shrink-0 text-[11px] leading-4 text-secondary">
+          {i18nService.t('modelSelectorCurrentModel')}
+        </span>
+        <span className="min-w-0 truncate text-[12px] font-medium leading-4 text-foreground">
+          {selectedModel.name}
+        </span>
+        {inOtherGroup && <ChevronRightIcon className="ml-auto h-3 w-3 shrink-0 text-secondary" />}
+      </button>
+    );
+  };
 
   const renderRestrictedPrompt = () => {
     if (!restrictedPrompt) return null;
@@ -550,17 +584,23 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       className={`${portal ? '' : `absolute ${dropdownPositionClass} ${dropdownAlignmentClass}`} w-[300px] bg-surface rounded-xl popover-enter shadow-popover z-50 border-border border overflow-hidden`}
     >
       {shouldShowGroupTabs && renderGroupTabs()}
-      <div ref={scrollContainerRef} className="model-selector-scroll max-h-72 overflow-y-auto py-1">
+      <div
+        ref={scrollContainerRef}
+        style={stableListMinHeight !== undefined ? { minHeight: stableListMinHeight } : undefined}
+        className="model-selector-scroll max-h-72 overflow-y-auto py-1"
+      >
         {defaultLabel && (
           <button
             type="button"
             onClick={() => handleModelSelect(null)}
-            className={`w-full px-3 py-2 text-left dark:text-claude-darkText text-claude-text dark:hover:bg-claude-darkSurfaceHover hover:bg-claude-surfaceHover flex items-center justify-between gap-2 transition-colors ${
-              !selectedModel ? 'dark:bg-claude-darkSurfaceHover/50 bg-claude-surfaceHover/50' : ''
+            className={`w-full px-3 py-2 text-left dark:text-claude-darkText text-claude-text flex items-center justify-between gap-2 transition-colors ${
+              !selectedModel
+                ? 'bg-primary/10 dark:bg-primary/15'
+                : 'dark:hover:bg-claude-darkSurfaceHover hover:bg-claude-surfaceHover'
             }`}
           >
-            <span className="truncate text-[13px] font-normal leading-5">{defaultLabel}</span>
-            {!selectedModel && <CheckIcon className="h-4 w-4 shrink-0 text-emerald-500" />}
+            <span className={`truncate text-[13px] leading-5 ${!selectedModel ? 'font-medium' : 'font-normal'}`}>{defaultLabel}</span>
+            {!selectedModel && <CheckIcon className="h-4 w-4 shrink-0 text-primary" strokeWidth={2.5} />}
           </button>
         )}
         {accessibleModels.map(renderModelItem)}
@@ -570,6 +610,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           </div>
         )}
       </div>
+      {renderCurrentModelFooter()}
     </div>
   ) : null;
 

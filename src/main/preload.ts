@@ -12,6 +12,7 @@ import { AuthIpcChannel } from '../shared/auth/constants';
 import { BrowserIpc, type BrowserRuntimeProfile } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import { CoworkIpcChannel } from '../shared/cowork/constants';
+import { DataMigrationIpc } from '../shared/dataMigration/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import {
   type HtmlShareConfigurableStatus,
@@ -239,6 +240,11 @@ contextBridge.exposeInMainWorld('electron', {
       test: (options?: { profile?: BrowserRuntimeProfile }) => ipcRenderer.invoke(BrowserIpc.Test, options),
       resetProfile: (options?: { profile?: BrowserRuntimeProfile }) => ipcRenderer.invoke(BrowserIpc.ResetProfile, options),
     },
+    dataMigration: {
+      backup: () => ipcRenderer.invoke(DataMigrationIpc.Backup),
+      restore: () => ipcRenderer.invoke(DataMigrationIpc.Restore),
+      getLastRestoreResult: () => ipcRenderer.invoke(DataMigrationIpc.GetLastRestoreResult),
+    },
   },
   agents: {
     list: async () => {
@@ -356,6 +362,10 @@ contextBridge.exposeInMainWorld('electron', {
       title?: string;
     }) => ipcRenderer.invoke(CoworkIpcChannel.ForkSession, options),
     getSession: (sessionId: string) => ipcRenderer.invoke('cowork:session:get', sessionId),
+    markSessionViewed: (sessionId: string) =>
+      ipcRenderer.invoke(CoworkIpcChannel.MarkSessionViewed, sessionId),
+    notifyOpenSessionFromNotificationReady: () =>
+      ipcRenderer.invoke(CoworkIpcChannel.OpenSessionFromNotificationReady),
     remoteManaged: (sessionId: string) =>
       ipcRenderer.invoke('cowork:session:remoteManaged', sessionId),
     listSessions: (options?: { limit?: number; offset?: number; agentId?: string }) =>
@@ -519,6 +529,11 @@ contextBridge.exposeInMainWorld('electron', {
       const handler = () => callback();
       ipcRenderer.on('cowork:sessions:changed', handler);
       return () => ipcRenderer.removeListener('cowork:sessions:changed', handler);
+    },
+    onOpenSessionFromNotification: (callback: (data: { sessionId: string }) => void) => {
+      const handler = (_event: any, data: { sessionId: string }) => callback(data);
+      ipcRenderer.on(CoworkIpcChannel.OpenSessionFromNotification, handler);
+      return () => ipcRenderer.removeListener(CoworkIpcChannel.OpenSessionFromNotification, handler);
     },
   },
   dialog: {

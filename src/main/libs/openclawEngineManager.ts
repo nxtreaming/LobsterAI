@@ -46,6 +46,8 @@ export interface OpenClawEngineStatus {
   version: string | null;
   progressPercent?: number;
   message?: string;
+  gatewayPort?: number | null;
+  gatewayHttpUrl?: string | null;
   canRetry: boolean;
 }
 
@@ -235,7 +237,7 @@ export class OpenClawEngineManager extends EventEmitter {
   }
 
   getStatus(): OpenClawEngineStatus {
-    return { ...this.status };
+    return this.withGatewayStatusFields(this.status);
   }
 
   setExternalError(message: string): OpenClawEngineStatus {
@@ -403,6 +405,7 @@ export class OpenClawEngineManager extends EventEmitter {
         const healthy = await this.isGatewayHealthy(port);
         console.log(`[OpenClaw] startGateway: existing process health check (${elapsed()}), healthy=${healthy}`);
         if (healthy) {
+          this.gatewayPort = port;
           if (this.status.phase !== 'running') {
             this.setStatus({
               phase: 'running',
@@ -661,6 +664,26 @@ export class OpenClawEngineManager extends EventEmitter {
     this.gatewayRestartAttempt = 0;
     console.log(`${gwDiagTs()} restartGateway: starting gateway with new env...`);
     return this.startGateway(`restart:${reason}`);
+  }
+
+  private buildGatewayHttpUrl(port: number | null): string | null {
+    return port ? `http://localhost:${port}/` : null;
+  }
+
+  private resolveStatusGatewayPort(phase: OpenClawEnginePhase): number | null {
+    if (phase !== 'running' && phase !== 'starting') {
+      return null;
+    }
+    return this.gatewayPort ?? this.readGatewayPort();
+  }
+
+  private withGatewayStatusFields(status: OpenClawEngineStatus): OpenClawEngineStatus {
+    const port = status.gatewayPort ?? this.resolveStatusGatewayPort(status.phase);
+    return {
+      ...status,
+      gatewayPort: port,
+      gatewayHttpUrl: this.buildGatewayHttpUrl(port),
+    };
   }
 
   private resolveRuntimeMetadata(): RuntimeMetadata {

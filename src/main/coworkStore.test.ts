@@ -49,7 +49,7 @@ function setupDb(): void {
       model_override TEXT NOT NULL DEFAULT '',
       execution_mode TEXT NOT NULL DEFAULT 'local',
       active_skill_ids TEXT,
-      agent_id TEXT NOT NULL DEFAULT 'main',
+      agent_id TEXT DEFAULT 'main',
       parent_session_id TEXT,
       forked_from_message_id TEXT,
       forked_at INTEGER,
@@ -147,12 +147,12 @@ function setupDb(): void {
 }
 
 /** Insert a session row directly. */
-function insertSession(id: string): void {
+function insertSession(id: string, agentId: string | null = 'main'): void {
   const now = Date.now();
   db.prepare(
     `INSERT INTO cowork_sessions (id, title, claude_session_id, status, pinned, pin_order, cwd, system_prompt, execution_mode, active_skill_ids, agent_id, created_at, updated_at)
-     VALUES (?, 'test', NULL, 'idle', 0, NULL, '/tmp', '', 'local', '[]', 'main', ?, ?)`,
-  ).run(id, now, now);
+     VALUES (?, 'test', NULL, 'idle', 0, NULL, '/tmp', '', 'local', '[]', ?, ?, ?)`,
+  ).run(id, agentId, now, now);
 }
 
 /** Insert a message row directly, bypassing CoworkStore.addMessage. */
@@ -204,6 +204,19 @@ test('getSession returns all messages when one has corrupt metadata', () => {
   // Null metadata → undefined
   const nullMsg = session!.messages.find((m) => m.id === 'msg-null')!;
   expect(nullMsg.metadata).toBeUndefined();
+});
+
+test('main agent lists legacy sessions with null agent id', () => {
+  insertSession('legacy-main', null);
+  insertSession('empty-main', '');
+  insertSession('explicit-main', 'main');
+
+  expect(store.countSessions('main')).toBe(3);
+  expect(store.listSessions(20, 0, 'main').map(session => session.id).sort()).toEqual([
+    'empty-main',
+    'explicit-main',
+    'legacy-main',
+  ]);
 });
 
 test('replaceConversationMessages preserves existing timestamps and uses gateway timestamps', () => {

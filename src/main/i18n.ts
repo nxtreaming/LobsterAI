@@ -19,8 +19,13 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Tray menu
     trayShowWindow: '打开 LobsterAI',
     trayNewTask: '新建任务',
+    trayViewCompletedTask: '查看完成的任务',
+    trayCompletedTaskTooltip: 'LobsterAI - {count} 个任务已完成',
     traySettings: '设置',
     trayQuit: '退出',
+    taskCompletionNotificationTitle: '任务已完成',
+    taskCompletionNotificationBody: '有任务已完成，点击查看结果',
+    taskCompletionOverlayDescription: '有任务已完成',
 
     // Session titles (created by ChannelSessionSync)
     coworkDefaultSessionTitle: '新对话',
@@ -88,6 +93,17 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Auth quota
     authPlanFree: '免费',
     authPlanStandard: '标准',
+
+    // Data migration dialogs
+    dataMigrationBackupDialogTitle: '备份 LobsterAI 数据',
+    dataMigrationRestoreDialogTitle: '导入 LobsterAI 数据备份',
+    dataMigrationBackupArchiveFilter: 'LobsterAI 备份包',
+    dataMigrationAllFilesFilter: '所有文件',
+    dataMigrationBackupBlockedByActiveWorkloads:
+      '当前有正在运行的 Agent 或定时任务，请停止或等待任务完成后再备份。',
+    dataMigrationRestoreProgressTitle: '正在导入 LobsterAI 数据',
+    dataMigrationRestoreProgressDesc: '正在恢复备份并校验数据，完成后应用会自动重启。',
+    dataMigrationRestoreProgressWarning: '请不要关闭应用或重启电脑，否则可能中断本次数据迁移。',
 
     // ── IM connectivity test messages ───────────────────────────────────
     // Common
@@ -274,8 +290,13 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Tray menu
     trayShowWindow: 'Open LobsterAI',
     trayNewTask: 'New Task',
+    trayViewCompletedTask: 'View Completed Task',
+    trayCompletedTaskTooltip: 'LobsterAI - {count} completed task(s)',
     traySettings: 'Settings',
     trayQuit: 'Quit',
+    taskCompletionNotificationTitle: 'Task Complete',
+    taskCompletionNotificationBody: 'A task has finished. Click to view the result.',
+    taskCompletionOverlayDescription: 'Task complete',
 
     // Session titles
     coworkDefaultSessionTitle: 'New Chat',
@@ -356,6 +377,19 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Auth quota
     authPlanFree: 'Free',
     authPlanStandard: 'Standard',
+
+    // Data migration dialogs
+    dataMigrationBackupDialogTitle: 'Back Up LobsterAI Data',
+    dataMigrationRestoreDialogTitle: 'Import LobsterAI Data Backup',
+    dataMigrationBackupArchiveFilter: 'LobsterAI Backup',
+    dataMigrationAllFilesFilter: 'All Files',
+    dataMigrationBackupBlockedByActiveWorkloads:
+      'An agent or scheduled task is still running. Stop it or wait for it to finish before backing up.',
+    dataMigrationRestoreProgressTitle: 'Importing LobsterAI data',
+    dataMigrationRestoreProgressDesc:
+      'Restoring the backup and validating data. LobsterAI will restart automatically when finished.',
+    dataMigrationRestoreProgressWarning:
+      'Do not close the app or restart the computer, or the migration may be interrupted.',
 
     // ── IM connectivity test messages ───────────────────────────────────
     // Common

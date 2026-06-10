@@ -6,8 +6,16 @@
  *
  * Provides: bg-background, text-foreground, bg-primary, border-border, etc.
  * Also provides legacy claude.* aliases for backward compatibility.
+ *
+ * Colors are wrapped in color-mix() with the <alpha-value> placeholder so that
+ * Tailwind opacity modifiers (e.g. text-foreground/90, bg-surface-raised/30)
+ * generate working CSS. Without this, var()-based colors silently drop any
+ * class that uses an opacity modifier.
  */
 const plugin = require('tailwindcss/plugin');
+
+const withAlpha = (variable) =>
+  `color-mix(in srgb, var(${variable}) calc(<alpha-value> * 100%), transparent)`;
 
 module.exports = plugin(function () {
   // The plugin itself is a no-op; we only extend the theme below.
@@ -16,69 +24,69 @@ module.exports = plugin(function () {
     extend: {
       colors: {
         // === Semantic theme colors (driven by CSS variables) ===
-        background:    'var(--lobster-background)',
-        foreground:    'var(--lobster-foreground)',
+        background:    withAlpha('--lobster-background'),
+        foreground:    withAlpha('--lobster-foreground'),
         primary: {
-          DEFAULT:     'var(--lobster-primary)',
-          foreground:  'var(--lobster-primary-foreground)',
-          hover:       'var(--lobster-primary-hover)',
-          muted:       'var(--lobster-primary-muted)',
-          dark:        'var(--lobster-primary-hover)',  // backward compat alias
+          DEFAULT:     withAlpha('--lobster-primary'),
+          foreground:  withAlpha('--lobster-primary-foreground'),
+          hover:       withAlpha('--lobster-primary-hover'),
+          muted:       withAlpha('--lobster-primary-muted'),
+          dark:        withAlpha('--lobster-primary-hover'),  // backward compat alias
         },
         accent: {
-          DEFAULT:     'var(--lobster-accent)',
-          foreground:  'var(--lobster-accent-foreground)',
+          DEFAULT:     withAlpha('--lobster-accent'),
+          foreground:  withAlpha('--lobster-accent-foreground'),
         },
         surface: {
-          DEFAULT:     'var(--lobster-surface)',
-          foreground:  'var(--lobster-surface-foreground)',
-          raised:      'var(--lobster-surface-raised)',
-          overlay:     'var(--lobster-surface-overlay)',
-          inset:       'var(--lobster-surface-raised)',  // alias
+          DEFAULT:     withAlpha('--lobster-surface'),
+          foreground:  withAlpha('--lobster-surface-foreground'),
+          raised:      withAlpha('--lobster-surface-raised'),
+          overlay:     withAlpha('--lobster-surface-overlay'),
+          inset:       withAlpha('--lobster-surface-raised'),  // alias
         },
         border: {
-          DEFAULT:     'var(--lobster-border)',
-          subtle:      'var(--lobster-border-subtle)',
-          input:       'var(--lobster-input-border)',
+          DEFAULT:     withAlpha('--lobster-border'),
+          subtle:      withAlpha('--lobster-border-subtle'),
+          input:       withAlpha('--lobster-input-border'),
         },
-        muted:         'var(--lobster-text-muted)',
+        muted:         withAlpha('--lobster-text-muted'),
         destructive: {
-          DEFAULT:     'var(--lobster-destructive)',
-          foreground:  'var(--lobster-destructive-foreground)',
+          DEFAULT:     withAlpha('--lobster-destructive'),
+          foreground:  withAlpha('--lobster-destructive-foreground'),
         },
-        success:       'var(--lobster-success)',
-        warning:       'var(--lobster-warning)',
+        success:       withAlpha('--lobster-success'),
+        warning:       withAlpha('--lobster-warning'),
 
         // === Legacy claude.* aliases (map to --lobster-* for backward compat) ===
         claude: {
-          bg:                'var(--lobster-background)',
-          surface:           'var(--lobster-surface)',
-          surfaceHover:      'var(--lobster-surface-raised)',
-          surfaceMuted:      'var(--lobster-surface-raised)',
-          surfaceInset:      'var(--lobster-surface-raised)',
-          border:            'var(--lobster-border)',
-          borderLight:       'var(--lobster-border-subtle)',
-          text:              'var(--lobster-text-primary)',
-          textSecondary:     'var(--lobster-text-secondary)',
+          bg:                withAlpha('--lobster-background'),
+          surface:           withAlpha('--lobster-surface'),
+          surfaceHover:      withAlpha('--lobster-surface-raised'),
+          surfaceMuted:      withAlpha('--lobster-surface-raised'),
+          surfaceInset:      withAlpha('--lobster-surface-raised'),
+          border:            withAlpha('--lobster-border'),
+          borderLight:       withAlpha('--lobster-border-subtle'),
+          text:              withAlpha('--lobster-text-primary'),
+          textSecondary:     withAlpha('--lobster-text-secondary'),
           // dark.* aliases point to the same vars — theme handles light/dark
-          darkBg:            'var(--lobster-background)',
-          darkSurface:       'var(--lobster-surface)',
-          darkSurfaceHover:  'var(--lobster-surface-raised)',
-          darkSurfaceMuted:  'var(--lobster-surface-raised)',
-          darkSurfaceInset:  'var(--lobster-surface-raised)',
-          darkBorder:        'var(--lobster-border)',
-          darkBorderLight:   'var(--lobster-border-subtle)',
-          darkText:          'var(--lobster-text-primary)',
-          darkTextSecondary: 'var(--lobster-text-secondary)',
+          darkBg:            withAlpha('--lobster-background'),
+          darkSurface:       withAlpha('--lobster-surface'),
+          darkSurfaceHover:  withAlpha('--lobster-surface-raised'),
+          darkSurfaceMuted:  withAlpha('--lobster-surface-raised'),
+          darkSurfaceInset:  withAlpha('--lobster-surface-raised'),
+          darkBorder:        withAlpha('--lobster-border'),
+          darkBorderLight:   withAlpha('--lobster-border-subtle'),
+          darkText:          withAlpha('--lobster-text-primary'),
+          darkTextSecondary: withAlpha('--lobster-text-secondary'),
           // Accent
-          accent:            'var(--lobster-primary)',
-          accentHover:       'var(--lobster-primary-hover)',
-          accentLight:       'var(--lobster-primary)',
-          accentMuted:       'var(--lobster-primary-muted)',
+          accent:            withAlpha('--lobster-primary'),
+          accentHover:       withAlpha('--lobster-primary-hover'),
+          accentLight:       withAlpha('--lobster-primary'),
+          accentMuted:       withAlpha('--lobster-primary-muted'),
         },
         secondary: {
-          DEFAULT: 'var(--lobster-text-secondary)',
-          dark:    'var(--lobster-border)',
+          DEFAULT: withAlpha('--lobster-text-secondary'),
+          dark:    withAlpha('--lobster-border'),
         },
       },
       borderRadius: {

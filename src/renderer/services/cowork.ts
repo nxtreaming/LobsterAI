@@ -973,6 +973,9 @@ class CoworkService {
       }
       store.dispatch(setCurrentSession(result.session));
       store.dispatch(setStreaming(result.session.status === 'running'));
+      void cowork.markSessionViewed?.(sessionId).catch((error: unknown) => {
+        console.warn('[CoworkService] failed to mark session viewed:', error);
+      });
 
       const imResult = await cowork.remoteManaged(sessionId);
       if (requestId === this.latestLoadSessionRequestId) {

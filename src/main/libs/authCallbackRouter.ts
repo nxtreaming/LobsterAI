@@ -35,6 +35,11 @@ export class AuthCallbackRouter {
     }
   }
 
+  handleAuthCode(code: string): void {
+    if (!code) return;
+    this.deliverOrBuffer(code);
+  }
+
   markListenerReadyAndConsumePending(): string | null {
     this.listenerReady = true;
     const code = this.pendingAuthCode;
