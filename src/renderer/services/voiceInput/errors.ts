@@ -14,6 +14,7 @@ export class AsrClientError extends Error {
 export const getFallbackAsrErrorMessage = (code?: number): string => {
   switch (code) {
     case AsrApiCode.Unauthorized:
+    case AsrApiCode.AuthTokenInvalid:
       return i18nService.t('voiceInputLoginRequired');
     case AsrApiCode.AudioInvalid:
       return i18nService.t('voiceInputAudioInvalid');

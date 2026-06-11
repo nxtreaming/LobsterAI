@@ -123,6 +123,7 @@ export const useCoworkVoiceInput = ({
         appendRecognizedVoiceText(result.text);
       }
     } catch (error) {
+      console.warn('[VoiceInput] voice input recognition failed:', error);
       showToast(getAsrErrorMessage(error));
     } finally {
       realtimeVoiceBaseValueRef.current = null;
@@ -153,6 +154,7 @@ export const useCoworkVoiceInput = ({
           onText: replaceRealtimeRecognizedVoiceText,
           onError: (error) => {
             if (voiceRecordingRef.current?.mode !== VoiceInputRecognitionMode.Realtime) return;
+            console.warn('[VoiceInput] realtime voice input session reported an error:', error);
             clearVoiceAutoStopTimer();
             voiceRecordingRef.current = null;
             voiceRecordingStartedAtRef.current = null;
@@ -183,6 +185,7 @@ export const useCoworkVoiceInput = ({
         void stopVoiceRecordingAndRecognize();
       }, voiceRecordingMaxMsRef.current);
     } catch (error) {
+      console.warn('[VoiceInput] failed to start voice input:', error);
       voiceRecordingRef.current?.session.cancel();
       voiceRecordingRef.current = null;
       voiceRecordingStartedAtRef.current = null;

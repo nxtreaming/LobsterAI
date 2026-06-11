@@ -50,6 +50,8 @@
 
 renderer 使用麦克风采集单声道音频，重采样到 16 kHz，转换为 PCM 16-bit。第一帧发送合成 WAV header 与首段 PCM，后续帧发送 PCM 数据。WAV header 长度字段使用流式占位值。
 
+客户端发送的单个 WebSocket binary message 不应超过服务端建议的帧大小：`16000 * 2 * chunkIntervalMillis / 1000` 字节，默认 `chunkIntervalMillis=200` 时为 6400 字节。第一帧需要把 WAV header 计入该上限，避免触发 WebSocket 1009（message too big）关闭。
+
 ### FR-4: 滚动识别结果合并
 
 实时 ASR 的 `recognition.text` 是滚动修正文本，不是 append-only 增量。客户端应按 `raw.result[*].seg_id` 保存每段最新句子，并用 `partial=false` 判断稳定结果。输入框展示应替换当前语音输入片段，而不是逐条追加。

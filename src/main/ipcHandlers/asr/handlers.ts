@@ -16,6 +16,29 @@ type AuthTokens = {
   refreshToken: string;
 };
 
+type AsrResponseBody = {
+  code?: number;
+  message?: string;
+  data?: unknown;
+};
+
+const readAsrResponseBody = async (resp: Response): Promise<AsrResponseBody | null> => (
+  await resp.json().catch((): null => null) as AsrResponseBody | null
+);
+
+const getAsrResponseMessage = (body: AsrResponseBody | null, resp: Response): string => (
+  body?.message || resp.statusText || 'No response message'
+);
+
+const getSafeWebSocketEndpoint = (wsUrl: string): string => {
+  try {
+    const url = new URL(wsUrl);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return 'unknown';
+  }
+};
+
 export interface AsrHandlerDeps {
   getAuthTokens: () => AuthTokens | null;
   fetchWithAuth: (url: string, options?: RequestInit) => Promise<Response>;
@@ -33,6 +56,7 @@ export function registerAsrIpcHandlers({
       try {
         const tokens = getAuthTokens();
         if (!tokens) {
+          console.warn('[ASR] recognition request was rejected because no auth tokens are available');
           return { success: false, code: AsrApiCode.Unauthorized, error: 'Unauthorized' };
         }
         const audioBase64 = typeof options?.audioBase64 === 'string' ? options.audioBase64.trim() : '';
@@ -53,21 +77,21 @@ export function registerAsrIpcHandlers({
         }
 
         const serverBaseUrl = getServerApiBaseUrl();
-        const resp = await fetchWithAuth(`${serverBaseUrl}/api/asr/recognize`, {
+        const requestUrl = `${serverBaseUrl}/api/asr/recognize`;
+        console.log(`[ASR] recognition request started for ${requestUrl} with ${audioBuffer.length} bytes`);
+        const resp = await fetchWithAuth(requestUrl, {
           method: 'POST',
           body: form,
         });
-        const body = await resp.json().catch((): null => null) as {
-          code?: number;
-          message?: string;
-          data?: unknown;
-        } | null;
+        const body = await readAsrResponseBody(resp);
 
         if (resp.ok && body?.code === 0 && body.data) {
-          return { success: true, data: body.data as AsrRecognizeData };
+          const data = body.data as AsrRecognizeData;
+          console.log(`[ASR] recognition request succeeded; requestId=${data.requestId}, textLength=${data.text.length}, durationSeconds=${data.durationSeconds}`);
+          return { success: true, data };
         }
 
-        console.warn(`[ASR] recognition request was rejected with code ${body?.code ?? resp.status} and HTTP status ${resp.status}`);
+        console.warn(`[ASR] recognition request to ${requestUrl} was rejected with code ${body?.code ?? resp.status}, HTTP status ${resp.status}, and message: ${getAsrResponseMessage(body, resp)}`);
 
         return {
           success: false,
@@ -91,6 +115,7 @@ export function registerAsrIpcHandlers({
       try {
         const tokens = getAuthTokens();
         if (!tokens) {
+          console.warn('[ASR] realtime session request was rejected because no auth tokens are available');
           return { success: false, code: AsrApiCode.Unauthorized, error: 'Unauthorized' };
         }
 
@@ -100,24 +125,24 @@ export function registerAsrIpcHandlers({
         }
 
         const serverBaseUrl = getServerApiBaseUrl();
-        const resp = await fetchWithAuth(`${serverBaseUrl}/api/asr/realtime/sessions`, {
+        const requestUrl = `${serverBaseUrl}/api/asr/realtime/sessions`;
+        console.log(`[ASR] realtime session request started for ${requestUrl} with langType=${options?.langType || 'default'}`);
+        const resp = await fetchWithAuth(requestUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
           },
           body: params.toString(),
         });
-        const body = await resp.json().catch((): null => null) as {
-          code?: number;
-          message?: string;
-          data?: unknown;
-        } | null;
+        const body = await readAsrResponseBody(resp);
 
         if (resp.ok && body?.code === 0 && body.data) {
-          return { success: true, data: body.data as AsrRealtimeSessionData };
+          const data = body.data as AsrRealtimeSessionData;
+          console.log(`[ASR] realtime session request succeeded; requestId=${data.requestId}, wsEndpoint=${getSafeWebSocketEndpoint(data.wsUrl)}, maxSessionSeconds=${data.maxSessionSeconds}, remainingSecondsToday=${data.remainingSecondsToday}`);
+          return { success: true, data };
         }
 
-        console.warn(`[ASR] realtime session request was rejected with code ${body?.code ?? resp.status} and HTTP status ${resp.status}`);
+        console.warn(`[ASR] realtime session request to ${requestUrl} was rejected with code ${body?.code ?? resp.status}, HTTP status ${resp.status}, and message: ${getAsrResponseMessage(body, resp)}`);
 
         return {
           success: false,

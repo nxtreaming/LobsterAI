@@ -13,6 +13,7 @@ import {
 import { buildPcm16WavHeader } from './wavEncoder';
 
 const REALTIME_FINAL_WAIT_MS = 4_000;
+const PCM16_BYTES_PER_SAMPLE = 2;
 
 export interface RealtimeVoiceInputSession {
   stop: () => Promise<string>;
@@ -25,11 +26,53 @@ interface StartRealtimeVoiceInputOptions {
   onError: (error: unknown) => void;
 }
 
+interface RealtimeAudioFrameBuildOptions {
+  chunk: Uint8Array;
+  isFirstFrame: boolean;
+  maxBinaryFrameBytes: number;
+}
+
+interface RealtimeAudioFrameBuildResult {
+  frames: Uint8Array[];
+  isFirstFrame: boolean;
+}
+
 const combineHeaderAndChunk = (header: Uint8Array, chunk: Uint8Array): Uint8Array => {
   const combined = new Uint8Array(header.byteLength + chunk.byteLength);
   combined.set(header, 0);
   combined.set(chunk, header.byteLength);
   return combined;
+};
+
+export const buildRealtimeAsrAudioFrames = ({
+  chunk,
+  isFirstFrame,
+  maxBinaryFrameBytes,
+}: RealtimeAudioFrameBuildOptions): RealtimeAudioFrameBuildResult => {
+  const frames: Uint8Array[] = [];
+  const safeMaxBinaryFrameBytes = Math.max(45, maxBinaryFrameBytes);
+  let nextIsFirstFrame = isFirstFrame;
+  let offset = 0;
+  while (offset < chunk.byteLength) {
+    if (nextIsFirstFrame) {
+      const header = buildPcm16WavHeader(VOICE_INPUT_TARGET_SAMPLE_RATE);
+      const firstFramePcmBytes = Math.min(
+        chunk.byteLength - offset,
+        Math.max(1, safeMaxBinaryFrameBytes - header.byteLength),
+      );
+      const pcmSlice = chunk.slice(offset, offset + firstFramePcmBytes);
+      frames.push(combineHeaderAndChunk(header, pcmSlice));
+      nextIsFirstFrame = false;
+      offset += firstFramePcmBytes;
+      continue;
+    }
+
+    const frameBytes = Math.min(chunk.byteLength - offset, safeMaxBinaryFrameBytes);
+    frames.push(chunk.slice(offset, offset + frameBytes));
+    offset += frameBytes;
+  }
+
+  return { frames, isFirstFrame: nextIsFirstFrame };
 };
 
 class RealtimeRecognitionBuffer {
@@ -112,11 +155,17 @@ export const startRealtimeVoiceInput = async ({
     langType: AsrLangType.ZhChs,
   });
   if (!session.success) {
+    console.warn(`[VoiceInput] realtime ASR session request failed with code ${session.code ?? 'unknown'} and message: ${session.message || session.error || 'No response message'}`);
     throw new AsrClientError(getFallbackAsrErrorMessage(session.code), session.code);
   }
 
   const socket = new WebSocket(session.data.wsUrl);
   socket.binaryType = 'arraybuffer';
+  const chunkIntervalMillis = session.data.chunkIntervalMillis || 200;
+  const maxBinaryFrameBytes = Math.max(
+    45,
+    Math.floor(VOICE_INPUT_TARGET_SAMPLE_RATE * PCM16_BYTES_PER_SAMPLE * (chunkIntervalMillis / 1000)),
+  );
   const recognitionBuffer = new RealtimeRecognitionBuffer();
   let recorder: RealtimeVoiceRecordingSession | null = null;
   let firstAudioFrame = true;
@@ -145,6 +194,7 @@ export const startRealtimeVoiceInput = async ({
     if (!message) return;
 
     if (message.type === AsrRealtimeEventType.Error) {
+      console.warn(`[VoiceInput] realtime ASR WebSocket reported error; requestId=${message.requestId || session.data.requestId}, code=${message.code ?? 'unknown'}, message=${message.message || 'No response message'}`);
       terminalError = new AsrClientError(
         getFallbackAsrErrorMessage(message.code),
         message.code,
@@ -175,6 +225,7 @@ export const startRealtimeVoiceInput = async ({
 
   socket.addEventListener('error', () => {
     if (closed) return;
+    console.warn(`[VoiceInput] realtime ASR WebSocket error event; requestId=${session.data.requestId}`);
     terminalError = new AsrClientError(
       getFallbackAsrErrorMessage(AsrApiCode.UpstreamError),
       AsrApiCode.UpstreamError,
@@ -184,8 +235,11 @@ export const startRealtimeVoiceInput = async ({
     onError(terminalError);
   });
 
-  socket.addEventListener('close', () => {
+  socket.addEventListener('close', (event) => {
     closed = true;
+    if (event.code !== 1000) {
+      console.warn(`[VoiceInput] realtime ASR WebSocket closed unexpectedly; code=${event.code}, clean=${event.wasClean}`);
+    }
     finishFinalWait();
   });
 
@@ -195,7 +249,7 @@ export const startRealtimeVoiceInput = async ({
     throw terminalError;
   }
 
-  const sendPcmChunk = (chunk: Uint8Array) => {
+  const sendBinaryFrame = (payload: Uint8Array) => {
     if (socket.readyState !== WebSocket.OPEN) {
       terminalError = new AsrClientError(
         getFallbackAsrErrorMessage(AsrApiCode.UpstreamError),
@@ -206,10 +260,6 @@ export const startRealtimeVoiceInput = async ({
       onError(terminalError);
       return;
     }
-    const payload = firstAudioFrame
-      ? combineHeaderAndChunk(buildPcm16WavHeader(VOICE_INPUT_TARGET_SAMPLE_RATE), chunk)
-      : chunk;
-    firstAudioFrame = false;
     try {
       socket.send(payload);
     } catch {
@@ -224,8 +274,21 @@ export const startRealtimeVoiceInput = async ({
     }
   };
 
+  const sendPcmChunk = (chunk: Uint8Array) => {
+    const result = buildRealtimeAsrAudioFrames({
+      chunk,
+      isFirstFrame: firstAudioFrame,
+      maxBinaryFrameBytes,
+    });
+    firstAudioFrame = result.isFirstFrame;
+    for (const frame of result.frames) {
+      if (terminalError) break;
+      sendBinaryFrame(frame);
+    }
+  };
+
   recorder = await startRealtimeVoiceRecording({
-    chunkIntervalMillis: session.data.chunkIntervalMillis || 200,
+    chunkIntervalMillis,
     onPcmChunk: sendPcmChunk,
   });
   if (terminalError) {

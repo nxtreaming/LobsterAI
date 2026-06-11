@@ -13,6 +13,7 @@ export type AsrLangType = typeof AsrLangType[keyof typeof AsrLangType];
 
 export const AsrApiCode = {
   Unauthorized: 401,
+  AuthTokenInvalid: 40100,
   ConfigInvalid: 41400,
   AudioInvalid: 41401,
   AudioTooLarge: 41402,
