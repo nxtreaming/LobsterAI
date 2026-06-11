@@ -1158,7 +1158,11 @@ function createRunTurnAdapter(options: {
   const firstModelPatchBlocked = new Promise<void>((resolve) => {
     firstModelPatchRelease = resolve;
   });
-  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const requests: Array<{
+    method: string;
+    params: Record<string, unknown>;
+    options?: { timeoutMs?: number };
+  }> = [];
   const store = {
     getSession: (sessionId: string) => (sessionId === session.id ? session : null),
     updateSession: (sessionId: string, patch: Record<string, unknown>) => {
@@ -1206,9 +1210,9 @@ function createRunTurnAdapter(options: {
   adapter.gatewayClient = {
     start: () => {},
     stop: () => {},
-    request: async (method: string, params?: unknown) => {
+    request: async (method: string, params?: unknown, requestOptions?: { timeoutMs?: number }) => {
       const requestParams = (params ?? {}) as Record<string, unknown>;
-      requests.push({ method, params: requestParams });
+      requests.push({ method, params: requestParams, options: requestOptions });
       if (method === 'sessions.patch') {
         modelPatchCount++;
         if (options.holdFirstModelPatch && modelPatchCount === 1) {
@@ -1403,6 +1407,72 @@ test('continueSession clears the pending turn when chat.send fails immediately',
     pendingTurns: Map<string, unknown>;
   }).pendingTurns;
   expect(pendingTurns.has('session-1')).toBe(false);
+});
+
+test('pre-send model patch uses the extended send timeout while patchSession keeps the default', async () => {
+  const model = 'lobsterai-server/qwen3.6-plus-YoudaoInner';
+  const { adapter, requests } = createRunTurnAdapter({
+    sessionModelOverride: model,
+  });
+
+  await adapter.continueSession('session-1', 'hello');
+  await adapter.patchSession('session-1', { model });
+
+  const patchRequests = requests.filter((request) => request.method === 'sessions.patch');
+  expect(patchRequests).toHaveLength(2);
+  expect(patchRequests[0].options?.timeoutMs).toBe(90_000);
+  expect(patchRequests[1].options?.timeoutMs).toBe(30_000);
+});
+
+test('continueSession sends after a slow pre-send model patch eventually succeeds', async () => {
+  const model = 'lobsterai-server/qwen3.6-plus-YoudaoInner';
+  const {
+    adapter,
+    requests,
+    firstModelPatchStarted,
+    releaseFirstModelPatch,
+  } = createRunTurnAdapter({
+    sessionModelOverride: model,
+    holdFirstModelPatch: true,
+  });
+  const errors: unknown[] = [];
+  adapter.on('error', (...args: unknown[]) => errors.push(args));
+
+  const continuePromise = adapter.continueSession('session-1', 'hello');
+  await firstModelPatchStarted;
+  releaseFirstModelPatch();
+  await continuePromise;
+
+  expect(requests.map((request) => request.method).slice(0, 3)).toEqual([
+    'sessions.patch',
+    'chat.history',
+    'chat.send',
+  ]);
+  expect(errors).toEqual([]);
+});
+
+test('continueSession aborts silently when the session is stopped during the model patch wait', async () => {
+  const model = 'lobsterai-server/qwen3.6-plus-YoudaoInner';
+  const {
+    adapter,
+    requests,
+    firstModelPatchStarted,
+    releaseFirstModelPatch,
+  } = createRunTurnAdapter({
+    sessionModelOverride: model,
+    holdFirstModelPatch: true,
+  });
+  const errors: unknown[] = [];
+  adapter.on('error', (...args: unknown[]) => errors.push(args));
+
+  const continuePromise = adapter.continueSession('session-1', 'hello');
+  await firstModelPatchStarted;
+  adapter.stopSession('session-1');
+  releaseFirstModelPatch();
+  await continuePromise;
+
+  expect(requests.map((request) => request.method)).toEqual(['sessions.patch']);
+  expect(errors).toEqual([]);
 });
 
 // ==================== Reconcile tests ====================

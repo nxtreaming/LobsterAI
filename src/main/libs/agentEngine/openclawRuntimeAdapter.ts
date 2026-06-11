@@ -1605,6 +1605,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private static readonly GATEWAY_RPC_DEGRADED_MS = 30_000;
   private static readonly SESSION_MODEL_PATCH_CONFIRMED_TTL_MS = 10 * 60_000;
   private static readonly SESSION_PATCH_TIMEOUT_MS = 30_000;
+  // Pre-send model sync tolerates slow gateways (cold start / process stalls
+  // of 35-107s observed in the field); the patch is idempotent and the
+  // gateway recovers on its own, so waiting beats dropping the message.
+  private static readonly SESSION_PATCH_SEND_TIMEOUT_MS = 90_000;
   private static readonly SESSION_PATCH_SLOW_LOG_MS = 5_000;
 
   private emitSessionStatus(sessionId: string, status: CoworkSessionStatus): void {
@@ -3283,7 +3287,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           patch: { model },
           source,
           reason: 'model sync before chat.send',
-          timeoutMs: OpenClawRuntimeAdapter.SESSION_PATCH_TIMEOUT_MS,
+          timeoutMs: OpenClawRuntimeAdapter.SESSION_PATCH_SEND_TIMEOUT_MS,
         });
         this.markGatewayRpcSuccess();
         this.rememberSessionModelPatch(sessionId, sessionKey, model, source);
@@ -3445,6 +3449,14 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       const message = error instanceof Error ? error.message : String(error);
       this.emit('error', sessionId, message);
       throw error;
+    }
+
+    // The model sync may wait up to SESSION_PATCH_SEND_TIMEOUT_MS on a slow
+    // gateway. stoppedSessions was cleared at turn start, so an entry here
+    // means the user stopped the session while we were waiting.
+    if (this.stoppedSessions.has(sessionId)) {
+      console.log(`[OpenClawRuntime] turn aborted after model sync because the user stopped session ${sessionId} while waiting.`);
+      return;
     }
 
     const systemPromptText = options.systemPrompt ?? session.systemPrompt ?? '';
