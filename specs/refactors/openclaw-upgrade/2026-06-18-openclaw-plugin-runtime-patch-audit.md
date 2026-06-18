@@ -100,6 +100,57 @@ vendor/openclaw-runtime/win-x64/third-party-extensions/openclaw-weixin/dist/src/
 
 修复后 `resolveSenderCommandAuthorizationWithRuntime()` 与 `resolveDirectDmAuthorizationOutcome()` 使用 `deps.config.channels["openclaw-weixin"]` 中的 `dmPolicy`，并从同一配置读取 `allowFrom`。
 
+### 3.3 微信 allowFrom 通配符
+
+后续复测发现，微信扫码登录和轮询均正常，但从移动端微信发送消息后 LobsterAI 没有任何响应。OpenClaw gateway 日志显示消息已经进入微信插件，但在分发到 LobsterAI 会话前被授权层丢弃：
+
+```text
+[87beb752b073-im-bot] inbound message: from=o9cq80xLqr83VS4fLmvm8JXW6hfI@im.wechat types=1
+authorization: dropping message from=o9cq80xLqr83VS4fLmvm8JXW6hfI@im.wechat outcome=unauthorized
+```
+
+当时磁盘上的实际运行配置已经是开放策略：
+
+```json
+{
+  "channels": {
+    "openclaw-weixin": {
+      "enabled": true,
+      "dmPolicy": "open",
+      "allowFrom": ["*"]
+    }
+  }
+}
+```
+
+根因是上一节的 post-install patch 只让插件从 `channels.openclaw-weixin` 读取 `dmPolicy` 和 `allowFrom`，但插件传给 OpenClaw 授权 helper 的发送者匹配函数仍然只做精确匹配：
+
+```typescript
+list.length === 0 || list.includes(id)
+```
+
+因此 `allowFrom: ["*"]` 会被视为一个非空 allow list，但 `*` 又不会匹配具体发送者 ID，最终得到 `senderAllowedForCommands=false`，私聊消息被判定为 `unauthorized`。这不是 IM 入站图片 metadata 展示逻辑导致的；消息在进入 LobsterAI history/UI 之前已经被插件拒绝。
+
+已在 `scripts/openclaw-plugin-patches/weixin.cjs` 中新增 `patchWeixinAllowFromWildcard()`，同时覆盖：
+
+```text
+openclaw-weixin/src/messaging/process-message.ts
+openclaw-weixin/dist/src/messaging/process-message.js
+```
+
+修复后的匹配逻辑为：
+
+```typescript
+list.length === 0 || list.includes("*") || list.includes(id)
+```
+
+兼容性结论：
+
+1. 精确 allow-list 行为保持不变。
+2. 空 allow list 仍保持插件原有的宽松语义。
+3. `allowFrom: ["*"]` 现在与 LobsterAI config sync 写入的 `dmPolicy: "open"` 语义一致。
+4. 已运行 `npm run openclaw:plugins` 同步当前本地 runtime；运行中的 OpenClaw gateway 仍需重启后才会加载补丁后的插件代码。
+
 ## 4. 其它 patch 风险评估
 
 ### 4.1 低风险

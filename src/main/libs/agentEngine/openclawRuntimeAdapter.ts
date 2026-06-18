@@ -185,6 +185,55 @@ function validateRuntimeImageAttachments(
   return { ok: true };
 }
 
+const normalizeLocalMediaPathKey = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/\\/g, '/').toLowerCase();
+};
+
+const getLocalMediaAttachmentsKey = (metadata: unknown): string => {
+  if (!isRecord(metadata) || !Array.isArray(metadata.localMediaAttachments)) {
+    return '';
+  }
+  return metadata.localMediaAttachments
+    .map((item) => {
+      if (!isRecord(item)) return '';
+      const localPath = normalizeLocalMediaPathKey(item.localPath);
+      if (!localPath) return '';
+      const mimeType = typeof item.mimeType === 'string' ? item.mimeType.trim().toLowerCase() : '';
+      return `${localPath}\x1e${mimeType}`;
+    })
+    .filter(Boolean)
+    .sort()
+    .join('\x1f');
+};
+
+const buildGatewayMediaMetadata = (
+  entry: { mediaAttachments?: Array<{ localPath: string; mimeType?: string }> },
+): Record<string, unknown> | undefined => {
+  const attachments = entry.mediaAttachments
+    ?.map((attachment) => {
+      const localPath = attachment.localPath.trim();
+      if (!localPath) return null;
+      const mimeType = attachment.mimeType?.trim();
+      return {
+        localPath,
+        ...(mimeType ? { mimeType } : {}),
+        name: path.basename(localPath),
+      };
+    })
+    .filter((attachment): attachment is { localPath: string; mimeType?: string; name: string } => attachment !== null);
+
+  return attachments?.length ? { localMediaAttachments: attachments } : undefined;
+};
+
+const isSameReconciledEntry = (
+  left: { role: 'user' | 'assistant'; text: string; metadata?: Record<string, unknown> },
+  right: { role: 'user' | 'assistant'; text: string; metadata?: Record<string, unknown> },
+): boolean => {
+  return isSameHistoryEntry(left, right)
+    && getLocalMediaAttachmentsKey(left.metadata) === getLocalMediaAttachmentsKey(right.metadata);
+};
+
 /** How we chose assistant text to persist at chat.final (for tests and logs). */
 export type PersistedSegmentPickReason =
   | 'both_empty'
@@ -494,6 +543,7 @@ type PendingApprovalEntry = {
 type ChannelHistorySyncEntry = {
   role: 'user' | 'assistant';
   text: string;
+  metadata?: Record<string, unknown>;
 };
 
 type ReconciledConversationEntry = {
@@ -2642,12 +2692,15 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       let msgIndex = 0;
 
       for (const entry of extractGatewayHistoryEntries(history.messages)) {
+        const mediaMetadata = entry.role === 'user' ? buildGatewayMediaMetadata(entry) : undefined;
         messages.push({
           id: `transient-${msgIndex++}`,
           type: entry.role,
           content: entry.text,
           timestamp: now,
-          metadata: entry.role === 'assistant' ? { isStreaming: false, isFinal: true } : {},
+          metadata: entry.role === 'assistant'
+            ? { isStreaming: false, isFinal: true }
+            : mediaMetadata ?? {},
         });
       }
 
@@ -7139,10 +7192,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         const role = entry.role;
         if (role !== 'user' && role !== 'assistant') continue;
         const text = normalizeEntryText(role, entry.text, platformFlags);
-        if (!text || shouldSuppressHeartbeatText(role, text)) continue;
-        // Carry usage/model metadata for assistant messages
+        const mediaMetadata = role === 'user' ? buildGatewayMediaMetadata(entry) : undefined;
+        if ((!text && !mediaMetadata) || shouldSuppressHeartbeatText(role, text)) continue;
+        // Carry usage/model metadata for assistant messages and local media refs for user messages.
         let metadata: Record<string, unknown> | undefined;
-        if (role === 'assistant' && (entry.usage || entry.model)) {
+        if (role === 'user') {
+          metadata = mediaMetadata;
+        } else if (role === 'assistant' && (entry.usage || entry.model)) {
           metadata = {};
           if (entry.usage) {
             metadata.usage = {
@@ -7189,13 +7245,14 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       // Apply the same normalization as authoritativeEntries so alignment
       // works even when local messages still carry raw platform prefixes.
       const session = this.store.getSession(sessionId);
-      const localEntries: Array<{ role: 'user' | 'assistant'; text: string; timestamp?: number }> = [];
+      const localEntries: Array<{ role: 'user' | 'assistant'; text: string; timestamp?: number; metadata?: Record<string, unknown> }> = [];
       if (session) {
         for (const msg of session.messages) {
           if (msg.type !== 'user' && msg.type !== 'assistant') continue;
           const text = normalizeEntryText(msg.type, msg.content, platformFlags);
-          if (!text || shouldSuppressHeartbeatText(msg.type, text)) continue;
-          localEntries.push({ role: msg.type, text, timestamp: msg.timestamp });
+          const mediaKey = getLocalMediaAttachmentsKey(msg.metadata);
+          if ((!text && !mediaKey) || shouldSuppressHeartbeatText(msg.type, text)) continue;
+          localEntries.push({ role: msg.type, text, timestamp: msg.timestamp, metadata: msg.metadata });
         }
       }
 
@@ -7203,7 +7260,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       const isInSync = localEntries.length === authoritativeEntries.length
         && localEntries.every((entry, idx) =>
           entry.role === authoritativeEntries[idx].role
-          && entry.text === authoritativeEntries[idx].text,
+          && entry.text === authoritativeEntries[idx].text
+          && isSameReconciledEntry(entry, authoritativeEntries[idx]),
         );
 
       if (isInSync) {
@@ -7223,7 +7281,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         const tail = localEntries.slice(alignment.localIdx);
         const tailInSync = tail.length === authoritativeTail.length
           && tail.every((entry, idx) =>
-            isSameHistoryEntry(entry, authoritativeTail[idx]),
+            isSameReconciledEntry(entry, authoritativeTail[idx]),
           );
         if (tailInSync) {
           console.log(
@@ -7482,8 +7540,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       if (isDiscord) text = stripDiscordMentions(text);
       if (isQQ && role === 'user') text = stripQQBotSystemPrompt(text);
       if (isFeishu && role === 'user') text = stripFeishuSystemHeader(text);
-      if (text && !shouldSuppressHeartbeatText(role, text)) {
-        historyEntries.push({ role: role as 'user' | 'assistant', text });
+      const metadata = role === 'user' ? buildGatewayMediaMetadata(entry) : undefined;
+      if ((text || metadata) && !shouldSuppressHeartbeatText(role, text)) {
+        historyEntries.push({
+          role: role as 'user' | 'assistant',
+          text,
+          ...(metadata ? { metadata } : {}),
+        });
       }
     }
     return historyEntries;
@@ -7497,8 +7560,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     for (const msg of session.messages) {
       if (msg.type !== 'user' && msg.type !== 'assistant') continue;
       const text = msg.content.trim();
-      if (!text) continue;
-      localEntries.push({ role: msg.type, text });
+      const mediaKey = getLocalMediaAttachmentsKey(msg.metadata);
+      if (!text && !mediaKey) continue;
+      localEntries.push({ role: msg.type, text, metadata: msg.metadata });
     }
     return localEntries;
   }
@@ -7637,14 +7701,23 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         if (lastUser) {
           // Dedup: skip if this message already exists locally
           const session = this.store.getSession(sessionId);
-          const alreadyExists = session?.messages.some(
+          const existingUser = session?.messages.find(
             (m: CoworkMessage) => m.type === 'user' && m.content.trim() === lastUser.text,
-          ) ?? false;
-          if (!alreadyExists) {
+          );
+          if (existingUser) {
+            if (getLocalMediaAttachmentsKey(existingUser.metadata) !== getLocalMediaAttachmentsKey(lastUser.metadata)) {
+              const nextMetadata = {
+                ...(existingUser.metadata ?? {}),
+                ...(lastUser.metadata ?? {}),
+              };
+              this.store.updateMessage(sessionId, existingUser.id, { metadata: nextMetadata });
+              this.emit('messageUpdate', sessionId, existingUser.id, existingUser.content, nextMetadata);
+            }
+          } else {
             const userMessage = this.store.addMessage(sessionId, {
               type: 'user',
               content: lastUser.text,
-              metadata: {},
+              metadata: lastUser.metadata ?? {},
             });
             this.emit('message', sessionId, userMessage);
           }
@@ -7740,14 +7813,14 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         userMessage = this.store.insertMessageBeforeId(sessionId, insertBeforeId, {
           type: 'user',
           content: entry.text,
-          metadata: {},
+          metadata: entry.metadata ?? {},
         });
         console.debug('[syncChannelUserMessages] inserted user message before assistant, sessionId:', sessionId);
       } else {
         userMessage = this.store.addMessage(sessionId, {
           type: 'user',
           content: entry.text,
-          metadata: {},
+          metadata: entry.metadata ?? {},
         });
       }
       this.emit('message', sessionId, userMessage);

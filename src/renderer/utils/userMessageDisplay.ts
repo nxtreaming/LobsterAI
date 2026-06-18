@@ -39,6 +39,20 @@ const OPENCLAW_INBOUND_IMAGE_RE = /^((?:[A-Za-z]:\\|\/)[^\n]*[/\\]openclaw[/\\]s
 
 const IMAGE_EXTENSIONS = /\.(?:jpg|jpeg|png|gif|bmp|webp)$/i;
 
+export interface UserMessageLocalMediaAttachment {
+  localPath: string;
+  mimeType?: string;
+  name?: string;
+}
+
+export interface ParseUserMessageForDisplayOptions {
+  localMediaAttachments?: UserMessageLocalMediaAttachment[];
+}
+
+function normalizeImagePathKey(filePath: string): string {
+  return filePath.trim().replace(/\\/g, '/').toLowerCase();
+}
+
 function encodeFilePathAsMarkdownImage(filePath: string): string {
   const trimmed = filePath.trim();
   const normalized = trimmed.replace(/\\/g, '/');
@@ -48,13 +62,33 @@ function encodeFilePathAsMarkdownImage(filePath: string): string {
   return `![](file://${encoded})`;
 }
 
-export function parseUserMessageForDisplay(content: string): string {
-  if (!content) return content;
+export function parseUserMessageForDisplay(
+  content: string,
+  options: ParseUserMessageForDisplayOptions = {},
+): string {
+  if (!content && !options.localMediaAttachments?.length) return content;
 
   // Normalize \r\n to \n so all line-anchored regexes work correctly
-  let result = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  let result = (content || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
   const imagePaths: string[] = [];
+  const imagePathKeys = new Set<string>();
+  const addImagePath = (filePath: string, allowUnknownExtension = false) => {
+    const p = filePath.trim();
+    if (!p || (!allowUnknownExtension && !IMAGE_EXTENSIONS.test(p))) return;
+    const key = normalizeImagePathKey(p);
+    if (imagePathKeys.has(key)) return;
+    imagePathKeys.add(key);
+    imagePaths.push(p);
+  };
+
+  for (const attachment of options.localMediaAttachments ?? []) {
+    const mimeType = attachment.mimeType?.trim().toLowerCase() ?? '';
+    if (mimeType && !mimeType.startsWith('image/') && mimeType !== 'image/*') {
+      continue;
+    }
+    addImagePath(attachment.localPath, mimeType.startsWith('image/') || mimeType === 'image/*');
+  }
 
   // --- Pattern A: NIM/DingTalk ---
 
@@ -78,7 +112,7 @@ export function parseUserMessageForDisplay(content: string): string {
       const secondPath = om[3]?.trim();
       const filePath = secondPath || firstPath;
       if ((mime.startsWith('image/') || mime === 'image/*') && filePath) {
-        imagePaths.push(filePath);
+        addImagePath(filePath);
       }
     }
 
@@ -101,12 +135,7 @@ export function parseUserMessageForDisplay(content: string): string {
   result = result.replace(OPENCLAW_INBOUND_IMAGE_RE, (_match, path) => {
     const p = path.trim();
     if (IMAGE_EXTENSIONS.test(p)) {
-      const alreadyExtracted = imagePaths.some(
-        existing => existing.toLowerCase() === p.toLowerCase()
-      );
-      if (!alreadyExtracted) {
-        imagePaths.push(p);
-      }
+      addImagePath(p);
     }
     return '';
   });

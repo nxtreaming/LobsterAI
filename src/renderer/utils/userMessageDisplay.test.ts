@@ -160,6 +160,45 @@ describe('Pattern B: 微信 (WeChat)', () => {
     const result = parseUserMessageForDisplay(input);
     expect(result).toBe(toFileUrl(imgPath));
   });
+
+  test('OpenClaw 6.1 metadata media path → render image without rewriting text', () => {
+    const imgPath = fileImg(WIN_INBOUND, '913d415a.jpg');
+    const input = [
+      '[Image]',
+      'Description:',
+      'The image shows a cartoon frog-like creature.',
+    ].join('\n');
+
+    const result = parseUserMessageForDisplay(input, {
+      localMediaAttachments: [{ localPath: imgPath, mimeType: 'image/jpeg' }],
+    });
+
+    expect(result).toBe(`${input}\n\n${toFileUrl(imgPath)}`);
+  });
+
+  test('metadata media path dedupes legacy [media attached:] path', () => {
+    const imgPath = fileImg(WIN_INBOUND, '913d415a.jpg');
+    const input = [
+      `[media attached: ${imgPath} (image/jpeg)]`,
+      'To send an image back, prefer the message tool (media/path/filePath).',
+    ].join('\n');
+
+    const result = parseUserMessageForDisplay(input, {
+      localMediaAttachments: [{ localPath: imgPath, mimeType: 'image/jpeg' }],
+    });
+
+    expect(result).toBe(toFileUrl(imgPath));
+  });
+
+  test('metadata-only image message renders image', () => {
+    const imgPath = fileImg(WIN_INBOUND, 'metadata-only.jpg');
+
+    const result = parseUserMessageForDisplay('', {
+      localMediaAttachments: [{ localPath: imgPath, mimeType: 'image/jpeg' }],
+    });
+
+    expect(result).toBe(toFileUrl(imgPath));
+  });
 });
 
 describe('Pattern B: 飞书 (Feishu) — full content', () => {

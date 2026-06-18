@@ -409,6 +409,11 @@ export interface CoworkMessageMetadata {
   model?: string;
   agentName?: string;
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
+  localMediaAttachments?: Array<{
+    localPath: string;
+    mimeType?: string;
+    name?: string;
+  }>;
   [key: string]: unknown;
 }
 

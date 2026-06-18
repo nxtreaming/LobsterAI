@@ -72,6 +72,43 @@ function patchWeixinDmPolicy(processMsgPath, label, log) {
   }
 }
 
+function patchWeixinAllowFromWildcard(processMsgPath, label, log) {
+  if (!fs.existsSync(processMsgPath)) {
+    return;
+  }
+
+  let pmSrc = fs.readFileSync(processMsgPath, 'utf8');
+  const wildcardNeedle = "list.includes('*')";
+  if (pmSrc.includes(wildcardNeedle)) {
+    log(`${label} allowFrom wildcard patch already applied, skipping`);
+    return;
+  }
+
+  const replacements = [
+    {
+      from: 'isSenderAllowed: (id: string, list: string[]) => list.length === 0 || list.includes(id),',
+      to: "isSenderAllowed: (id: string, list: string[]) => list.length === 0 || list.includes('*') || list.includes(id),",
+    },
+    {
+      from: 'isSenderAllowed: (id, list) => list.length === 0 || list.includes(id),',
+      to: "isSenderAllowed: (id, list) => list.length === 0 || list.includes('*') || list.includes(id),",
+    },
+  ];
+
+  let patched = false;
+  for (const { from, to } of replacements) {
+    if (pmSrc.includes(from)) {
+      pmSrc = pmSrc.replaceAll(from, to);
+      patched = true;
+    }
+  }
+
+  if (patched) {
+    fs.writeFileSync(processMsgPath, pmSrc);
+    log(`Patched ${label}: allowFrom now honors wildcard entries`);
+  }
+}
+
 function patchWeixin({ runtimeExtensionsDir, log }) {
   patchWeixinGatewayMethods(
     path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'channel.ts'),
@@ -94,7 +131,17 @@ function patchWeixin({ runtimeExtensionsDir, log }) {
     'openclaw-weixin/src/messaging/process-message.ts',
     log
   );
+  patchWeixinAllowFromWildcard(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'messaging', 'process-message.ts'),
+    'openclaw-weixin/src/messaging/process-message.ts',
+    log
+  );
   patchWeixinDmPolicy(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'messaging', 'process-message.js'),
+    'openclaw-weixin/dist/src/messaging/process-message.js',
+    log
+  );
+  patchWeixinAllowFromWildcard(
     path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'messaging', 'process-message.js'),
     'openclaw-weixin/dist/src/messaging/process-message.js',
     log

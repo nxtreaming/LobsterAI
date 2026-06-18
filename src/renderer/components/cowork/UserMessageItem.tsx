@@ -185,12 +185,16 @@ const UserMessageItem: React.FC<{
     setIsHovered(false);
   }, []);
 
+  const metadata = message.metadata as CoworkMessageMetadata | undefined;
   const displayContent = useMemo(
-    () => parseUserMessageForDisplay(message.content || ''),
-    [message.content]
+    () => parseUserMessageForDisplay(message.content || '', {
+      localMediaAttachments: Array.isArray(metadata?.localMediaAttachments)
+        ? metadata.localMediaAttachments
+        : [],
+    }),
+    [message.content, metadata?.localMediaAttachments]
   );
 
-  const metadata = message.metadata as CoworkMessageMetadata | undefined;
   const messageSkillIds = Array.isArray(metadata?.skillIds) ? metadata.skillIds : [];
   const messageSkills = messageSkillIds
     .map(id => skills.find(s => s.id === id))

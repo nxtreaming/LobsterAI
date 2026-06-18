@@ -83,6 +83,35 @@ describe('openclawHistory', () => {
     });
   });
 
+  test('extracts OpenClaw 6.1 media path metadata from user messages', () => {
+    expect(
+      extractGatewayHistoryEntry({
+        role: 'user',
+        content: '[Image]\nDescription:\nA sticker.',
+        MediaPath: String.raw`C:\Users\yangwn\AppData\Roaming\LobsterAI\openclaw\state\media\inbound\a.jpg`,
+        MediaPaths: [
+          String.raw`C:\Users\yangwn\AppData\Roaming\LobsterAI\openclaw\state\media\inbound\a.jpg`,
+          String.raw`C:\Users\yangwn\AppData\Roaming\LobsterAI\openclaw\state\media\inbound\b.png`,
+        ],
+        MediaType: 'image/jpeg',
+        MediaTypes: ['image/jpeg', 'image/png'],
+      })
+    ).toEqual({
+      role: 'user',
+      text: '[Image]\nDescription:\nA sticker.',
+      mediaAttachments: [
+        {
+          localPath: String.raw`C:\Users\yangwn\AppData\Roaming\LobsterAI\openclaw\state\media\inbound\a.jpg`,
+          mimeType: 'image/jpeg',
+        },
+        {
+          localPath: String.raw`C:\Users\yangwn\AppData\Roaming\LobsterAI\openclaw\state\media\inbound\b.png`,
+          mimeType: 'image/png',
+        },
+      ],
+    });
+  });
+
   test('joins text content blocks separated by toolCall blocks', () => {
     const text = extractGatewayMessageText({
       content: [
