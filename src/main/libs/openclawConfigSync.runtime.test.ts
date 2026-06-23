@@ -204,6 +204,7 @@ describe('OpenClawConfigSync runtime config output', () => {
     const mainEntry = config.agents.list.find((entry: { id?: string }) => entry.id === 'main');
 
     expect(config.cron.skipMissedJobs).toBe(true);
+    expect(config.cron.store).toBe(path.join(stateDir, 'cron', 'jobs.json'));
     expect(config.agents.defaults.cwd).toBe(path.resolve(mainAgentWorkingDirectory));
     expect(mainEntry.cwd).toBe(path.resolve(mainAgentWorkingDirectory));
   });
