@@ -4,6 +4,7 @@ import {
   buildChannelDisplayName,
   buildManagedSessionKey,
   DEFAULT_MANAGED_AGENT_ID,
+  isCronSessionKey,
   isManagedSessionKey,
   OpenClawChannelSessionSync,
   parseChannelSessionKey,
@@ -73,6 +74,78 @@ test('channel sync still recognizes real channel session keys', () => {
     conversationId: 'dm:ou_123',
   });
   expect(sync.isChannelSessionKey('agent:main:main')).toBe(true);
+});
+
+test('channel sync recognizes OpenClaw cron run-scoped session keys', () => {
+  const sync = createSync();
+
+  expect(isCronSessionKey('cron:daily-monitor')).toBe(true);
+  expect(isCronSessionKey('agent:ops:cron:daily-monitor')).toBe(true);
+  expect(isCronSessionKey('agent:ops:cron:daily-monitor:run:run-1')).toBe(true);
+  expect(sync.isChannelSessionKey('agent:ops:cron:daily-monitor:run:run-1')).toBe(true);
+  expect(isCronSessionKey('agent:ops:slack:cron:daily-monitor:run:run-1')).toBe(false);
+});
+
+test('channel sync reuses one local session for run-scoped cron session keys', () => {
+  let nextId = 0;
+  const createSession = vi.fn((
+    title: string,
+    cwd: string,
+    systemPrompt: string,
+    executionMode: 'local',
+    activeSkillIds: string[],
+    agentId: string,
+  ) => ({
+    id: `cron-session-${++nextId}`,
+    title,
+    claudeSessionId: null,
+    status: 'idle' as const,
+    pinned: false,
+    cwd,
+    systemPrompt,
+    modelOverride: '',
+    executionMode,
+    activeSkillIds,
+    agentId,
+    messages: [],
+    createdAt: 1,
+    updatedAt: 1,
+  }));
+  const getDefaultCwd = vi.fn((agentId?: string) => `/repo/${agentId || 'main'}`);
+  const resolveJobName = vi.fn((jobId: string) =>
+    jobId === 'daily-monitor' ? 'Daily Monitor' : null,
+  );
+  const sync = new OpenClawChannelSessionSync({
+    coworkStore: {
+      getSession: () => null,
+      createSession,
+    },
+    imStore: {
+      getSessionMapping: () => null,
+      updateSessionLastActive: () => {},
+      deleteSessionMapping: () => {},
+      createSessionMapping: () => {},
+    },
+    getDefaultCwd,
+    resolveJobName,
+  });
+
+  expect(sync.resolveOrCreateCronSession('agent:ops:cron:daily-monitor:run:run-1')).toBe('cron-session-1');
+  expect(sync.resolveOrCreateCronSession('agent:ops:cron:daily-monitor:run:run-2')).toBe('cron-session-1');
+  expect(sync.resolveOrCreateCronSession('agent:ops:cron:daily-monitor')).toBe('cron-session-1');
+  expect(sync.resolveSession('agent:ops:cron:daily-monitor:run:run-3')).toBe('cron-session-1');
+
+  expect(createSession).toHaveBeenCalledTimes(1);
+  expect(createSession).toHaveBeenCalledWith(
+    expect.stringContaining('Daily Monitor'),
+    '/repo/ops',
+    '',
+    'local',
+    [],
+    'ops',
+  );
+  expect(getDefaultCwd).toHaveBeenCalledWith('ops');
+  expect(resolveJobName).toHaveBeenCalledWith('daily-monitor');
 });
 
 test('channel sync treats stale agent ids as non-current after platform binding changes', () => {
